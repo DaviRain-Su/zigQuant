@@ -49,53 +49,68 @@
 **前置条件**: v0.1 完成
 
 #### 核心目标
-**能够连接 Binance，获取行情，执行一次完整的买卖操作。**
+**能够连接 Hyperliquid DEX，获取链上行情，执行一次完整的永续合约交易操作。**
 
 #### Stories
-- [ ] `stories/v0.2-mvp/001-binance-http.md` - Binance HTTP API
-- [ ] `stories/v0.2-mvp/002-orderbook.md` - 订单簿数据结构
-- [ ] `stories/v0.2-mvp/003-order-types.md` - 订单类型定义
-- [ ] `stories/v0.2-mvp/004-order-manager.md` - 订单管理器
-- [ ] `stories/v0.2-mvp/005-balance-tracker.md` - 余额追踪
-- [ ] `stories/v0.2-mvp/006-cli-interface.md` - 基础 CLI
+- [ ] `stories/v0.2-mvp/001-hyperliquid-http.md` - Hyperliquid REST API
+- [ ] `stories/v0.2-mvp/002-hyperliquid-ws.md` - Hyperliquid WebSocket
+- [ ] `stories/v0.2-mvp/003-orderbook.md` - 订单簿数据结构
+- [ ] `stories/v0.2-mvp/004-order-types.md` - 订单类型定义
+- [ ] `stories/v0.2-mvp/005-order-manager.md` - 订单管理器
+- [ ] `stories/v0.2-mvp/006-position-tracker.md` - 仓位追踪
+- [ ] `stories/v0.2-mvp/007-cli-interface.md` - 基础 CLI
 
 #### 功能清单
-- [x] 连接 Binance 获取 BTC/USDT 实时价格
-- [ ] 显示简单的订单簿
+- [ ] 连接 Hyperliquid 获取 BTC-USD (Perps) 实时价格
+- [ ] 显示链上订单簿
 - [ ] 手动下单（市价单/限价单）
-- [ ] 查询账户余额
+- [ ] 查询账户余额（链上资产）
 - [ ] 查询订单状态
+- [ ] 查询持仓信息
+- [ ] WebSocket 实时数据流
 - [ ] 基础日志输出
 
 #### 演示场景
 ```bash
 $ zigquant
 ZigQuant v0.2.0 - MVP
-Connected to Binance
+Connected to Hyperliquid (L1 DEX)
+Wallet: 0x1234...5678
 
-> price BTCUSDT
-BTC/USDT: $43,250.50
-
-> balance
-USDT: 10,000.00 (free)
-BTC:  0.00 (free)
-
-> buy 0.01 BTCUSDT market
-Order submitted: ORD-123456
-Status: FILLED
-Price: $43,251.20
-Amount: 0.01 BTC
-Cost: $432.51 USDT
+> price BTC-USD
+BTC-USD (Perps): $43,250.50
+24h Volume: $1.2B
+Funding Rate: 0.01%
 
 > balance
-USDT: 9,567.49
-BTC:  0.01
+USDC: 10,000.00 (available)
+Positions: None
+
+> long 0.1 BTC-USD market
+Order submitted: 0xabcd...ef01
+Status: FILLED (on-chain)
+Entry Price: $43,251.20
+Size: 0.1 BTC
+Margin: $4,325.12 USDC (10x leverage)
+
+> positions
+BTC-USD: +0.1 BTC
+Entry: $43,251.20
+Mark: $43,280.50
+PnL: +$2.93 (0.07%)
+Margin: $4,325.12
+
+> balance
+USDC: 5,674.88 (available)
+USDC: 4,325.12 (in positions)
 ```
 
 #### 成功指标
-- [ ] 能完成一次完整的交易周期
-- [ ] 订单状态同步正确
-- [ ] 余额计算准确
+- [ ] 能完成一次完整的链上交易周期
+- [ ] 订单状态与链上同步正确
+- [ ] 仓位和余额计算准确
+- [ ] WebSocket 连接稳定性 > 99%
+- [ ] 订单延迟 < 100ms
 - [ ] 无内存泄漏
 
 ---
@@ -106,28 +121,30 @@ BTC:  0.01
 **前置条件**: v0.2 完成
 
 #### 核心目标
-实现完整的订单生命周期管理和实时数据流。
+实现完整的订单生命周期管理和高性能实时数据流，优化链上交易体验。
 
 #### Stories
-- [ ] `stories/v0.3-engine/001-websocket.md` - WebSocket 实时数据
-- [ ] `stories/v0.3-engine/002-event-bus.md` - 事件总线
-- [ ] `stories/v0.3-engine/003-orderbook-sync.md` - 订单簿同步
-- [ ] `stories/v0.3-engine/004-order-lifecycle.md` - 订单生命周期
-- [ ] `stories/v0.3-engine/005-position-tracker.md` - 仓位追踪器
-- [ ] `stories/v0.3-engine/006-multi-pair.md` - 多交易对支持
+- [ ] `stories/v0.3-engine/001-event-bus.md` - 事件总线
+- [ ] `stories/v0.3-engine/002-orderbook-sync.md` - 订单簿同步优化
+- [ ] `stories/v0.3-engine/003-order-lifecycle.md` - 订单生命周期管理
+- [ ] `stories/v0.3-engine/004-risk-checks.md` - 交易前风险检查
+- [ ] `stories/v0.3-engine/005-multi-pair.md` - 多交易对支持
+- [ ] `stories/v0.3-engine/006-exchange-abstraction.md` - 交易所抽象层
 
 #### 功能清单
-- [ ] WebSocket 实时行情
-- [ ] 本地订单簿维护
-- [ ] 订单状态自动同步
-- [ ] 仓位实时追踪
 - [ ] 事件驱动架构
-- [ ] 断线重连机制
+- [ ] 本地订单簿高效维护
+- [ ] 订单状态链上同步
+- [ ] 仓位实时追踪和 PnL 计算
+- [ ] 断线重连和状态恢复
+- [ ] 交易所抽象接口（为多交易所做准备）
+- [ ] 交易前风险检查（余额、杠杆、风险限额）
 
 #### 成功指标
-- [ ] 订单簿更新延迟 < 100ms
+- [ ] 订单簿更新延迟 < 50ms
 - [ ] WebSocket 稳定性 > 99.9%
-- [ ] 支持 3+ 交易对同时运行
+- [ ] 支持 5+ 交易对同时运行
+- [ ] 链上状态同步准确率 100%
 
 ---
 
@@ -315,22 +332,28 @@ Trades: 142
 **前置条件**: v0.7 完成
 
 #### 核心目标
-实现高级功能和优化。
+实现高级功能、多交易所支持和优化。
 
 #### Stories (按优先级)
-- [ ] `stories/v0.8-advanced/001-hyperopt.md` - 超参数优化
-- [ ] `stories/v0.8-advanced/002-mtf-analysis.md` - 多时间框架分析
-- [ ] `stories/v0.8-advanced/003-stop-orders.md` - 止损/止盈系统
-- [ ] `stories/v0.8-advanced/004-web-ui.md` - Web 界面
-- [ ] `stories/v0.8-advanced/005-dex-connector.md` - DEX 连接器
-- [ ] `stories/v0.8-advanced/006-ml-integration.md` - 机器学习集成
+- [ ] `stories/v0.8-advanced/001-binance-connector.md` - Binance CEX 连接器
+- [ ] `stories/v0.8-advanced/002-dydx-connector.md` - dYdX v4 连接器
+- [ ] `stories/v0.8-advanced/003-hyperopt.md` - 超参数优化
+- [ ] `stories/v0.8-advanced/004-mtf-analysis.md` - 多时间框架分析
+- [ ] `stories/v0.8-advanced/005-stop-orders.md` - 高级止损/止盈系统
+- [ ] `stories/v0.8-advanced/006-web-ui.md` - Web 界面
+- [ ] `stories/v0.8-advanced/007-ml-integration.md` - 机器学习集成
 
 #### 功能清单
+- [ ] 多交易所支持
+  - Binance (CEX)
+  - dYdX v4 (DEX)
+  - OKX (CEX)
+  - Uniswap v3 (DEX AMM)
+- [ ] 跨交易所套利
 - [ ] 超参数优化 (TPE/Bayesian)
 - [ ] 多时间框架策略
-- [ ] 追踪止损
+- [ ] 追踪止损和条件订单
 - [ ] Web 管理界面
-- [ ] DEX 支持 (Uniswap/PancakeSwap)
 - [ ] ONNX 模型推理
 
 ---
@@ -377,6 +400,10 @@ v0.8 Advanced Features   ░░░░░░░░░░░░░░░░░░�
 - 🎉 项目启动
 - 📝 初始 Roadmap 创建
 - 🏗️ 文档结构搭建
+- 🔄 变更首个支持交易所为 Hyperliquid DEX (ADR-002)
+  - v0.2: 从 Binance 改为 Hyperliquid
+  - 原因: 优先支持去中心化交易所，获得链上交易经验
+  - 影响: Stories 调整，增加 WebSocket 和链上同步相关任务
 
 ---
 
