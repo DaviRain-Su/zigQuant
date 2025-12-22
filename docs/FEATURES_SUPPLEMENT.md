@@ -1502,4 +1502,731 @@ pub const WebUIServer = struct {
 
 ---
 
+## 10. 数据完整性与可靠性
+
+### 10.1 数据验证器
+
+```zig
+// src/storage/data_validator.zig
+
+pub const DataValidator = struct {
+    allocator: std.mem.Allocator,
+
+    pub const ValidationResult = struct {
+        valid: bool,
+        errors: []ValidationError,
+        warnings: []ValidationWarning,
+    };
+
+    pub const ValidationError = struct {
+        timestamp: i64,
+        error_type: ErrorType,
+        message: []const u8,
+
+        pub const ErrorType = enum {
+            missing_data,
+            duplicate_data,
+            timestamp_gap,
+            price_anomaly,
+            invalid_value,
+            sequence_break,
+        };
+    };
+
+    pub const ValidationWarning = struct {
+        timestamp: i64,
+        warning_type: WarningType,
+        message: []const u8,
+
+        pub const WarningType = enum {
+            low_volume,
+            wide_spread,
+            unusual_price_move,
+        };
+    };
+
+    /// 验证 K 线数据连续性
+    pub fn validateKlines(self: *DataValidator, klines: []const Kline, timeframe: Timeframe) !ValidationResult {
+        var errors = std.ArrayList(ValidationError).init(self.allocator);
+        var warnings = std.ArrayList(ValidationWarning).init(self.allocator);
+
+        const expected_interval = timeframe.toMillis();
+
+        for (klines, 0..) |kline, i| {
+            // 1. 验证价格合理性
+            if (kline.high.cmp(kline.low) == .lt) {
+                try errors.append(.{
+                    .timestamp = kline.timestamp,
+                    .error_type = .invalid_value,
+                    .message = "High price is less than low price",
+                });
+            }
+
+            if (kline.close.cmp(kline.high) == .gt or kline.close.cmp(kline.low) == .lt) {
+                try errors.append(.{
+                    .timestamp = kline.timestamp,
+                    .error_type = .invalid_value,
+                    .message = "Close price outside high-low range",
+                });
+            }
+
+            // 2. 验证时间连续性
+            if (i > 0) {
+                const prev_kline = klines[i - 1];
+                const time_diff = kline.timestamp - prev_kline.timestamp;
+
+                if (time_diff != expected_interval) {
+                    if (time_diff < expected_interval) {
+                        try errors.append(.{
+                            .timestamp = kline.timestamp,
+                            .error_type = .duplicate_data,
+                            .message = "Duplicate or overlapping candle",
+                        });
+                    } else if (time_diff > expected_interval) {
+                        try errors.append(.{
+                            .timestamp = kline.timestamp,
+                            .error_type = .timestamp_gap,
+                            .message = try std.fmt.allocPrint(
+                                self.allocator,
+                                "Gap of {d}ms detected",
+                                .{time_diff - expected_interval}
+                            ),
+                        });
+                    }
+                }
+
+                // 3. 检测异常价格变动
+                const price_change_pct = kline.close.sub(prev_kline.close)
+                    .div(prev_kline.close)
+                    .abs()
+                    .toFloat() * 100;
+
+                if (price_change_pct > 10.0) {  // 10% 变动
+                    try warnings.append(.{
+                        .timestamp = kline.timestamp,
+                        .warning_type = .unusual_price_move,
+                        .message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Price changed by {d:.2}%",
+                            .{price_change_pct}
+                        ),
+                    });
+                }
+            }
+
+            // 4. 检测异常成交量
+            if (kline.volume.isZero()) {
+                try warnings.append(.{
+                    .timestamp = kline.timestamp,
+                    .warning_type = .low_volume,
+                    .message = "Zero volume detected",
+                });
+            }
+        }
+
+        return .{
+            .valid = errors.items.len == 0,
+            .errors = try errors.toOwnedSlice(),
+            .warnings = try warnings.toOwnedSlice(),
+        };
+    }
+
+    /// 修复数据问题
+    pub fn repairKlines(self: *DataValidator, klines: []Kline, timeframe: Timeframe) ![]Kline {
+        var repaired = std.ArrayList(Kline).init(self.allocator);
+        const expected_interval = timeframe.toMillis();
+
+        for (klines, 0..) |kline, i| {
+            try repaired.append(kline);
+
+            // 填补时间间隙
+            if (i < klines.len - 1) {
+                const next_kline = klines[i + 1];
+                const gap = next_kline.timestamp - kline.timestamp;
+
+                if (gap > expected_interval) {
+                    const num_missing = @divTrunc(gap, expected_interval) - 1;
+                    var j: usize = 0;
+                    while (j < num_missing) : (j += 1) {
+                        // 插入合成 K 线 (使用前一根的收盘价)
+                        try repaired.append(.{
+                            .timestamp = kline.timestamp + expected_interval * @as(i64, @intCast(j + 1)),
+                            .open = kline.close,
+                            .high = kline.close,
+                            .low = kline.close,
+                            .close = kline.close,
+                            .volume = Decimal.ZERO,
+                        });
+                    }
+                }
+            }
+        }
+
+        return repaired.toOwnedSlice();
+    }
+};
+```
+
+### 10.2 幂等性保证
+
+```zig
+// src/order/idempotency.zig
+
+pub const IdempotencyManager = struct {
+    allocator: std.mem.Allocator,
+    cache: std.StringHashMap(IdempotencyRecord),
+    ttl_ms: i64 = 3600_000,  // 1小时
+
+    pub const IdempotencyRecord = struct {
+        request_id: []const u8,
+        order_id: []const u8,
+        timestamp: i64,
+        response: std.json.Value,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) IdempotencyManager {
+        return .{
+            .allocator = allocator,
+            .cache = std.StringHashMap(IdempotencyRecord).init(allocator),
+        };
+    }
+
+    /// 检查请求是否已处理
+    pub fn checkRequest(self: *IdempotencyManager, request_id: []const u8) ?IdempotencyRecord {
+        // 清理过期记录
+        self.cleanExpired();
+
+        return self.cache.get(request_id);
+    }
+
+    /// 记录请求结果
+    pub fn recordRequest(
+        self: *IdempotencyManager,
+        request_id: []const u8,
+        order_id: []const u8,
+        response: std.json.Value,
+    ) !void {
+        const record = IdempotencyRecord{
+            .request_id = try self.allocator.dupe(u8, request_id),
+            .order_id = try self.allocator.dupe(u8, order_id),
+            .timestamp = std.time.milliTimestamp(),
+            .response = response,
+        };
+
+        try self.cache.put(request_id, record);
+    }
+
+    fn cleanExpired(self: *IdempotencyManager) void {
+        const now = std.time.milliTimestamp();
+        var to_remove = std.ArrayList([]const u8).init(self.allocator);
+        defer to_remove.deinit();
+
+        var iter = self.cache.iterator();
+        while (iter.next()) |entry| {
+            if (now - entry.value_ptr.timestamp > self.ttl_ms) {
+                to_remove.append(entry.key_ptr.*) catch {};
+            }
+        }
+
+        for (to_remove.items) |key| {
+            _ = self.cache.remove(key);
+        }
+    }
+};
+
+// 在订单提交时使用
+pub fn submitOrderIdempotent(
+    ctx: *TradingContext,
+    request: OrderRequest,
+    idempotency_key: []const u8,
+) !Order {
+    // 检查是否已处理
+    if (ctx.idempotency.checkRequest(idempotency_key)) |record| {
+        std.log.info("Duplicate request detected, returning cached order: {s}", .{record.order_id});
+        return ctx.order_manager.getOrder(record.order_id);
+    }
+
+    // 提交新订单
+    const order = try ctx.order_manager.submitOrder(request);
+
+    // 记录结果
+    try ctx.idempotency.recordRequest(
+        idempotency_key,
+        order.id,
+        try std.json.parseFromValue(std.json.Value, ctx.allocator, order, .{})
+    );
+
+    return order;
+}
+```
+
+### 10.3 部分成交处理
+
+```zig
+// src/order/partial_fills.zig
+
+pub const PartialFillTracker = struct {
+    allocator: std.mem.Allocator,
+    orders: std.StringHashMap(PartialFillState),
+
+    pub const PartialFillState = struct {
+        order_id: []const u8,
+        total_amount: Decimal,
+        filled_amount: Decimal,
+        remaining_amount: Decimal,
+        fills: std.ArrayList(Fill),
+
+        pub const Fill = struct {
+            timestamp: i64,
+            amount: Decimal,
+            price: Decimal,
+            fee: Decimal,
+            trade_id: []const u8,
+        };
+    };
+
+    pub fn init(allocator: std.mem.Allocator) PartialFillTracker {
+        return .{
+            .allocator = allocator,
+            .orders = std.StringHashMap(PartialFillState).init(allocator),
+        };
+    }
+
+    /// 记录部分成交
+    pub fn recordFill(
+        self: *PartialFillTracker,
+        order_id: []const u8,
+        fill: PartialFillState.Fill,
+    ) !void {
+        const state = self.orders.getPtr(order_id) orelse {
+            // 初始化新订单状态
+            // ...
+            return;
+        };
+
+        try state.fills.append(fill);
+        state.filled_amount = state.filled_amount.add(fill.amount);
+        state.remaining_amount = state.total_amount.sub(state.filled_amount);
+
+        // 检查是否完全成交
+        if (state.remaining_amount.isZero() or state.remaining_amount.isNegative()) {
+            std.log.info("Order {s} fully filled", .{order_id});
+            // 触发回调
+        }
+    }
+
+    /// 计算平均成交价
+    pub fn getAverageFillPrice(self: *PartialFillTracker, order_id: []const u8) ?Decimal {
+        const state = self.orders.get(order_id) orelse return null;
+
+        var total_cost = Decimal.ZERO;
+        for (state.fills.items) |fill| {
+            total_cost = total_cost.add(fill.amount.mul(fill.price));
+        }
+
+        if (state.filled_amount.isZero()) return null;
+        return total_cost.div(state.filled_amount) catch null;
+    }
+
+    /// 处理策略：保留部分成交的订单还是取消
+    pub fn handlePartialFill(
+        self: *PartialFillTracker,
+        order_id: []const u8,
+        strategy: PartialFillStrategy,
+    ) !void {
+        const state = self.orders.get(order_id) orelse return;
+
+        switch (strategy) {
+            .keep_order => {
+                // 保留订单，等待完全成交
+                std.log.info("Keeping partially filled order: {s}", .{order_id});
+            },
+            .cancel_and_replace => {
+                // 取消剩余部分，重新下单
+                try self.cancelRemaining(order_id);
+                try self.resubmitRemaining(order_id);
+            },
+            .cancel_and_market => {
+                // 取消剩余，市价成交
+                try self.cancelRemaining(order_id);
+                try self.marketFillRemaining(order_id);
+            },
+        }
+    }
+
+    pub const PartialFillStrategy = enum {
+        keep_order,         // 保留订单
+        cancel_and_replace, // 取消并重新下单
+        cancel_and_market,  // 市价成交剩余
+    };
+};
+```
+
+### 10.4 订单簿重建
+
+```zig
+// src/market/orderbook_rebuild.zig
+
+pub const OrderbookRebuilder = struct {
+    allocator: std.mem.Allocator,
+    exchange: ExchangeConnector,
+
+    /// WebSocket 断线后重建订单簿
+    pub fn rebuildAfterDisconnect(
+        self: *OrderbookRebuilder,
+        orderbook: *Orderbook,
+        last_update_id: u64,
+    ) !void {
+        std.log.warn("Rebuilding orderbook for {s}, last_update_id={d}", .{
+            orderbook.pair.symbol(),
+            last_update_id,
+        });
+
+        // 1. 获取快照
+        const snapshot = try self.exchange.getOrderbookSnapshot(orderbook.pair, 100);
+
+        // 2. 验证序列号
+        if (snapshot.last_update_id <= last_update_id) {
+            std.log.err("Snapshot is outdated: {d} <= {d}", .{
+                snapshot.last_update_id,
+                last_update_id,
+            });
+            return error.OutdatedSnapshot;
+        }
+
+        // 3. 清空现有订单簿
+        orderbook.clear();
+
+        // 4. 应用快照
+        try orderbook.update(.{
+            .bids = snapshot.bids,
+            .asks = snapshot.asks,
+            .last_update_id = snapshot.last_update_id,
+            .timestamp = std.time.milliTimestamp(),
+        });
+
+        std.log.info("Orderbook rebuilt successfully, new update_id={d}", .{
+            snapshot.last_update_id,
+        });
+    }
+
+    /// 处理 WebSocket 重连后的更新队列
+    pub fn processBufferedUpdates(
+        self: *OrderbookRebuilder,
+        orderbook: *Orderbook,
+        buffered_updates: []OrderbookUpdate,
+    ) !void {
+        // 过滤出快照之后的更新
+        var valid_updates = std.ArrayList(OrderbookUpdate).init(self.allocator);
+        defer valid_updates.deinit();
+
+        for (buffered_updates) |update| {
+            if (update.last_update_id > orderbook.last_update_id) {
+                try valid_updates.append(update);
+            }
+        }
+
+        // 按序列号排序
+        std.sort.sort(OrderbookUpdate, valid_updates.items, {}, struct {
+            fn lessThan(_: void, a: OrderbookUpdate, b: OrderbookUpdate) bool {
+                return a.last_update_id < b.last_update_id;
+            }
+        }.lessThan);
+
+        // 依次应用更新
+        for (valid_updates.items) |update| {
+            // 检查序列连续性
+            if (update.last_update_id != orderbook.last_update_id + 1) {
+                std.log.err("Sequence gap detected: expected {d}, got {d}", .{
+                    orderbook.last_update_id + 1,
+                    update.last_update_id,
+                });
+                return error.SequenceGap;
+            }
+
+            try orderbook.update(update);
+        }
+    }
+};
+```
+
+### 10.5 时钟同步
+
+```zig
+// src/core/time_sync.zig
+
+pub const TimeSync = struct {
+    allocator: std.mem.Allocator,
+    offset_ms: std.atomic.Value(i64),
+    last_sync: std.atomic.Value(i64),
+
+    pub fn init(allocator: std.mem.Allocator) TimeSync {
+        return .{
+            .allocator = allocator,
+            .offset_ms = std.atomic.Value(i64).init(0),
+            .last_sync = std.atomic.Value(i64).init(0),
+        };
+    }
+
+    /// 与交易所服务器同步时间
+    pub fn syncWithExchange(self: *TimeSync, exchange: ExchangeConnector) !void {
+        const t0 = std.time.milliTimestamp();
+        const server_time = try exchange.getServerTime();
+        const t1 = std.time.milliTimestamp();
+
+        // 使用 NTP 类似的方法估算偏移
+        const rtt = t1 - t0;
+        const estimated_server_time = server_time + @divTrunc(rtt, 2);
+        const offset = estimated_server_time - t1;
+
+        self.offset_ms.store(offset, .monotonic);
+        self.last_sync.store(t1, .monotonic);
+
+        std.log.info("Time sync: offset={d}ms, RTT={d}ms", .{ offset, rtt });
+
+        // 如果偏移太大，发出警告
+        if (@abs(offset) > 1000) {
+            std.log.warn("Large time offset detected: {d}ms", .{offset});
+        }
+    }
+
+    /// 获取同步后的当前时间
+    pub fn now(self: *TimeSync) i64 {
+        return std.time.milliTimestamp() + self.offset_ms.load(.monotonic);
+    }
+
+    /// 定期同步时间 (后台线程)
+    pub fn startAutoSync(self: *TimeSync, exchange: ExchangeConnector, interval_ms: i64) !void {
+        _ = try std.Thread.spawn(.{}, syncLoop, .{ self, exchange, interval_ms });
+    }
+
+    fn syncLoop(self: *TimeSync, exchange: ExchangeConnector, interval_ms: i64) void {
+        while (true) {
+            self.syncWithExchange(exchange) catch |err| {
+                std.log.err("Time sync failed: {}", .{err});
+            };
+
+            std.time.sleep(@intCast(interval_ms * std.time.ns_per_ms));
+        }
+    }
+};
+```
+
+---
+
+## 11. 故障恢复机制
+
+### 11.1 状态持久化
+
+```zig
+// src/recovery/state_persistence.zig
+
+pub const StatePersistence = struct {
+    allocator: std.mem.Allocator,
+    db: sqlite.Database,
+
+    pub const TradingState = struct {
+        active_orders: []Order,
+        positions: []Position,
+        strategy_states: std.StringHashMap(std.json.Value),
+        pending_events: []Event,
+        last_sequence: u64,
+        timestamp: i64,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !StatePersistence {
+        var db = try sqlite.Database.open(db_path);
+
+        try db.exec(
+            \\CREATE TABLE IF NOT EXISTS trading_state (
+            \\  id INTEGER PRIMARY KEY CHECK (id = 1),
+            \\  state_json TEXT NOT NULL,
+            \\  timestamp INTEGER NOT NULL
+            \\)
+        );
+
+        return .{
+            .allocator = allocator,
+            .db = db,
+        };
+    }
+
+    /// 保存当前状态
+    pub fn saveState(self: *StatePersistence, state: TradingState) !void {
+        const json = try std.json.stringifyAlloc(self.allocator, state, .{});
+        defer self.allocator.free(json);
+
+        try self.db.exec(
+            \\INSERT OR REPLACE INTO trading_state (id, state_json, timestamp)
+            \\VALUES (1, ?, ?)
+        , .{ json, std.time.milliTimestamp() });
+
+        std.log.info("Trading state saved", .{});
+    }
+
+    /// 恢复状态
+    pub fn loadState(self: *StatePersistence) !?TradingState {
+        var stmt = try self.db.prepare(
+            \\SELECT state_json FROM trading_state WHERE id = 1
+        );
+        defer stmt.deinit();
+
+        if (try stmt.step()) |row| {
+            const json = row.get([]const u8, 0);
+            const parsed = try std.json.parseFromSlice(
+                TradingState,
+                self.allocator,
+                json,
+                .{}
+            );
+
+            return parsed.value;
+        }
+
+        return null;
+    }
+
+    /// 自动定期保存
+    pub fn startAutoSave(self: *StatePersistence, engine: *TradingEngine, interval_ms: i64) !void {
+        _ = try std.Thread.spawn(.{}, autoSaveLoop, .{ self, engine, interval_ms });
+    }
+
+    fn autoSaveLoop(self: *StatePersistence, engine: *TradingEngine, interval_ms: i64) void {
+        while (engine.isRunning()) {
+            const state = engine.captureState();
+            self.saveState(state) catch |err| {
+                std.log.err("Auto-save failed: {}", .{err});
+            };
+
+            std.time.sleep(@intCast(interval_ms * std.time.ns_per_ms));
+        }
+    }
+};
+```
+
+### 11.2 崩溃恢复
+
+```zig
+// src/recovery/crash_recovery.zig
+
+pub const CrashRecovery = struct {
+    allocator: std.mem.Allocator,
+    persistence: *StatePersistence,
+    exchange: ExchangeConnector,
+
+    /// 崩溃后恢复
+    pub fn recoverFromCrash(self: *CrashRecovery) !RecoveryResult {
+        std.log.warn("Starting crash recovery...", .{});
+
+        // 1. 加载持久化状态
+        const saved_state = try self.persistence.loadState() orelse {
+            std.log.info("No saved state found, starting fresh", .{});
+            return RecoveryResult{ .recovered = false, .state = null };
+        };
+
+        std.log.info("Loaded saved state from {d}", .{saved_state.timestamp});
+
+        // 2. 同步交易所状态
+        try self.syncExchangeState(&saved_state);
+
+        // 3. 恢复订单状态
+        try self.reconcileOrders(&saved_state);
+
+        // 4. 恢复仓位
+        try self.reconcilePositions(&saved_state);
+
+        // 5. 处理待处理事件
+        try self.replayPendingEvents(&saved_state);
+
+        std.log.info("Crash recovery completed", .{});
+
+        return RecoveryResult{
+            .recovered = true,
+            .state = saved_state,
+        };
+    }
+
+    fn reconcileOrders(self: *CrashRecovery, state: *StatePersistence.TradingState) !void {
+        std.log.info("Reconciling {d} orders...", .{state.active_orders.len});
+
+        for (state.active_orders) |*order| {
+            // 从交易所查询最新状态
+            const exchange_order = self.exchange.getOrder(order.id) catch |err| {
+                std.log.err("Failed to query order {s}: {}", .{ order.id, err });
+                continue;
+            };
+
+            // 更新本地状态
+            if (order.status != exchange_order.status) {
+                std.log.warn("Order {s} status mismatch: local={s}, exchange={s}", .{
+                    order.id,
+                    @tagName(order.status),
+                    @tagName(exchange_order.status),
+                });
+
+                order.* = exchange_order;
+            }
+        }
+    }
+
+    pub const RecoveryResult = struct {
+        recovered: bool,
+        state: ?StatePersistence.TradingState,
+    };
+};
+```
+
+---
+
+## 📊 完整功能覆盖清单
+
+### ✅ 核心功能 (100%)
+- [x] 多交易所抽象
+- [x] 订单管理
+- [x] 仓位追踪
+- [x] 事件驱动架构
+- [x] 策略框架
+- [x] 技术指标库
+- [x] 回测引擎
+- [x] 性能指标
+- [x] 风险管理
+- [x] API 服务
+
+### ✅ 高级功能 (100%)
+- [x] 多时间框架分析
+- [x] 超参数优化
+- [x] 止损/止盈/追踪止损
+- [x] 做市策略
+- [x] 跨交易所套利
+- [x] 三角套利
+- [x] Telegram Bot
+- [x] Web UI
+- [x] 监控告警
+
+### ✅ 可靠性 (100%)
+- [x] 数据验证
+- [x] 幂等性保证
+- [x] 部分成交处理
+- [x] 订单簿重建
+- [x] 时钟同步
+- [x] 状态持久化
+- [x] 崩溃恢复
+- [x] Kill Switch
+- [x] 审计日志
+
+### ✅ 安全性 (100%)
+- [x] API 密钥加密
+- [x] 访问控制
+- [x] 审计追踪
+- [x] 税务报告
+
+### ✅ 性能 (100%)
+- [x] 内存优化
+- [x] 并发处理
+- [x] 批量处理
+- [x] 零拷贝
+- [x] 性能监控
+
+---
+
 *补充功能设计完成！*
