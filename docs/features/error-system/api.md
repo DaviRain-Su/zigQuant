@@ -2,7 +2,7 @@
 
 > 完整的 API 文档和使用示例
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
@@ -44,6 +44,8 @@ pub const APIError = error{
     RateLimitExceeded,    // 限流（429）
     InvalidRequest,       // 无效请求（400）
     ServerError,          // 服务器错误（500）
+    BadRequest,           // 错误请求（400）
+    NotFound,             // 未找到（404）
 };
 ```
 
@@ -76,6 +78,7 @@ pub const DataError = error{
     ParseError,           // 解析失败
     ValidationFailed,     // 验证失败
     MissingField,         // 缺少字段
+    TypeMismatch,         // 类型不匹配
 };
 ```
 
@@ -111,6 +114,8 @@ pub const BusinessError = error{
     OrderNotFound,        // 订单不存在
     InvalidOrderStatus,   // 订单状态无效
     PositionNotFound,     // 持仓不存在
+    InvalidQuantity,      // 数量无效
+    MarketClosed,         // 市场关闭
 };
 ```
 
@@ -187,11 +192,37 @@ pub const ErrorContext = struct {
     message: []const u8,     // 错误消息
     location: ?[]const u8,   // 源码位置
     details: ?[]const u8,    // 详细信息
-    timestamp: i64,          // Unix 毫秒时间戳
+    timestamp: i64,          // Unix 秒时间戳
+
+    // 构造函数
+    pub fn init(message: []const u8) ErrorContext;
+    pub fn initWithCode(code: i32, message: []const u8) ErrorContext;
+
+    // 格式化输出
+    pub fn format(self: ErrorContext, writer: anytype) !void;
 };
 ```
 
-### 构造
+### 构造方法
+
+#### `init(message: []const u8) ErrorContext`
+
+创建错误上下文（自动添加时间戳）
+
+```zig
+const ctx = ErrorContext.init("Connection failed");
+// ctx.timestamp 自动设置为当前时间
+```
+
+#### `initWithCode(code: i32, message: []const u8) ErrorContext`
+
+创建带错误码的上下文
+
+```zig
+const ctx = ErrorContext.initWithCode(429, "Rate limit exceeded");
+```
+
+### 手动构造
 
 ```zig
 const ctx = ErrorContext{
@@ -199,7 +230,7 @@ const ctx = ErrorContext{
     .message = "Rate limit exceeded",
     .location = @src().file,
     .details = "Retry after 60 seconds",
-    .timestamp = std.time.timestamp() * 1000,
+    .timestamp = std.time.timestamp(),
 };
 ```
 
@@ -226,45 +257,55 @@ pub fn logError(ctx: ErrorContext) void {
 pub const WrappedError = struct {
     error_type: anyerror,        // 原始错误类型
     context: ErrorContext,       // 错误上下文
-    source: ?*WrappedError,      // 源错误
+    source: ?*const WrappedError, // 源错误（形成错误链）
 
-    pub fn unwind(self: *const WrappedError, allocator: Allocator) ![]ErrorContext;
+    // 创建包装错误
+    pub fn init(err: anyerror, context: ErrorContext) WrappedError;
+    pub fn initWithSource(err: anyerror, context: ErrorContext, source: *const WrappedError) WrappedError;
+
+    // 获取错误链深度
+    pub fn chainDepth(self: *const WrappedError) usize;
+
+    // 打印错误链
+    pub fn printChain(self: *const WrappedError, writer: anytype) !void;
 };
 ```
 
 ### 方法
 
-#### `unwind(allocator: Allocator) ![]ErrorContext`
+#### `chainDepth() usize`
 
-展开错误链，返回所有上下文
+获取错误链深度
 
 ```zig
-const contexts = try wrapped_error.unwind(allocator);
-defer allocator.free(contexts);
+const depth = wrapped_error.chainDepth();
+std.debug.print("Error chain depth: {}\n", .{depth});
+```
 
-for (contexts) |ctx| {
-    std.debug.print("{s}\n", .{ctx.message});
-}
+#### `printChain(writer: anytype) !void`
+
+打印完整错误链
+
+```zig
+var buf: std.ArrayList(u8) = .empty;
+defer buf.deinit(allocator);
+try wrapped_error.printChain(buf.writer(allocator));
+std.debug.print("{s}", .{buf.items});
 ```
 
 ---
 
 ## wrap()
 
-包装错误
+简单包装错误
 
 ```zig
-pub fn wrap(
-    err: anyerror,
-    message: []const u8,
-    extra: anytype,
-) WrappedError
+pub fn wrap(err: anyerror, message: []const u8) WrappedError
 ```
 
 **参数**:
 - `err`: 原始错误
 - `message`: 错误消息
-- `extra`: 额外字段（可选）
 
 **返回**: WrappedError
 
@@ -273,29 +314,48 @@ pub fn wrap(
 ```zig
 pub fn fetchOrder(order_id: []const u8) !Order {
     const data = fetchData(order_id) catch |err| {
-        return wrap(err, "Failed to fetch order", .{
-            .code = null,
-            .location = @src().file,
-            .details = order_id,
-        });
+        return wrap(err, "Failed to fetch order");
     };
-
     return parseOrder(data);
 }
 ```
 
 ---
 
+## wrapWithCode()
+
+包装错误并添加错误码
+
+```zig
+pub fn wrapWithCode(err: anyerror, code: i32, message: []const u8) WrappedError
+```
+
+**参数**:
+- `err`: 原始错误
+- `code`: 错误码（如 HTTP 状态码）
+- `message`: 错误消息
+
+**返回**: WrappedError
+
+**示例**:
+
+```zig
+const response = http.get(url) catch |err| {
+    return wrapWithCode(err, 500, "HTTP request failed");
+};
+```
+
+---
+
 ## wrapWithSource()
 
-包装错误并设置源错误
+包装错误并链接源错误
 
 ```zig
 pub fn wrapWithSource(
     err: anyerror,
     message: []const u8,
-    source: *WrappedError,
-    extra: anytype,
+    source: *const WrappedError,
 ) WrappedError
 ```
 
@@ -303,18 +363,19 @@ pub fn wrapWithSource(
 - `err`: 原始错误
 - `message`: 错误消息
 - `source`: 源错误
-- `extra`: 额外字段
+
+**返回**: WrappedError（包含错误链）
 
 **示例**:
 
 ```zig
-var source = wrap(NetworkError.Timeout, "Network timeout", .{});
-const wrapped = wrapWithSource(
+const wrapped1 = wrap(NetworkError.Timeout, "Network timeout");
+const wrapped2 = wrapWithSource(
     APIError.ServerError,
     "API call failed",
-    &source,
-    .{},
+    &wrapped1,
 );
+// wrapped2 包含完整的错误链
 ```
 
 ---
@@ -330,29 +391,34 @@ pub const RetryStrategy = enum {
 };
 
 pub const RetryConfig = struct {
-    max_retries: u32,          // 最大重试次数
-    strategy: RetryStrategy,   // 重试策略
-    initial_delay_ms: u64,     // 初始延迟（毫秒）
-    max_delay_ms: u64,         // 最大延迟（毫秒）
+    max_retries: u32,          // 最大重试次数（默认 3）
+    strategy: RetryStrategy,   // 重试策略（默认 exponential_backoff）
+    initial_delay_ms: u64,     // 初始延迟（毫秒，默认 1000）
+    max_delay_ms: u64,         // 最大延迟（毫秒，默认 60000）
+
+    // 计算指定重试次数的延迟时间
+    pub fn calculateDelay(self: RetryConfig, attempt: u32) u64;
 };
 ```
 
-### 预定义配置
+### 方法
+
+#### `calculateDelay(attempt: u32) u64`
+
+计算第 N 次重试的延迟时间（毫秒）
 
 ```zig
-pub const DEFAULT_RETRY = RetryConfig{
+const config = RetryConfig{
     .max_retries = 3,
     .strategy = .exponential_backoff,
-    .initial_delay_ms = 1000,
-    .max_delay_ms = 10000,
-};
-
-pub const AGGRESSIVE_RETRY = RetryConfig{
-    .max_retries = 5,
-    .strategy = .exponential_backoff,
-    .initial_delay_ms = 500,
+    .initial_delay_ms = 100,
     .max_delay_ms = 5000,
 };
+
+const delay0 = config.calculateDelay(0);  // 100 ms
+const delay1 = config.calculateDelay(1);  // 200 ms
+const delay2 = config.calculateDelay(2);  // 400 ms
+const delay3 = config.calculateDelay(3);  // 800 ms
 ```
 
 ---
@@ -393,12 +459,12 @@ const data = try retry(config, fetchData, .{"https://api.example.com"});
 
 ---
 
-## isRetriable()
+## isRetryable()
 
 判断错误是否可重试
 
 ```zig
-pub fn isRetriable(err: anyerror) bool
+pub fn isRetryable(err: anyerror) bool
 ```
 
 **参数**:
@@ -410,44 +476,44 @@ pub fn isRetriable(err: anyerror) bool
 
 ```zig
 const err = APIError.RateLimitExceeded;
-if (isRetriable(err)) {
+if (isRetryable(err)) {
     // 可以重试
-    const result = try retry(DEFAULT_RETRY, fetchData, .{url});
+    const config = RetryConfig{ .max_retries = 3 };
+    const result = try retry(config, fetchData, .{url});
 }
 ```
 
 **可重试的错误**:
 - `NetworkError.Timeout`
 - `NetworkError.ConnectionFailed`
+- `NetworkError.DNSResolutionFailed`
 - `APIError.RateLimitExceeded`
 - `APIError.ServerError`
+- `SystemError.ResourceExhausted`
 
 ---
 
-## isTemporary()
+## errorCategory()
 
-判断错误是否是临时错误
+获取错误所属的类别名称
 
 ```zig
-pub fn isTemporary(err: anyerror) bool
+pub fn errorCategory(err: anyerror) []const u8
 ```
 
 **参数**:
 - `err`: 错误
 
-**返回**: 临时错误返回 `true`
+**返回**: 类别名称字符串（"Network", "API", "Data", "Business", "System", "Unknown"）
 
 **示例**:
 
 ```zig
-fetchData(url) catch |err| {
-    if (isTemporary(err)) {
-        std.log.warn("Temporary error, will retry: {}", .{err});
-    } else {
-        std.log.err("Permanent error: {}", .{err});
-        return err;
-    }
-};
+const category = errorCategory(NetworkError.ConnectionFailed);
+std.debug.print("Error category: {s}\n", .{category}); // "Network"
+
+const category2 = errorCategory(APIError.RateLimitExceeded);
+std.debug.print("Error category: {s}\n", .{category2}); // "API"
 ```
 
 ---
@@ -527,4 +593,4 @@ pub fn processOrder(order_id: []const u8) !void {
 
 ---
 
-*Last updated: 2025-01-22*
+*Last updated: 2025-12-23*

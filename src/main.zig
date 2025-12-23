@@ -42,6 +42,46 @@ pub fn main() !void {
         std.debug.print("  {s}: {} ms\n", .{ interval.toString(), interval.toMillis() });
     }
 
+    std.debug.print("\n=== zigQuant - Error System Demo ===\n\n", .{});
+
+    // Error wrapping
+    const ctx = zigQuant.ErrorContext.initWithCode(429, "Rate limit exceeded");
+    std.debug.print("ErrorContext: code={?}, message={s}\n", .{ ctx.code, ctx.message });
+
+    // Wrapped error with chain
+    const wrapped1 = zigQuant.errors.wrap(zigQuant.NetworkError.Timeout, "Network timeout");
+    const wrapped2 = zigQuant.errors.wrapWithSource(zigQuant.APIError.ServerError, "API call failed", &wrapped1);
+    std.debug.print("Error chain depth: {}\n", .{wrapped2.chainDepth()});
+
+    // Print error chain to buffer
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(allocator);
+    try wrapped2.printChain(buf.writer(allocator));
+    std.debug.print("{s}", .{buf.items});
+
+    // Retry configuration
+    const retry_config = zigQuant.RetryConfig{
+        .max_retries = 3,
+        .strategy = .exponential_backoff,
+        .initial_delay_ms = 100,
+        .max_delay_ms = 5000,
+    };
+    std.debug.print("\nRetry delays:\n", .{});
+    for (0..4) |i| {
+        const delay = retry_config.calculateDelay(@intCast(i));
+        std.debug.print("  Attempt {}: {} ms\n", .{ i, delay });
+    }
+
+    // Error categorization
+    std.debug.print("\nError categories:\n", .{});
+    std.debug.print("  ConnectionFailed: {s}\n", .{zigQuant.errors.errorCategory(zigQuant.NetworkError.ConnectionFailed)});
+    std.debug.print("  RateLimitExceeded: {s}\n", .{zigQuant.errors.errorCategory(zigQuant.APIError.RateLimitExceeded)});
+    std.debug.print("  ParseError: {s}\n", .{zigQuant.errors.errorCategory(zigQuant.DataError.ParseError)});
+
+    std.debug.print("\nRetryable errors:\n", .{});
+    std.debug.print("  ConnectionFailed: {}\n", .{zigQuant.errors.isRetryable(zigQuant.NetworkError.ConnectionFailed)});
+    std.debug.print("  Unauthorized: {}\n", .{zigQuant.errors.isRetryable(zigQuant.APIError.Unauthorized)});
+
     std.debug.print("\n=== Demo Complete ===\n", .{});
 }
 

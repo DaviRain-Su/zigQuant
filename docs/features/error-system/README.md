@@ -2,10 +2,10 @@
 
 > 统一的错误处理、错误链、重试机制
 
-**状态**: 📋 待开始
+**状态**: ✅ 已完成
 **版本**: v0.1.0
 **Story**: [003-error-system](../../../stories/v0.1-foundation/003-error-system.md)
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
@@ -82,9 +82,13 @@ try logger.logError(ctx);
 ```zig
 pub fn processOrder(order_id: []const u8) !void {
     const order = fetchOrder(order_id) catch |err| {
-        return errors.wrap(err, "Failed to fetch order", .{
-            .order_id = order_id,
-        });
+        // 简单包装
+        return errors.wrap(err, "Failed to fetch order");
+    };
+
+    // 或使用带错误码的包装
+    const data = fetchData() catch |err| {
+        return errors.wrapWithCode(err, 500, "Failed to fetch data");
     };
 
     // 处理订单...
@@ -132,6 +136,8 @@ pub const APIError = error{
     RateLimitExceeded,
     InvalidRequest,
     ServerError,
+    BadRequest,
+    NotFound,
 };
 
 pub const DataError = error{
@@ -139,6 +145,7 @@ pub const DataError = error{
     ParseError,
     ValidationFailed,
     MissingField,
+    TypeMismatch,
 };
 
 pub const BusinessError = error{
@@ -146,6 +153,8 @@ pub const BusinessError = error{
     OrderNotFound,
     InvalidOrderStatus,
     PositionNotFound,
+    InvalidQuantity,
+    MarketClosed,
 };
 
 pub const SystemError = error{
@@ -194,13 +203,9 @@ pub fn retry(
 }
 
 /// 包装错误
-pub fn wrap(
-    err: anyerror,
-    message: []const u8,
-    extra: anytype,
-) WrappedError {
-    // 实现见 implementation.md
-}
+pub fn wrap(err: anyerror, message: []const u8) WrappedError;
+pub fn wrapWithCode(err: anyerror, code: i32, message: []const u8) WrappedError;
+pub fn wrapWithSource(err: anyerror, message: []const u8, source: *const WrappedError) WrappedError;
 ```
 
 ---
@@ -224,7 +229,7 @@ const ctx = errors.ErrorContext{
 
 // 3. 包装错误保留源错误
 fetchData() catch |err| {
-    return errors.wrap(err, "Failed to fetch market data", .{});
+    return errors.wrap(err, "Failed to fetch market data");
 };
 
 // 4. 对临时错误使用重试
@@ -239,7 +244,7 @@ fetchData() catch {};  // ❌ 错误被忽略
 
 // 2. 避免过度包装
 // ❌ 每一层都包装会导致错误链过长
-return errors.wrap(errors.wrap(errors.wrap(err, "msg1", .{}), "msg2", .{}), "msg3", .{});
+// 使用 wrapWithSource 创建错误链，而不是嵌套 wrap
 
 // 3. 避免对所有错误都重试
 // ❌ 业务错误不应该重试
@@ -286,4 +291,4 @@ retry(config, createOrder, .{});  // 如果余额不足，重试无意义
 
 ---
 
-*Last updated: 2025-01-22*
+*Last updated: 2025-12-23*

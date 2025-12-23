@@ -2,7 +2,7 @@
 
 > 内部实现说明和设计决策
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
@@ -16,7 +16,7 @@ pub const ErrorContext = struct {
     message: []const u8,     // 错误消息
     location: ?[]const u8,   // 源码位置 (@src().file)
     details: ?[]const u8,    // 详细信息（如响应体）
-    timestamp: i64,          // Unix 毫秒时间戳
+    timestamp: i64,          // Unix 秒时间戳
 };
 ```
 
@@ -32,20 +32,31 @@ pub const ErrorContext = struct {
 
 ```zig
 pub const WrappedError = struct {
-    error_type: anyerror,        // 原始错误类型
-    context: ErrorContext,       // 错误上下文
-    source: ?*WrappedError,      // 源错误（形成链表）
+    error_type: anyerror,          // 原始错误类型
+    context: ErrorContext,         // 错误上下文
+    source: ?*const WrappedError,  // 源错误（形成链表）
 
-    pub fn unwind(self: *const WrappedError, allocator: Allocator) ![]ErrorContext {
-        var contexts = std.ArrayList(ErrorContext).init(allocator);
-        var current: ?*const WrappedError = self;
-
-        while (current) |err| {
-            try contexts.append(err.context);
-            current = err.source;
+    pub fn chainDepth(self: *const WrappedError) usize {
+        var depth: usize = 1;
+        var current = self.source;
+        while (current) |src| {
+            depth += 1;
+            current = src.source;
         }
+        return depth;
+    }
 
-        return contexts.toOwnedSlice();
+    pub fn printChain(self: *const WrappedError, writer: anytype) !void {
+        try writer.print("Error chain:\n", .{});
+        try writer.print("  [0] {s}: {f}\n", .{ @errorName(self.error_type), self.context });
+
+        var depth: usize = 1;
+        var current = self.source;
+        while (current) |src| {
+            try writer.print("  [{d}] {s}: {f}\n", .{ depth, @errorName(src.error_type), src.context });
+            depth += 1;
+            current = src.source;
+        }
     }
 };
 ```
@@ -53,7 +64,9 @@ pub const WrappedError = struct {
 **设计决策**:
 - 使用链表结构表示错误链
 - `anyerror` 类型支持任意 Zig 错误
-- `unwind()` 方法展开完整错误链
+- `chainDepth()` 遍历链表计算深度
+- `printChain()` 格式化输出完整错误链
+- ErrorContext 的 `format()` 方法通过 `{f}` 调用
 
 ---
 
@@ -74,6 +87,8 @@ pub const APIError = error{
     RateLimitExceeded,    // 限流（429）
     InvalidRequest,       // 无效请求（400）
     ServerError,          // 服务器错误（500）
+    BadRequest,           // 错误请求（400）
+    NotFound,             // 未找到（404）
 };
 
 // 数据相关错误
@@ -82,6 +97,7 @@ pub const DataError = error{
     ParseError,           // 解析失败
     ValidationFailed,     // 验证失败
     MissingField,         // 缺少字段
+    TypeMismatch,         // 类型不匹配
 };
 
 // 业务相关错误
@@ -90,6 +106,8 @@ pub const BusinessError = error{
     OrderNotFound,        // 订单不存在
     InvalidOrderStatus,   // 订单状态无效
     PositionNotFound,     // 持仓不存在
+    InvalidQuantity,      // 数量无效
+    MarketClosed,         // 市场关闭
 };
 
 // 系统相关错误
@@ -101,7 +119,7 @@ pub const SystemError = error{
 };
 
 // 组合错误集
-pub const Error = NetworkError || APIError || DataError || BusinessError || SystemError;
+pub const TradingError = NetworkError || APIError || DataError || BusinessError || SystemError;
 ```
 
 **设计决策**:
@@ -116,42 +134,26 @@ pub const Error = NetworkError || APIError || DataError || BusinessError || Syst
 ### 1. 错误包装
 
 ```zig
-pub fn wrap(
-    err: anyerror,
-    message: []const u8,
-    extra: anytype,
-) WrappedError {
-    const ctx = ErrorContext{
-        .code = if (@hasField(@TypeOf(extra), "code")) extra.code else null,
-        .message = message,
-        .location = if (@hasField(@TypeOf(extra), "location")) extra.location else null,
-        .details = if (@hasField(@TypeOf(extra), "details")) extra.details else null,
-        .timestamp = std.time.timestamp() * 1000,
-    };
-
-    return WrappedError{
-        .error_type = err,
-        .context = ctx,
-        .source = null,  // 需要手动设置源错误
-    };
+/// 简单包装错误
+pub fn wrap(err: anyerror, message: []const u8) WrappedError {
+    return WrappedError.init(err, ErrorContext.init(message));
 }
 
-pub fn wrapWithSource(
-    err: anyerror,
-    message: []const u8,
-    source: *WrappedError,
-    extra: anytype,
-) WrappedError {
-    var wrapped = wrap(err, message, extra);
-    wrapped.source = source;
-    return wrapped;
+/// 包装错误并添加错误码
+pub fn wrapWithCode(err: anyerror, code: i32, message: []const u8) WrappedError {
+    return WrappedError.init(err, ErrorContext.initWithCode(code, message));
+}
+
+/// 包装错误并链接源错误
+pub fn wrapWithSource(err: anyerror, message: []const u8, source: *const WrappedError) WrappedError {
+    return WrappedError.initWithSource(err, ErrorContext.init(message), source);
 }
 ```
 
 **算法说明**:
-1. 使用 `@hasField` 检查额外字段是否存在
-2. 自动添加时间戳
-3. 支持链接源错误
+1. `ErrorContext.init()` 自动添加当前时间戳
+2. `ErrorContext.initWithCode()` 添加错误码和时间戳
+3. `WrappedError.initWithSource()` 创建错误链
 
 ---
 
@@ -174,34 +176,22 @@ pub fn retry(
     config: RetryConfig,
     comptime func: anytype,
     args: anytype,
-) !@typeInfo(@TypeOf(func)).Fn.return_type.? {
-    const ReturnType = @typeInfo(@TypeOf(func)).Fn.return_type.?;
-
+) @TypeOf(@call(.auto, func, args)) {
     var attempt: u32 = 0;
-    var delay_ms = config.initial_delay_ms;
 
     while (attempt <= config.max_retries) : (attempt += 1) {
-        if (attempt > 0) {
-            // 延迟
-            std.time.sleep(delay_ms * std.time.ns_per_ms);
-
-            // 更新延迟
-            switch (config.strategy) {
-                .fixed_interval => {}, // 保持不变
-                .exponential_backoff => {
-                    delay_ms = @min(delay_ms * 2, config.max_delay_ms);
-                },
-            }
-        }
-
-        // 调用函数
+        // 尝试执行函数
         if (@call(.auto, func, args)) |result| {
             return result;
         } else |err| {
-            if (attempt == config.max_retries) {
-                return err;  // 最后一次重试失败
+            // 如果是最后一次尝试，返回错误
+            if (attempt >= config.max_retries) {
+                return err;
             }
-            // 继续重试
+
+            // 计算延迟并等待
+            const delay_ms = config.calculateDelay(attempt);
+            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
         }
     }
 
@@ -210,18 +200,33 @@ pub fn retry(
 ```
 
 **算法说明**:
-1. **固定间隔**: 每次重试延迟相同
-2. **指数退避**: 延迟翻倍，直到达到最大值
-3. 使用 `@call` 动态调用函数
+1. 使用 `@call(.auto, func, args)` 动态调用函数
+2. 使用 `config.calculateDelay(attempt)` 计算延迟时间
+3. 使用 `std.Thread.sleep()` 进行等待
 4. 最后一次失败返回错误
+5. 返回类型通过 `@TypeOf(@call(...))` 自动推导
 
-**示例**:
+**RetryConfig.calculateDelay() 实现**:
+```zig
+pub fn calculateDelay(self: RetryConfig, attempt: u32) u64 {
+    return switch (self.strategy) {
+        .fixed_interval => self.initial_delay_ms,
+        .exponential_backoff => blk: {
+            const multiplier = std.math.pow(u64, 2, attempt);
+            const delay = self.initial_delay_ms * multiplier;
+            break :blk @min(delay, self.max_delay_ms);
+        },
+    };
+}
 ```
-attempt=0: 立即执行
-attempt=1: 延迟 1000ms
-attempt=2: 延迟 2000ms
-attempt=3: 延迟 4000ms
-attempt=4: 延迟 8000ms (达到 max_delay_ms)
+
+**示例** (exponential_backoff, initial=1000ms, max=10000ms):
+```
+attempt=0: 1000ms (1000 * 2^0)
+attempt=1: 2000ms (1000 * 2^1)
+attempt=2: 4000ms (1000 * 2^2)
+attempt=3: 8000ms (1000 * 2^3)
+attempt=4: 10000ms (达到 max_delay_ms)
 ```
 
 ---
@@ -229,35 +234,53 @@ attempt=4: 延迟 8000ms (达到 max_delay_ms)
 ### 3. 错误判断
 
 ```zig
-pub fn isRetriable(err: anyerror) bool {
+pub fn isRetryable(err: anyerror) bool {
     return switch (err) {
-        // 可重试的网络错误
-        NetworkError.Timeout,
+        // 网络错误是可重试的
         NetworkError.ConnectionFailed,
-        // 可重试的 API 错误
+        NetworkError.Timeout,
+        NetworkError.DNSResolutionFailed,
+
+        // 部分 API 错误可重试
         APIError.RateLimitExceeded,
         APIError.ServerError,
+
+        // 系统资源错误可重试
+        SystemError.ResourceExhausted,
+
         => true,
+
         // 其他错误不重试
         else => false,
     };
 }
 
-pub fn isTemporary(err: anyerror) bool {
-    return switch (err) {
-        NetworkError.Timeout,
-        APIError.RateLimitExceeded,
-        SystemError.ResourceExhausted,
-        => true,
-        else => false,
-    };
+pub fn errorCategory(err: anyerror) []const u8 {
+    // 检查每个错误集
+    inline for (@typeInfo(NetworkError).error_set.?) |e| {
+        if (err == @field(NetworkError, e.name)) return "Network";
+    }
+    inline for (@typeInfo(APIError).error_set.?) |e| {
+        if (err == @field(APIError, e.name)) return "API";
+    }
+    inline for (@typeInfo(DataError).error_set.?) |e| {
+        if (err == @field(DataError, e.name)) return "Data";
+    }
+    inline for (@typeInfo(BusinessError).error_set.?) |e| {
+        if (err == @field(BusinessError, e.name)) return "Business";
+    }
+    inline for (@typeInfo(SystemError).error_set.?) |e| {
+        if (err == @field(SystemError, e.name)) return "System";
+    }
+
+    return "Unknown";
 }
 ```
 
 **设计决策**:
-- `isRetriable()`: 是否应该重试
-- `isTemporary()`: 是否是临时错误
-- 业务错误通常不可重试
+- `isRetryable()`: 判断是否应该重试（网络、部分API、系统资源错误）
+- `errorCategory()`: 使用编译时反射获取错误类别
+- 业务错误（BusinessError）和数据错误（DataError）通常不可重试
 
 ---
 
@@ -291,9 +314,7 @@ pub fn parseJSON(data: []const u8) !Order {
 ```zig
 pub fn processOrder(order_id: []const u8) !void {
     const order = fetchOrder(order_id) catch |err| {
-        return wrap(err, "Failed to fetch order", .{
-            .order_id = order_id,
-        });
+        return wrap(err, "Failed to fetch order");
     };
     // ...
 }
@@ -359,7 +380,7 @@ defer allocator.destroy(wrapped);
 return APIError.RateLimitExceeded;
 
 // ❌ 不必要的包装
-return wrap(APIError.RateLimitExceeded, "Rate limit", .{});
+return wrap(APIError.RateLimitExceeded, "Rate limit");
 ```
 
 ### 2. 使用编译时类型检查
@@ -394,4 +415,4 @@ pub inline fn isRetriable(err: anyerror) bool {
 
 ---
 
-*Last updated: 2025-01-22*
+*Last updated: 2025-12-23*
