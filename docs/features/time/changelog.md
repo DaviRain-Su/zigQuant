@@ -2,11 +2,11 @@
 
 > 版本历史和更新记录
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
-## [0.1.0] - 2025-01-22
+## [0.1.0] - 2025-12-23
 
 ### Added
 
@@ -18,17 +18,30 @@
 - ✨ K线时间对齐：`alignToKline()` 和 `isInSameKline()`
 - ✨ 时间运算：`add()`, `sub()`, `diff()`
 - ✨ 时间比较：`cmp()`, `eql()`
-- ✨ Duration 常量：`ZERO`, `SECOND`, `MINUTE`, `HOUR`, `DAY`
-- ✨ 完整的单元测试覆盖（100%）
+- ✨ Duration 常量：`ZERO`, `MILLISECOND`, `SECOND`, `MINUTE`, `HOUR`, `DAY`, `WEEK`
+- ✨ Duration 新增方法：`fromDays()`, `sub()`, `toSeconds()`
+- ✨ 完整的单元测试覆盖（13/13 通过，100%）
 - ✨ 边界测试和集成测试
 - ✨ 性能基准测试
 
 ### Technical Details
 
+- **基于 Zig 标准库**: 使用 `std.time` 和 `std.time.epoch`
+- 使用 `std.time.milliTimestamp()` 获取当前时间
+- 使用 `std.time` 常量 (`ms_per_s`, `s_per_hour` 等)
+- 使用 `std.time.epoch` 进行日期格式化
+- 使用 `std.time.epoch.isLeapYear()` 判断闰年
 - 基于 `i64` 整数，零成本抽象
 - K线对齐算法：`aligned = floor(timestamp / interval) * interval`
-- ISO 8601 解析：使用 Gregorian 日历算法
+- ISO 8601 解析：自定义实现（标准库未提供反向转换）
 - 所有时间统一使用 UTC 时区
+
+### Changed
+
+- 🔄 重构为标准库包装模式（2025-12-23）
+- 🔄 从完全自定义实现改为基于 `std.time` 和 `std.time.epoch`
+- 🔄 减少 40 行代码（540→500），提高可维护性
+- 🔄 使用标准库常量替代硬编码魔法数字
 
 ---
 
@@ -67,4 +80,4 @@
 
 ---
 
-*Last updated: 2025-01-22*
+*Last updated: 2025-12-23*

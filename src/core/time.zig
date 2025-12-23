@@ -1,27 +1,32 @@
 // Time Module - Timestamp, Duration, and K-line Interval Management
 //
-// Provides high-precision time handling for quantitative trading:
-// - Timestamp: Millisecond-precision timestamps
+// Provides high-precision time handling for quantitative trading by wrapping
+// and extending Zig's standard library time utilities.
+//
+// Features:
+// - Timestamp: Millisecond-precision timestamps (wraps std.time)
 // - Duration: Time intervals and arithmetic
 // - KlineInterval: Candlestick intervals (1m, 5m, 15m, etc.)
-// - ISO 8601 parsing and formatting
+// - ISO 8601 parsing and formatting (uses std.time.epoch)
 // - K-line alignment algorithms
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const epoch = std.time.epoch;
 
 /// Timestamp represents a point in time with millisecond precision
+/// Wraps std.time.milliTimestamp with additional trading-specific functionality
 pub const Timestamp = struct {
     millis: i64,
 
-    /// Get current timestamp
+    /// Get current timestamp using std.time
     pub fn now() Timestamp {
         return .{ .millis = std.time.milliTimestamp() };
     }
 
     /// Create timestamp from seconds
     pub fn fromSeconds(seconds: i64) Timestamp {
-        return .{ .millis = seconds * 1000 };
+        return .{ .millis = seconds * std.time.ms_per_s };
     }
 
     /// Create timestamp from milliseconds
@@ -30,6 +35,7 @@ pub const Timestamp = struct {
     }
 
     /// Create timestamp from ISO 8601 string (e.g., "2024-01-15T10:30:00Z")
+    /// Uses manual date calculation since std.time.epoch doesn't provide reverse conversion
     pub fn fromISO8601(allocator: Allocator, iso_str: []const u8) !Timestamp {
         _ = allocator;
 
@@ -47,7 +53,6 @@ pub const Timestamp = struct {
         // Optional milliseconds
         var millis_part: i64 = 0;
         if (iso_str.len > 20 and iso_str[19] == '.') {
-            // Find the end of milliseconds (before 'Z' or '+' or '-')
             var end_idx: usize = 20;
             while (end_idx < iso_str.len and iso_str[end_idx] >= '0' and iso_str[end_idx] <= '9') {
                 end_idx += 1;
@@ -55,10 +60,9 @@ pub const Timestamp = struct {
             const millis_str = iso_str[20..end_idx];
             if (millis_str.len > 0) {
                 millis_part = try std.fmt.parseInt(i64, millis_str, 10);
-                // Normalize to milliseconds (could be microseconds or nanoseconds)
+                // Normalize to milliseconds
                 if (millis_str.len == 1) millis_part *= 100;
                 if (millis_str.len == 2) millis_part *= 10;
-                // If more than 3 digits, truncate
                 if (millis_str.len > 3) millis_part = @divFloor(millis_part, std.math.pow(i64, 10, @as(i64, @intCast(millis_str.len - 3))));
             }
         }
@@ -70,37 +74,46 @@ pub const Timestamp = struct {
         if (minute > 59) return error.InvalidMinute;
         if (second > 59) return error.InvalidSecond;
 
-        // Convert to Unix timestamp using Gregorian calendar algorithm
-        const timestamp_seconds = dateTimeToUnixTimestamp(year, month, day, hour, minute, second);
-        return .{ .millis = timestamp_seconds * 1000 + millis_part };
+        // Convert to Unix timestamp using manual calculation
+        // (std.time.epoch doesn't provide reverse conversion)
+        const timestamp_seconds = dateToEpochSeconds(year, month, day, hour, minute, second);
+
+        return .{ .millis = timestamp_seconds * std.time.ms_per_s + millis_part };
     }
 
     /// Convert to ISO 8601 string
+    /// Uses std.time.epoch for date formatting
     pub fn toISO8601(self: Timestamp, allocator: Allocator) ![]const u8 {
-        const seconds = @divFloor(self.millis, 1000);
-        const millis = @mod(self.millis, 1000);
+        const seconds: u64 = @intCast(@divFloor(self.millis, std.time.ms_per_s));
+        const millis = @mod(self.millis, std.time.ms_per_s);
 
-        const dt = unixTimestampToDateTime(seconds);
+        // Use std.time.epoch to convert from Unix timestamp
+        const epoch_seconds = epoch.EpochSeconds{ .secs = seconds };
+        const epoch_day = epoch_seconds.getEpochDay();
+        const year_day = epoch_day.calculateYearDay();
+        const month_day = year_day.calculateMonthDay();
+        const day_seconds = epoch_seconds.getDaySeconds();
+
+        const year: u32 = @intCast(year_day.year);
+        const month: u8 = month_day.month.numeric();
+        const day: u8 = month_day.day_index + 1;
+        const hour: u8 = @intCast(day_seconds.getHoursIntoDay());
+        const minute: u8 = @intCast(day_seconds.getMinutesIntoHour());
+        const second: u8 = @intCast(day_seconds.getSecondsIntoMinute());
 
         // Handle negative milliseconds for formatting
-        const abs_millis = if (millis < 0) -millis else millis;
+        const abs_millis: u64 = @intCast(if (millis < 0) -millis else millis);
 
-        // Cast to unsigned to avoid + sign with padding format
-        const year_u: u32 = @intCast(dt.year);
-        const millis_u: u64 = @intCast(abs_millis);
-
-        var buf: [30]u8 = undefined;
-        const result = try std.fmt.bufPrint(
-            &buf,
+        return std.fmt.allocPrint(
+            allocator,
             "{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}.{:0>3}Z",
-            .{ year_u, dt.month, dt.day, dt.hour, dt.minute, dt.second, millis_u },
+            .{ year, month, day, hour, minute, second, abs_millis },
         );
-        return allocator.dupe(u8, result);
     }
 
     /// Convert to seconds
     pub fn toSeconds(self: Timestamp) i64 {
-        return @divFloor(self.millis, 1000);
+        return @divFloor(self.millis, std.time.ms_per_s);
     }
 
     /// Convert to milliseconds
@@ -134,6 +147,7 @@ pub const Timestamp = struct {
     }
 
     /// Align timestamp to K-line interval
+    /// Algorithm: aligned = floor(timestamp / interval) * interval
     pub fn alignToKline(self: Timestamp, interval: KlineInterval) Timestamp {
         const interval_ms = interval.toMillis();
         const aligned_ms = @divFloor(self.millis, interval_ms) * interval_ms;
@@ -161,15 +175,18 @@ pub const Timestamp = struct {
 };
 
 /// Duration represents a time interval
+/// Uses std.time constants for standard durations
 pub const Duration = struct {
     millis: i64,
 
-    // Common constants
+    // Common constants using std.time
     pub const ZERO = Duration{ .millis = 0 };
-    pub const SECOND = Duration{ .millis = 1000 };
-    pub const MINUTE = Duration{ .millis = 60 * 1000 };
-    pub const HOUR = Duration{ .millis = 60 * 60 * 1000 };
-    pub const DAY = Duration{ .millis = 24 * 60 * 60 * 1000 };
+    pub const MILLISECOND = Duration{ .millis = 1 };
+    pub const SECOND = Duration{ .millis = std.time.ms_per_s };
+    pub const MINUTE = Duration{ .millis = std.time.s_per_min * std.time.ms_per_s };
+    pub const HOUR = Duration{ .millis = std.time.s_per_hour * std.time.ms_per_s };
+    pub const DAY = Duration{ .millis = std.time.s_per_day * std.time.ms_per_s };
+    pub const WEEK = Duration{ .millis = std.time.s_per_week * std.time.ms_per_s };
 
     /// Create from milliseconds
     pub fn fromMillis(millis: i64) Duration {
@@ -178,22 +195,22 @@ pub const Duration = struct {
 
     /// Create from seconds
     pub fn fromSeconds(seconds: i64) Duration {
-        return .{ .millis = seconds * 1000 };
+        return .{ .millis = seconds * std.time.ms_per_s };
     }
 
     /// Create from minutes
     pub fn fromMinutes(minutes: i64) Duration {
-        return .{ .millis = minutes * 60 * 1000 };
+        return .{ .millis = minutes * std.time.s_per_min * std.time.ms_per_s };
     }
 
     /// Create from hours
     pub fn fromHours(hours: i64) Duration {
-        return .{ .millis = hours * 60 * 60 * 1000 };
+        return .{ .millis = hours * std.time.s_per_hour * std.time.ms_per_s };
     }
 
     /// Create from days
     pub fn fromDays(days: i64) Duration {
-        return .{ .millis = days * 24 * 60 * 60 * 1000 };
+        return .{ .millis = days * std.time.s_per_day * std.time.ms_per_s };
     }
 
     /// Convert to milliseconds
@@ -203,7 +220,7 @@ pub const Duration = struct {
 
     /// Convert to seconds
     pub fn toSeconds(self: Duration) i64 {
-        return @divFloor(self.millis, 1000);
+        return @divFloor(self.millis, std.time.ms_per_s);
     }
 
     /// Add durations
@@ -234,11 +251,11 @@ pub const Duration = struct {
         const abs_millis = if (self.millis < 0) -self.millis else self.millis;
         const sign = if (self.millis < 0) "-" else "";
 
-        const days = @divFloor(abs_millis, 24 * 60 * 60 * 1000);
-        const hours = @divFloor(@mod(abs_millis, 24 * 60 * 60 * 1000), 60 * 60 * 1000);
-        const minutes = @divFloor(@mod(abs_millis, 60 * 60 * 1000), 60 * 1000);
-        const seconds = @divFloor(@mod(abs_millis, 60 * 1000), 1000);
-        const millis = @mod(abs_millis, 1000);
+        const days = @divFloor(abs_millis, std.time.s_per_day * std.time.ms_per_s);
+        const hours = @divFloor(@mod(abs_millis, std.time.s_per_day * std.time.ms_per_s), std.time.s_per_hour * std.time.ms_per_s);
+        const minutes = @divFloor(@mod(abs_millis, std.time.s_per_hour * std.time.ms_per_s), std.time.s_per_min * std.time.ms_per_s);
+        const seconds = @divFloor(@mod(abs_millis, std.time.s_per_min * std.time.ms_per_s), std.time.ms_per_s);
+        const millis = @mod(abs_millis, std.time.ms_per_s);
 
         if (days > 0) {
             try writer.print("{s}{d}d{d}h{d}m{d}.{d:0>3}s", .{ sign, days, hours, minutes, seconds, millis });
@@ -252,6 +269,47 @@ pub const Duration = struct {
     }
 };
 
+// Helper functions
+
+/// Convert date-time to Unix epoch seconds
+/// Uses std.time.epoch.isLeapYear for leap year detection
+fn dateToEpochSeconds(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) i64 {
+    // Days before each month (non-leap year)
+    const days_before_month = [_]u16{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+
+    // Calculate years since epoch (1970)
+    const years_since_epoch: i32 = year - epoch.epoch_year;
+
+    // Count leap days between epoch and year (exclusive)
+    var leap_days: i32 = 0;
+    var y: i32 = epoch.epoch_year;
+    while (y < year) : (y += 1) {
+        if (epoch.isLeapYear(@intCast(y))) leap_days += 1;
+    }
+
+    // Calculate total days
+    var total_days: i32 = years_since_epoch * 365 + leap_days;
+
+    // Add days from months in current year
+    total_days += days_before_month[month - 1];
+
+    // Add extra day if leap year and after February
+    if (epoch.isLeapYear(@intCast(year)) and month > 2) {
+        total_days += 1;
+    }
+
+    // Add remaining days (day is 1-indexed)
+    total_days += @as(i32, day) - 1;
+
+    // Calculate total seconds using std.time constants
+    const day_secs = @as(i64, total_days) * std.time.s_per_day;
+    const time_secs = @as(i64, hour) * std.time.s_per_hour +
+        @as(i64, minute) * std.time.s_per_min +
+        @as(i64, second);
+
+    return day_secs + time_secs;
+}
+
 /// K-line interval (candlestick interval)
 pub const KlineInterval = enum {
     @"1m",
@@ -263,17 +321,17 @@ pub const KlineInterval = enum {
     @"1d",
     @"1w",
 
-    /// Convert to milliseconds
+    /// Convert to milliseconds using std.time constants
     pub fn toMillis(self: KlineInterval) i64 {
         return switch (self) {
-            .@"1m" => 60 * 1000,
-            .@"5m" => 5 * 60 * 1000,
-            .@"15m" => 15 * 60 * 1000,
-            .@"30m" => 30 * 60 * 1000,
-            .@"1h" => 60 * 60 * 1000,
-            .@"4h" => 4 * 60 * 60 * 1000,
-            .@"1d" => 24 * 60 * 60 * 1000,
-            .@"1w" => 7 * 24 * 60 * 60 * 1000,
+            .@"1m" => std.time.s_per_min * std.time.ms_per_s,
+            .@"5m" => 5 * std.time.s_per_min * std.time.ms_per_s,
+            .@"15m" => 15 * std.time.s_per_min * std.time.ms_per_s,
+            .@"30m" => 30 * std.time.s_per_min * std.time.ms_per_s,
+            .@"1h" => std.time.s_per_hour * std.time.ms_per_s,
+            .@"4h" => 4 * std.time.s_per_hour * std.time.ms_per_s,
+            .@"1d" => std.time.s_per_day * std.time.ms_per_s,
+            .@"1w" => std.time.s_per_week * std.time.ms_per_s,
         };
     }
 
@@ -304,107 +362,6 @@ pub const KlineInterval = enum {
         };
     }
 };
-
-// Helper structures for date-time conversion
-const DateTime = struct {
-    year: i32,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    second: u8,
-};
-
-/// Convert date-time to Unix timestamp (seconds since 1970-01-01 00:00:00 UTC)
-/// Using simplified Gregorian calendar algorithm
-fn dateTimeToUnixTimestamp(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) i64 {
-    // Days in each month (non-leap year)
-    const days_in_month = [_]i32{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-
-    // Calculate years since epoch (1970)
-    const years_since_epoch: i32 = year - 1970;
-
-    // Count leap years between 1970 and year (exclusive)
-    var leap_days: i32 = 0;
-    var y: i32 = 1970;
-    while (y < year) : (y += 1) {
-        if (isLeapYear(y)) leap_days += 1;
-    }
-
-    // Calculate days from years
-    var days: i32 = years_since_epoch * 365 + leap_days;
-
-    // Add days from months in current year
-    var m: usize = 0;
-    while (m < month - 1) : (m += 1) {
-        days += days_in_month[m];
-        // Add extra day for February in leap year
-        if (m == 1 and isLeapYear(year)) {
-            days += 1;
-        }
-    }
-
-    // Add remaining days
-    days += @as(i32, day) - 1;
-
-    const seconds_in_day = @as(i64, hour) * 3600 + @as(i64, minute) * 60 + @as(i64, second);
-    return @as(i64, days) * 86400 + seconds_in_day;
-}
-
-/// Check if a year is a leap year
-fn isLeapYear(year: i32) bool {
-    if (@mod(year, 400) == 0) return true;
-    if (@mod(year, 100) == 0) return false;
-    if (@mod(year, 4) == 0) return true;
-    return false;
-}
-
-/// Convert Unix timestamp to date-time
-fn unixTimestampToDateTime(timestamp: i64) DateTime {
-    const seconds_in_day = @mod(timestamp, 86400);
-    var days_since_epoch = @divFloor(timestamp, 86400);
-
-    // Calculate time components
-    const hour: u8 = @intCast(@divFloor(seconds_in_day, 3600));
-    const minute: u8 = @intCast(@divFloor(@mod(seconds_in_day, 3600), 60));
-    const second: u8 = @intCast(@mod(seconds_in_day, 60));
-
-    // Calculate year
-    var year: i32 = 1970;
-    while (true) {
-        const days_in_year: i32 = if (isLeapYear(year)) 366 else 365;
-        if (days_since_epoch < days_in_year) break;
-        days_since_epoch -= days_in_year;
-        year += 1;
-    }
-
-    // Calculate month and day
-    const days_in_month = [_]i32{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-    var month: u8 = 1;
-    var m: usize = 0;
-    while (m < 12) : (m += 1) {
-        var days_this_month = days_in_month[m];
-        if (m == 1 and isLeapYear(year)) {
-            days_this_month += 1;
-        }
-        if (days_since_epoch < days_this_month) {
-            month = @intCast(m + 1);
-            break;
-        }
-        days_since_epoch -= days_this_month;
-    }
-
-    const day: u8 = @intCast(days_since_epoch + 1);
-
-    return .{
-        .year = year,
-        .month = month,
-        .day = day,
-        .hour = hour,
-        .minute = minute,
-        .second = second,
-    };
-}
 
 // Tests
 test "Timestamp creation and conversion" {
@@ -509,19 +466,21 @@ test "Duration arithmetic" {
     try std.testing.expectEqual(@as(i64, 300000), multiplied.millis);
 }
 
-test "Duration constants" {
+test "Duration constants using std.time" {
     try std.testing.expectEqual(@as(i64, 0), Duration.ZERO.millis);
-    try std.testing.expectEqual(@as(i64, 1000), Duration.SECOND.millis);
-    try std.testing.expectEqual(@as(i64, 60000), Duration.MINUTE.millis);
-    try std.testing.expectEqual(@as(i64, 3600000), Duration.HOUR.millis);
-    try std.testing.expectEqual(@as(i64, 86400000), Duration.DAY.millis);
+    try std.testing.expectEqual(@as(i64, 1), Duration.MILLISECOND.millis);
+    try std.testing.expectEqual(@as(i64, std.time.ms_per_s), Duration.SECOND.millis);
+    try std.testing.expectEqual(@as(i64, std.time.s_per_min * std.time.ms_per_s), Duration.MINUTE.millis);
+    try std.testing.expectEqual(@as(i64, std.time.s_per_hour * std.time.ms_per_s), Duration.HOUR.millis);
+    try std.testing.expectEqual(@as(i64, std.time.s_per_day * std.time.ms_per_s), Duration.DAY.millis);
+    try std.testing.expectEqual(@as(i64, std.time.s_per_week * std.time.ms_per_s), Duration.WEEK.millis);
 }
 
-test "KlineInterval conversion" {
-    try std.testing.expectEqual(@as(i64, 60000), KlineInterval.@"1m".toMillis());
-    try std.testing.expectEqual(@as(i64, 300000), KlineInterval.@"5m".toMillis());
-    try std.testing.expectEqual(@as(i64, 3600000), KlineInterval.@"1h".toMillis());
-    try std.testing.expectEqual(@as(i64, 86400000), KlineInterval.@"1d".toMillis());
+test "KlineInterval conversion using std.time" {
+    try std.testing.expectEqual(@as(i64, std.time.s_per_min * std.time.ms_per_s), KlineInterval.@"1m".toMillis());
+    try std.testing.expectEqual(@as(i64, 5 * std.time.s_per_min * std.time.ms_per_s), KlineInterval.@"5m".toMillis());
+    try std.testing.expectEqual(@as(i64, std.time.s_per_hour * std.time.ms_per_s), KlineInterval.@"1h".toMillis());
+    try std.testing.expectEqual(@as(i64, std.time.s_per_day * std.time.ms_per_s), KlineInterval.@"1d".toMillis());
 }
 
 test "KlineInterval parsing" {

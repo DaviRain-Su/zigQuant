@@ -1,11 +1,12 @@
 # Time - 时间处理工具
 
 > 高精度时间处理、K线对齐、时间运算
+> 基于 Zig 标准库 `std.time` 和 `std.time.epoch` 构建
 
-**状态**: 📋 待开始
+**状态**: ✅ 已完成
 **版本**: v0.1.0
 **Story**: [002-time-utils](../../../stories/v0.1-foundation/002-time-utils.md)
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
@@ -23,6 +24,7 @@ Time 模块提供量化交易所需的时间处理能力，包括高精度时间
 
 ### 核心特性
 
+- ✅ **标准库支持**: 基于 `std.time` 和 `std.time.epoch`，可靠且高效
 - ✅ **毫秒精度**: Timestamp 提供毫秒级精度
 - ✅ **K线对齐**: 支持 1m, 5m, 1h 等常用时间间隔
 - ✅ **ISO 8601**: 标准时间格式支持
@@ -93,10 +95,10 @@ pub const Timestamp = struct {
     pub const ZERO: Timestamp;
 
     // 构造
-    pub fn now() Timestamp;
+    pub fn now() Timestamp;  // 使用 std.time.milliTimestamp()
     pub fn fromSeconds(secs: i64) Timestamp;
     pub fn fromMillis(millis: i64) Timestamp;
-    pub fn fromISO8601(s: []const u8) !Timestamp;
+    pub fn fromISO8601(allocator: Allocator, s: []const u8) !Timestamp;
 
     // 转换
     pub fn toSeconds(self: Timestamp) i64;
@@ -121,20 +123,29 @@ pub const Timestamp = struct {
 pub const Duration = struct {
     millis: i64,
 
+    // 常量（使用 std.time 常量）
     pub const ZERO: Duration;
-    pub const SECOND: Duration;
-    pub const MINUTE: Duration;
-    pub const HOUR: Duration;
-    pub const DAY: Duration;
+    pub const MILLISECOND: Duration;
+    pub const SECOND: Duration;  // std.time.ms_per_s
+    pub const MINUTE: Duration;  // std.time.s_per_min * std.time.ms_per_s
+    pub const HOUR: Duration;    // std.time.s_per_hour * std.time.ms_per_s
+    pub const DAY: Duration;     // std.time.s_per_day * std.time.ms_per_s
+    pub const WEEK: Duration;    // std.time.s_per_week * std.time.ms_per_s
 
     // 构造
     pub fn fromMillis(millis: i64) Duration;
     pub fn fromSeconds(secs: i64) Duration;
     pub fn fromMinutes(mins: i64) Duration;
     pub fn fromHours(hours: i64) Duration;
+    pub fn fromDays(days: i64) Duration;
+
+    // 转换
+    pub fn toMillis(self: Duration) i64;
+    pub fn toSeconds(self: Duration) i64;
 
     // 运算
     pub fn add(self: Duration, other: Duration) Duration;
+    pub fn sub(self: Duration, other: Duration) Duration;
     pub fn mul(self: Duration, factor: i64) Duration;
 };
 

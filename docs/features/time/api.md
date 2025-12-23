@@ -1,14 +1,17 @@
 # Time - API 参考
 
 > 完整的 API 文档和使用示例
+> 基于 `std.time` 和 `std.time.epoch` 实现
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
 ## Timestamp
 
 Unix 时间戳（毫秒精度，UTC）
+
+使用 `std.time.milliTimestamp()` 获取当前时间，使用 `std.time.epoch` 进行日期转换。
 
 ### 常量
 
@@ -69,25 +72,28 @@ const t = Timestamp.fromMillis(1737541800000);
 
 ---
 
-#### `fromISO8601(s: []const u8) !Timestamp`
+#### `fromISO8601(allocator: Allocator, s: []const u8) !Timestamp`
 
 从 ISO 8601 字符串创建时间戳
 
 ```zig
-const t = try Timestamp.fromISO8601("2025-01-22T10:30:45Z");
+const t = try Timestamp.fromISO8601(allocator, "2025-01-22T10:30:45Z");
+// 支持毫秒: "2025-01-22T10:30:45.123Z"
 ```
 
 **参数**:
-- `s`: ISO 8601 格式字符串 (YYYY-MM-DDTHH:MM:SSZ)
+- `allocator`: 内存分配器（当前未使用，为未来扩展预留）
+- `s`: ISO 8601 格式字符串
 
 **返回**: Timestamp 实例
 **错误**:
-- `error.InvalidFormat`: 格式不正确
-- `error.InvalidYear/Month/Day/Hour/Minute/Second`: 字段值非法
-- `error.OutOfRange`: 超出有效范围
+- `error.InvalidISO8601Format`: 格式不正确
+- `error.InvalidMonth/Day/Hour/Minute/Second`: 字段值非法
 
 **时间复杂度**: O(n), n 为字符串长度
-**支持格式**: `YYYY-MM-DDTHH:MM:SSZ` (必须以 'Z' 结尾表示 UTC)
+**支持格式**:
+- `YYYY-MM-DDTHH:MM:SSZ` (必须以 'Z' 结尾表示 UTC)
+- `YYYY-MM-DDTHH:MM:SS.sssZ` (支持毫秒)
 
 ---
 
@@ -278,14 +284,18 @@ const same = t1.isInSameKline(t2, .@"5m");  // true (both in 10:30-10:35)
 
 时间间隔（毫秒精度）
 
+所有常量使用 `std.time` 提供的标准值，确保准确性。
+
 ### 常量
 
 ```zig
 pub const ZERO: Duration = .{ .millis = 0 };
-pub const SECOND: Duration = .{ .millis = 1000 };
-pub const MINUTE: Duration = .{ .millis = 60_000 };
-pub const HOUR: Duration = .{ .millis = 3_600_000 };
-pub const DAY: Duration = .{ .millis = 86_400_000 };
+pub const MILLISECOND: Duration = .{ .millis = 1 };
+pub const SECOND: Duration = .{ .millis = std.time.ms_per_s };  // 1000
+pub const MINUTE: Duration = .{ .millis = std.time.s_per_min * std.time.ms_per_s };  // 60000
+pub const HOUR: Duration = .{ .millis = std.time.s_per_hour * std.time.ms_per_s };  // 3600000
+pub const DAY: Duration = .{ .millis = std.time.s_per_day * std.time.ms_per_s };  // 86400000
+pub const WEEK: Duration = .{ .millis = std.time.s_per_week * std.time.ms_per_s };  // 604800000
 ```
 
 ---
@@ -304,6 +314,7 @@ const d = Duration.fromMillis(5000);  // 5 秒
 
 ```zig
 const d = Duration.fromSeconds(30);  // 30 秒
+// 使用 std.time.ms_per_s 进行转换
 ```
 
 ---
@@ -312,6 +323,7 @@ const d = Duration.fromSeconds(30);  // 30 秒
 
 ```zig
 const d = Duration.fromMinutes(5);  // 5 分钟
+// 使用 std.time.s_per_min * std.time.ms_per_s
 ```
 
 ---
@@ -320,6 +332,16 @@ const d = Duration.fromMinutes(5);  // 5 分钟
 
 ```zig
 const d = Duration.fromHours(1);  // 1 小时
+// 使用 std.time.s_per_hour * std.time.ms_per_s
+```
+
+---
+
+#### `fromDays(days: i64) Duration`
+
+```zig
+const d = Duration.fromDays(7);  // 7 天
+// 使用 std.time.s_per_day * std.time.ms_per_s
 ```
 
 ---

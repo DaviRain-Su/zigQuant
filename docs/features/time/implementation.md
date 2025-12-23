@@ -1,8 +1,19 @@
 # Time - 实现细节
 
 > 内部实现说明和设计决策
+> 基于 Zig 标准库 `std.time` 和 `std.time.epoch`
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
+
+---
+
+## 设计原则
+
+Time 模块采用**薄包装 + 扩展**的设计：
+
+1. **充分利用标准库**: 使用 `std.time` 的时间获取和常量，使用 `std.time.epoch` 的日期转换
+2. **最小化重复**: 仅在标准库不提供的地方实现自定义逻辑（如日期到epoch的反向转换）
+3. **量化交易特定扩展**: K线对齐、交易时间间隔等领域特定功能
 
 ---
 
@@ -29,18 +40,21 @@ pub const Timestamp = struct {
 pub const Duration = struct {
     millis: i64,  // 时间间隔（毫秒）
 
-    pub const ZERO: Duration = .{ .millis = 0 };
-    pub const SECOND: Duration = .{ .millis = 1000 };
-    pub const MINUTE: Duration = .{ .millis = 60_000 };
-    pub const HOUR: Duration = .{ .millis = 3_600_000 };
-    pub const DAY: Duration = .{ .millis = 86_400_000 };
+    // 常量使用 std.time 提供的标准值
+    pub const ZERO = Duration{ .millis = 0 };
+    pub const MILLISECOND = Duration{ .millis = 1 };
+    pub const SECOND = Duration{ .millis = std.time.ms_per_s };
+    pub const MINUTE = Duration{ .millis = std.time.s_per_min * std.time.ms_per_s };
+    pub const HOUR = Duration{ .millis = std.time.s_per_hour * std.time.ms_per_s };
+    pub const DAY = Duration{ .millis = std.time.s_per_day * std.time.ms_per_s };
+    pub const WEEK = Duration{ .millis = std.time.s_per_week * std.time.ms_per_s };
 };
 ```
 
 **设计决策**:
 - 使用 `i64` 存储毫秒，支持负数表示反向间隔
-- 提供常用常量，避免魔法数字
-- 支持算术运算（加法、乘法）
+- **常量基于 `std.time`**: 确保与标准库一致性，避免计算错误
+- 支持算术运算（加法、减法、乘法）
 
 ### KlineInterval
 
@@ -55,16 +69,17 @@ pub const KlineInterval = enum {
     @"1d",   // 1 天
     @"1w",   // 1 周
 
+    // 使用 std.time 常量计算毫秒值
     pub fn toMillis(self: KlineInterval) i64 {
         return switch (self) {
-            .@"1m" => 60_000,
-            .@"5m" => 300_000,
-            .@"15m" => 900_000,
-            .@"30m" => 1_800_000,
-            .@"1h" => 3_600_000,
-            .@"4h" => 14_400_000,
-            .@"1d" => 86_400_000,
-            .@"1w" => 604_800_000,
+            .@"1m" => std.time.s_per_min * std.time.ms_per_s,
+            .@"5m" => 5 * std.time.s_per_min * std.time.ms_per_s,
+            .@"15m" => 15 * std.time.s_per_min * std.time.ms_per_s,
+            .@"30m" => 30 * std.time.s_per_min * std.time.ms_per_s,
+            .@"1h" => std.time.s_per_hour * std.time.ms_per_s,
+            .@"4h" => 4 * std.time.s_per_hour * std.time.ms_per_s,
+            .@"1d" => std.time.s_per_day * std.time.ms_per_s,
+            .@"1w" => std.time.s_per_week * std.time.ms_per_s,
         };
     }
 };
@@ -73,7 +88,7 @@ pub const KlineInterval = enum {
 **设计决策**:
 - 使用 `enum` 确保类型安全，避免非法值
 - 使用 `@"1m"` 语法支持数字开头的标识符
-- 提供 `toMillis()` 方法避免重复计算
+- **使用 `std.time` 常量**: 避免硬编码魔法数字，确保正确性
 
 ---
 
@@ -105,42 +120,64 @@ aligned_ms = divFloor(1737541965123, 300000) * 300000
            = 2025-01-22 10:30:00.000
 ```
 
-### 2. ISO 8601 解析
+### 2. ISO 8601 解析和格式化
+
+#### 解析 (fromISO8601)
 
 ```zig
-pub fn fromISO8601(s: []const u8) !Timestamp {
-    // 示例: "2025-01-22T10:30:45Z"
-    if (s.len < 20) return error.InvalidFormat;
-    if (s[19] != 'Z') return error.InvalidFormat;
+pub fn fromISO8601(allocator: Allocator, iso_str: []const u8) !Timestamp {
+    // 解析 ISO 8601 字符串: "2025-01-22T10:30:45.123Z"
+    // 1. 解析年月日时分秒
+    const year = try std.fmt.parseInt(i32, iso_str[0..4], 10);
+    const month = try std.fmt.parseInt(u8, iso_str[5..7], 10);
+    // ...
 
-    const year = try std.fmt.parseInt(i32, s[0..4], 10);
-    const month = try std.fmt.parseInt(u8, s[5..7], 10);
-    const day = try std.fmt.parseInt(u8, s[8..10], 10);
-    const hour = try std.fmt.parseInt(u8, s[11..13], 10);
-    const minute = try std.fmt.parseInt(u8, s[14..16], 10);
-    const second = try std.fmt.parseInt(u8, s[17..19], 10);
+    // 2. 使用辅助函数转换为 epoch 秒
+    // (标准库 std.time.epoch 不提供日期到epoch的反向转换)
+    const timestamp_seconds = dateToEpochSeconds(year, month, day, hour, minute, second);
 
-    // 验证范围
-    if (month < 1 or month > 12) return error.InvalidMonth;
-    if (day < 1 or day > 31) return error.InvalidDay;
-    if (hour > 23) return error.InvalidHour;
-    if (minute > 59) return error.InvalidMinute;
-    if (second > 59) return error.InvalidSecond;
+    return .{ .millis = timestamp_seconds * std.time.ms_per_s + millis_part };
+}
 
-    // 转换为 Unix 时间戳
-    const days_since_epoch = daysSinceEpoch(year, month, day);
-    const seconds = days_since_epoch * 86400 + hour * 3600 + minute * 60 + second;
+// 辅助函数：日期转换为 epoch 秒
+fn dateToEpochSeconds(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) i64 {
+    // 使用 std.time.epoch.isLeapYear() 判断闰年
+    // 使用 std.time 常量计算秒数
+    if (epoch.isLeapYear(@intCast(y))) leap_days += 1;
 
-    return Timestamp{ .millis = seconds * 1000 };
+    const day_secs = @as(i64, total_days) * std.time.s_per_day;
+    const time_secs = @as(i64, hour) * std.time.s_per_hour + ...;
 }
 ```
 
-**算法说明**:
-1. 验证字符串长度和格式
-2. 解析各个时间字段
-3. 验证每个字段的有效范围
-4. 计算自 Unix Epoch 以来的天数
-5. 转换为毫秒时间戳
+#### 格式化 (toISO8601)
+
+```zig
+pub fn toISO8601(self: Timestamp, allocator: Allocator) ![]const u8 {
+    // 使用 std.time.epoch 进行日期转换
+    const epoch_seconds = epoch.EpochSeconds{ .secs = seconds };
+    const epoch_day = epoch_seconds.getEpochDay();
+    const year_day = epoch_day.calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+    const day_seconds = epoch_seconds.getDaySeconds();
+
+    // 提取各个字段
+    const year = year_day.year;
+    const month = month_day.month.numeric();
+    const day = month_day.day_index + 1;
+    const hour = day_seconds.getHoursIntoDay();
+    const minute = day_seconds.getMinutesIntoHour();
+    const second = day_seconds.getSecondsIntoMinute();
+
+    // 格式化输出
+    return std.fmt.allocPrint(allocator, "{:0>4}-{:0>2}-{:0>2}T...", ...);
+}
+```
+
+**设计说明**:
+- **解析**: 标准库不提供日期→epoch转换，需自定义实现，但使用 `epoch.isLeapYear()` 和 `std.time` 常量
+- **格式化**: 充分利用 `std.time.epoch` 的 epoch→日期转换功能
+- 两个方向互为逆运算，确保往返一致性
 
 ### 3. 日期计算（辅助函数）
 
