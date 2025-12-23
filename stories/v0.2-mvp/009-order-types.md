@@ -1,5 +1,8 @@
 # Story: 订单类型定义
 
+> **更新日期**: 2025-12-23
+> **更新内容**: 基于 Hyperliquid 真实 API 规范更新（参考: [API Research](HYPERLIQUID_API_RESEARCH.md)）
+
 **ID**: `STORY-009`
 **版本**: `v0.2`
 **创建日期**: 2025-12-23
@@ -90,67 +93,111 @@ pub const Side = enum {
 };
 
 /// 订单类型
+/// 基于真实 API: Hyperliquid 订单类型包括 limit 和 trigger
 pub const OrderType = enum {
-    limit,      // 限价单
-    market,     // 市价单
-    stop_limit, // 止损限价单
-    stop_market,// 止损市价单
+    limit,      // 限价单 (带 TIF)
+    trigger,    // 触发单 (止损/止盈)
 
     pub fn toString(self: OrderType) []const u8 {
         return switch (self) {
             .limit => "LIMIT",
-            .market => "MARKET",
-            .stop_limit => "STOP_LIMIT",
-            .stop_market => "STOP_MARKET",
+            .trigger => "TRIGGER",
         };
     }
 };
 
+/// Hyperliquid API 订单类型结构 (基于真实 API)
+pub const HyperliquidOrderType = struct {
+    limit: ?LimitOrderType = null,
+    trigger: ?TriggerOrderType = null,
+
+    pub const LimitOrderType = struct {
+        tif: TimeInForce,  // Gtc, Ioc, 或 Alo
+    };
+
+    pub const TriggerOrderType = struct {
+        triggerPx: []const u8,    // 触发价格
+        isMarket: bool,           // 是否为市价单
+        tpsl: TriggerDirection,   // 止盈或止损
+
+        pub const TriggerDirection = enum {
+            tp,  // Take Profit (止盈)
+            sl,  // Stop Loss (止损)
+
+            pub fn toString(self: TriggerDirection) []const u8 {
+                return switch (self) {
+                    .tp => "tp",
+                    .sl => "sl",
+                };
+            }
+        };
+    };
+};
+
 /// 订单时效（Time in Force）
+/// 基于真实 API: Hyperliquid 只支持 Gtc, Ioc, Alo（没有 FOK）
 pub const TimeInForce = enum {
     gtc,  // Good-Til-Cancelled (一直有效直到取消)
-    ioc,  // Immediate-Or-Cancel (立即成交或取消)
-    fok,  // Fill-Or-Kill (全部成交或取消)
-    alo,  // Add-Liquidity-Only (只做 Maker，不做 Taker)
+    ioc,  // Immediate-Or-Cancel (立即成交，未成交部分取消)
+    alo,  // Add-Liquidity-Only (只做 Maker，Post-only)
 
     pub fn toString(self: TimeInForce) []const u8 {
         return switch (self) {
             .gtc => "Gtc",
             .ioc => "Ioc",
-            .fok => "Fok",
             .alo => "Alo",
         };
     }
+
+    /// 从字符串解析 (基于真实 API)
+    pub fn fromString(s: []const u8) !TimeInForce {
+        if (std.mem.eql(u8, s, "Gtc")) return .gtc;
+        if (std.mem.eql(u8, s, "Ioc")) return .ioc;
+        if (std.mem.eql(u8, s, "Alo")) return .alo;
+        return error.InvalidTimeInForce;
+    }
 };
 
-/// 订单状态
+/// 订单状态 (基于真实 API)
+/// Hyperliquid 订单状态包括: filled, open, canceled, triggered, rejected, marginCanceled
 pub const OrderStatus = enum {
-    pending,      // 待提交
-    submitted,    // 已提交
-    open,         // 已挂单（部分成交或未成交）
-    partially_filled, // 部分成交
-    filled,       // 完全成交
-    cancelled,    // 已取消
-    rejected,     // 被拒绝
-    expired,      // 已过期
+    pending,          // 客户端待提交 (本地状态)
+    submitted,        // 已提交 (本地状态)
+    open,             // 已挂单 (API 状态)
+    filled,           // 完全成交 (API 状态)
+    canceled,         // 已取消 (API 状态)
+    triggered,        // 已触发 (API 状态，止损/止盈单)
+    rejected,         // 被拒绝 (API 状态)
+    marginCanceled,   // 因保证金不足被取消 (API 状态)
 
     pub fn toString(self: OrderStatus) []const u8 {
         return switch (self) {
             .pending => "PENDING",
             .submitted => "SUBMITTED",
-            .open => "OPEN",
-            .partially_filled => "PARTIALLY_FILLED",
-            .filled => "FILLED",
-            .cancelled => "CANCELLED",
-            .rejected => "REJECTED",
-            .expired => "EXPIRED",
+            .open => "open",
+            .filled => "filled",
+            .canceled => "canceled",
+            .triggered => "triggered",
+            .rejected => "rejected",
+            .marginCanceled => "marginCanceled",
         };
+    }
+
+    /// 从 API 字符串解析 (基于真实 API)
+    pub fn fromString(s: []const u8) !OrderStatus {
+        if (std.mem.eql(u8, s, "open")) return .open;
+        if (std.mem.eql(u8, s, "filled")) return .filled;
+        if (std.mem.eql(u8, s, "canceled")) return .canceled;
+        if (std.mem.eql(u8, s, "triggered")) return .triggered;
+        if (std.mem.eql(u8, s, "rejected")) return .rejected;
+        if (std.mem.eql(u8, s, "marginCanceled")) return .marginCanceled;
+        return error.InvalidOrderStatus;
     }
 
     /// 是否为终态
     pub fn isFinal(self: OrderStatus) bool {
         return switch (self) {
-            .filled, .cancelled, .rejected, .expired => true,
+            .filled, .canceled, .rejected, .marginCanceled => true,
             else => false,
         };
     }
@@ -158,7 +205,7 @@ pub const OrderStatus = enum {
     /// 是否为活跃状态
     pub fn isActive(self: OrderStatus) bool {
         return switch (self) {
-            .open, .partially_filled => true,
+            .open, .triggered => true,
             else => false,
         };
     }

@@ -1,5 +1,8 @@
 # Story: 仓位追踪器
 
+> **更新日期**: 2025-12-23
+> **更新内容**: 基于 Hyperliquid 真实 API 规范更新（参考: [API Research](HYPERLIQUID_API_RESEARCH.md)）
+
 **ID**: `STORY-011`
 **版本**: `v0.2`
 **创建日期**: 2025-12-23
@@ -71,10 +74,11 @@ src/trading/
 
 ### 核心数据结构
 
-#### 1. 仓位
+#### 1. 仓位 (基于真实 API)
 
 ```zig
 // src/trading/position.zig
+// 基于真实 API: szi (有符号仓位大小), leverage {type, value}, cumFunding
 
 const std = @import("std");
 const Decimal = @import("../core/decimal.zig").Decimal;
@@ -83,28 +87,33 @@ const OrderTypes = @import("../core/order_types.zig");
 
 pub const Position = struct {
     symbol: []const u8,
-    side: OrderTypes.PositionSide, // long / short
 
-    // 仓位信息
-    size: Decimal,              // 仓位大小（正数）
-    entry_price: Decimal,       // 入场均价
-    mark_price: ?Decimal,       // 标记价格（实时）
-    liquidation_price: ?Decimal, // 清算价格
+    // 基于真实 API: szi 字段（有符号: +多头, -空头）
+    szi: Decimal,               // 仓位大小（有符号）
+    side: OrderTypes.PositionSide, // long / short (从 szi 推断)
 
-    // 杠杆
-    leverage: u32,              // 杠杆倍数
-    leverage_type: []const u8,  // "cross" or "isolated"
+    // 仓位信息 (基于真实 API)
+    entry_px: Decimal,          // 开仓均价 (entryPx)
+    mark_price: ?Decimal,       // 标记价格（实时，用于计算 unrealizedPnl）
+    liquidation_px: ?Decimal,   // 清算价格 (liquidationPx)
 
-    // 盈亏
-    unrealized_pnl: Decimal,    // 未实现盈亏
-    realized_pnl: Decimal,      // 已实现盈亏（累计）
+    // 杠杆 (基于真实 API: leverage {type, value, rawUsd})
+    leverage: Leverage,
+    max_leverage: u32,          // 最大杠杆 (maxLeverage)
 
-    // 保证金
-    margin_used: Decimal,       // 已用保证金
-    position_value: Decimal,    // 仓位价值
+    // 盈亏 (基于真实 API)
+    unrealized_pnl: Decimal,    // 未实现盈亏 (unrealizedPnl)
+    realized_pnl: Decimal,      // 已实现盈亏（累计，从 closedPnl 累加）
 
-    // ROE (Return on Equity)
-    return_on_equity: Decimal,  // 收益率
+    // 保证金 (基于真实 API)
+    margin_used: Decimal,       // 已用保证金 (marginUsed)
+    position_value: Decimal,    // 仓位价值 (positionValue)
+
+    // ROE (基于真实 API)
+    return_on_equity: Decimal,  // 权益回报率 (returnOnEquity)
+
+    // 资金费率 (基于真实 API: cumFunding)
+    cum_funding: CumFunding,
 
     // 时间戳
     opened_at: Timestamp,
@@ -112,25 +121,48 @@ pub const Position = struct {
 
     allocator: std.mem.Allocator,
 
+    /// 杠杆结构 (基于真实 API)
+    pub const Leverage = struct {
+        type_: []const u8,      // "cross" 或 "isolated"
+        value: u32,             // 杠杆倍数
+        raw_usd: Decimal,       // 原始 USD 价值
+    };
+
+    /// 累计资金费率 (基于真实 API)
+    pub const CumFunding = struct {
+        all_time: Decimal,      // 累计总额
+        since_change: Decimal,  // 自上次变动
+        since_open: Decimal,    // 自开仓
+    };
+
     pub fn init(
         allocator: std.mem.Allocator,
         symbol: []const u8,
-        side: OrderTypes.PositionSide,
+        szi: Decimal,  // 基于真实 API: 有符号仓位大小
     ) !Position {
         return .{
             .symbol = try allocator.dupe(u8, symbol),
-            .side = side,
-            .size = Decimal.ZERO,
-            .entry_price = Decimal.ZERO,
+            .szi = szi,
+            .side = if (szi.isPositive()) .long else .short,
+            .entry_px = Decimal.ZERO,
             .mark_price = null,
-            .liquidation_price = null,
-            .leverage = 1,
-            .leverage_type = "cross",
+            .liquidation_px = null,
+            .leverage = .{
+                .type_ = "cross",
+                .value = 1,
+                .raw_usd = Decimal.ZERO,
+            },
+            .max_leverage = 50,
             .unrealized_pnl = Decimal.ZERO,
             .realized_pnl = Decimal.ZERO,
             .margin_used = Decimal.ZERO,
             .position_value = Decimal.ZERO,
             .return_on_equity = Decimal.ZERO,
+            .cum_funding = .{
+                .all_time = Decimal.ZERO,
+                .since_change = Decimal.ZERO,
+                .since_open = Decimal.ZERO,
+            },
             .opened_at = Timestamp.now(),
             .updated_at = Timestamp.now(),
             .allocator = allocator,
@@ -141,13 +173,13 @@ pub const Position = struct {
         self.allocator.free(self.symbol);
     }
 
-    /// 更新标记价格和未实现盈亏
+    /// 更新标记价格和未实现盈亏 (基于真实 API)
     pub fn updateMarkPrice(self: *Position, mark_price: Decimal) void {
         self.mark_price = mark_price;
         self.unrealized_pnl = self.calculateUnrealizedPnl(mark_price);
-        self.position_value = self.size.mul(mark_price);
+        self.position_value = self.szi.abs().mul(mark_price); // 基于真实 API: positionValue
 
-        // 更新 ROE
+        // 更新 ROE (基于真实 API: returnOnEquity)
         if (!self.margin_used.isZero()) {
             self.return_on_equity = self.unrealized_pnl.div(self.margin_used) catch Decimal.ZERO;
         }
@@ -155,18 +187,14 @@ pub const Position = struct {
         self.updated_at = Timestamp.now();
     }
 
-    /// 计算未实现盈亏
+    /// 计算未实现盈亏 (基于真实 API: 使用 szi)
     fn calculateUnrealizedPnl(self: *const Position, current_price: Decimal) Decimal {
-        if (self.size.isZero()) return Decimal.ZERO;
+        if (self.szi.isZero()) return Decimal.ZERO;
 
-        const price_diff = current_price.sub(self.entry_price);
-        const pnl = price_diff.mul(self.size);
-
-        return switch (self.side) {
-            .long => pnl,
-            .short => pnl.negate(),
-            .both => Decimal.ZERO, // 不应该到这里
-        };
+        // 基于真实 API: szi 为正表示多头，为负表示空头
+        // PnL = szi * (current_price - entry_px)
+        const price_diff = current_price.sub(self.entry_px);
+        return price_diff.mul(self.szi);
     }
 
     /// 增加仓位（开仓或加仓）
@@ -245,61 +273,71 @@ pub const Position = struct {
 };
 ```
 
-#### 2. 账户信息
+#### 2. 账户信息 (基于真实 API)
 
 ```zig
 // src/trading/account.zig
+// 基于真实 API: marginSummary, crossMarginSummary, withdrawable
 
 const std = @import("std");
 const Decimal = @import("../core/decimal.zig").Decimal;
 
 pub const Account = struct {
-    // 余额
-    total_balance: Decimal,      // 总余额
-    available_balance: Decimal,  // 可用余额
-    margin_used: Decimal,        // 已用保证金
+    // 基于真实 API: marginSummary 字段
+    margin_summary: MarginSummary,
 
-    // 账户价值
-    account_value: Decimal,      // 账户总价值（余额 + 未实现盈亏）
-    total_raw_usd: Decimal,      // 原始 USD 价值
+    // 基于真实 API: crossMarginSummary 字段
+    cross_margin_summary: MarginSummary,
 
-    // 盈亏
-    total_unrealized_pnl: Decimal, // 总未实现盈亏
-    total_realized_pnl: Decimal,   // 总已实现盈亏
+    // 基于真实 API: withdrawable 字段
+    withdrawable: Decimal,          // 可提现金额
+
+    // 基于真实 API: crossMaintenanceMarginUsed
+    cross_maintenance_margin_used: Decimal,
+
+    // 本地追踪的盈亏（非 API 返回）
+    total_realized_pnl: Decimal,    // 总已实现盈亏（从成交累计）
+
+    /// 保证金摘要 (基于真实 API)
+    pub const MarginSummary = struct {
+        account_value: Decimal,     // 账户总价值 (accountValue)
+        total_margin_used: Decimal, // 总已用保证金 (totalMarginUsed)
+        total_ntl_pos: Decimal,     // 总名义仓位价值 (totalNtlPos)
+        total_raw_usd: Decimal,     // 总原始 USD (totalRawUsd)
+    };
 
     pub fn init() Account {
         return .{
-            .total_balance = Decimal.ZERO,
-            .available_balance = Decimal.ZERO,
-            .margin_used = Decimal.ZERO,
-            .account_value = Decimal.ZERO,
-            .total_raw_usd = Decimal.ZERO,
-            .total_unrealized_pnl = Decimal.ZERO,
+            .margin_summary = .{
+                .account_value = Decimal.ZERO,
+                .total_margin_used = Decimal.ZERO,
+                .total_ntl_pos = Decimal.ZERO,
+                .total_raw_usd = Decimal.ZERO,
+            },
+            .cross_margin_summary = .{
+                .account_value = Decimal.ZERO,
+                .total_margin_used = Decimal.ZERO,
+                .total_ntl_pos = Decimal.ZERO,
+                .total_raw_usd = Decimal.ZERO,
+            },
+            .withdrawable = Decimal.ZERO,
+            .cross_maintenance_margin_used = Decimal.ZERO,
             .total_realized_pnl = Decimal.ZERO,
         };
     }
 
-    /// 更新余额
-    pub fn updateBalance(
+    /// 从 API 响应更新账户信息 (基于真实 API: clearinghouseState)
+    pub fn updateFromApiResponse(
         self: *Account,
-        total: Decimal,
-        available: Decimal,
-        margin_used: Decimal,
+        margin_summary: MarginSummary,
+        cross_margin_summary: MarginSummary,
+        withdrawable: Decimal,
+        cross_maintenance_margin_used: Decimal,
     ) void {
-        self.total_balance = total;
-        self.available_balance = available;
-        self.margin_used = margin_used;
-    }
-
-    /// 更新账户价值
-    pub fn updateValue(
-        self: *Account,
-        account_value: Decimal,
-        unrealized_pnl: Decimal,
-    ) void {
-        self.account_value = account_value;
-        self.total_unrealized_pnl = unrealized_pnl;
-        self.total_raw_usd = account_value.sub(unrealized_pnl);
+        self.margin_summary = margin_summary;
+        self.cross_margin_summary = cross_margin_summary;
+        self.withdrawable = withdrawable;
+        self.cross_maintenance_margin_used = cross_maintenance_margin_used;
     }
 };
 ```
@@ -360,40 +398,62 @@ pub const PositionTracker = struct {
         self.positions.deinit();
     }
 
-    /// 同步账户状态（从交易所）
+    /// 同步账户状态（从交易所） (基于真实 API: clearinghouseState)
     pub fn syncAccountState(self: *PositionTracker, user_address: []const u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         self.logger.info("Syncing account state...", .{});
 
-        const state = try InfoAPI.getAccountState(self.http_client, user_address);
+        // 基于真实 API: 调用 clearinghouseState 端点
+        const state = try InfoAPI.getUserState(self.http_client, user_address);
 
-        // 更新账户信息
-        self.account.updateValue(
-            state.margin_summary.account_value,
-            Decimal.ZERO, // 稍后计算
+        // 更新账户信息 (基于真实 API 字段)
+        self.account.updateFromApiResponse(
+            state.marginSummary,
+            state.crossMarginSummary,
+            state.withdrawable,
+            state.crossMaintenanceMarginUsed,
         );
 
-        // 更新仓位
-        for (state.asset_positions) |asset_pos| {
+        // 更新仓位 (基于真实 API: assetPositions)
+        for (state.assetPositions) |asset_pos| {
             const pos_data = asset_pos.position;
+
+            // 基于真实 API: szi 有符号仓位大小
+            const szi = try Decimal.fromString(pos_data.szi);
+            if (szi.isZero()) continue; // 跳过空仓
 
             var position = try self.getOrCreatePosition(
                 pos_data.coin,
-                if (pos_data.szi.isPositive()) .long else .short,
+                szi,
             );
 
-            position.size = pos_data.szi.abs();
-            position.entry_price = pos_data.entry_px;
-            position.leverage = pos_data.leverage.value;
-            position.margin_used = pos_data.margin_used;
-            position.position_value = pos_data.position_value;
-            position.unrealized_pnl = pos_data.unrealized_pnl;
-            position.return_on_equity = pos_data.return_on_equity;
+            // 更新仓位数据 (基于真实 API 字段)
+            position.szi = szi;
+            position.side = if (szi.isPositive()) .long else .short;
+            position.entry_px = try Decimal.fromString(pos_data.entryPx);
+            position.leverage = .{
+                .type_ = pos_data.leverage.type_,
+                .value = pos_data.leverage.value,
+                .raw_usd = try Decimal.fromString(pos_data.leverage.rawUsd),
+            };
+            position.max_leverage = pos_data.maxLeverage;
+            position.margin_used = try Decimal.fromString(pos_data.marginUsed);
+            position.position_value = try Decimal.fromString(pos_data.positionValue);
+            position.unrealized_pnl = try Decimal.fromString(pos_data.unrealizedPnl);
+            position.return_on_equity = try Decimal.fromString(pos_data.returnOnEquity);
 
-            if (pos_data.liquidation_px) |liq_px| {
-                position.liquidation_price = liq_px;
+            // 基于真实 API: cumFunding
+            position.cum_funding = .{
+                .all_time = try Decimal.fromString(pos_data.cumFunding.allTime),
+                .since_change = try Decimal.fromString(pos_data.cumFunding.sinceChange),
+                .since_open = try Decimal.fromString(pos_data.cumFunding.sinceOpen),
+            };
+
+            // 基于真实 API: liquidationPx (可能为 null)
+            if (pos_data.liquidationPx) |liq_px| {
+                position.liquidation_px = try Decimal.fromString(liq_px);
             }
 
             position.updated_at = Timestamp.now();
@@ -404,51 +464,78 @@ pub const PositionTracker = struct {
         }
 
         self.logger.info("Account state synced: Value=${}", .{
-            self.account.account_value.toFloat(),
+            self.account.margin_summary.account_value.toFloat(),
         });
     }
 
-    /// 处理成交事件（更新仓位）
+    /// 处理成交事件（更新仓位） (基于真实 API: dir, closedPnl, startPosition)
     pub fn handleFill(
         self: *PositionTracker,
-        fill: UserFill,
+        fill: WsUserFills.UserFill,
     ) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        const side: OrderTypes.PositionSide = if (std.mem.indexOf(u8, fill.dir, "Long") != null)
-            .long
-        else if (std.mem.indexOf(u8, fill.dir, "Short") != null)
-            .short
-        else
-            return;
-
-        var position = try self.getOrCreatePosition(fill.coin, side);
-
+        // 基于真实 API: dir 字段 ("Open Long", "Close Short", "Open Short", "Close Long")
+        const is_long = std.mem.indexOf(u8, fill.dir, "Long") != null;
         const is_opening = std.mem.indexOf(u8, fill.dir, "Open") != null;
 
-        if (is_opening) {
-            // 开仓或加仓
-            position.increase(fill.sz, fill.px);
-            self.logger.info("Position increased: {s} {} @ {}", .{
-                fill.coin, fill.sz.toFloat(), fill.px.toFloat(),
-            });
-        } else {
-            // 平仓
-            const realized_pnl = position.decrease(fill.sz, fill.px);
-            self.logger.info("Position decreased: {s} {} @ {} (PnL: {})", .{
-                fill.coin, fill.sz.toFloat(), fill.px.toFloat(), realized_pnl.toFloat(),
-            });
+        // 解析成交数据 (基于真实 API: 字符串格式)
+        const sz = try Decimal.fromString(fill.sz);
+        const px = try Decimal.fromString(fill.px);
+        const closed_pnl = try Decimal.fromString(fill.closedPnl);
+        const start_position = try Decimal.fromString(fill.startPosition);
 
-            // 如果完全平仓，移除仓位
-            if (position.isEmpty()) {
-                _ = self.positions.remove(fill.coin);
+        // 计算新的仓位大小 (基于真实 API: startPosition + 成交方向)
+        var new_szi: Decimal = undefined;
+        if (is_opening) {
+            if (is_long) {
+                // Open Long: szi 增加
+                new_szi = start_position.add(sz);
+            } else {
+                // Open Short: szi 减少（变为负数或更负）
+                new_szi = start_position.sub(sz);
+            }
+        } else {
+            if (is_long) {
+                // Close Long: szi 减少
+                new_szi = start_position.sub(sz);
+            } else {
+                // Close Short: szi 增加（从负数变小或为零）
+                new_szi = start_position.add(sz);
             }
         }
 
-        // 更新账户的已实现盈亏
-        if (!is_opening) {
-            self.account.total_realized_pnl = self.account.total_realized_pnl.add(fill.closed_pnl);
+        // 获取或创建仓位
+        var position = try self.getOrCreatePosition(fill.coin, new_szi);
+
+        // 更新仓位
+        position.szi = new_szi;
+        position.side = if (new_szi.isPositive()) .long else .short;
+
+        if (is_opening) {
+            // 开仓或加仓: 更新均价
+            position.increase(sz, px);
+            self.logger.info("Position increased: {s} {s} {} @ {} (new szi: {})", .{
+                fill.coin, fill.dir, fill.sz, fill.px, new_szi.toFloat(),
+            });
+        } else {
+            // 平仓: 记录已实现盈亏 (基于真实 API: closedPnl)
+            position.realized_pnl = position.realized_pnl.add(closed_pnl);
+            self.logger.info("Position decreased: {s} {s} {} @ {} (closedPnl: {}, new szi: {})", .{
+                fill.coin, fill.dir, fill.sz, fill.px, fill.closedPnl, new_szi.toFloat(),
+            });
+
+            // 如果完全平仓，移除仓位
+            if (new_szi.isZero()) {
+                _ = self.positions.remove(fill.coin);
+                self.logger.info("Position closed: {s}", .{fill.coin});
+            }
+        }
+
+        // 更新账户的已实现盈亏 (基于真实 API: closedPnl)
+        if (!closed_pnl.isZero()) {
+            self.account.total_realized_pnl = self.account.total_realized_pnl.add(closed_pnl);
         }
 
         if (self.on_position_update) |callback| {
@@ -506,14 +593,14 @@ pub const PositionTracker = struct {
     fn getOrCreatePosition(
         self: *PositionTracker,
         symbol: []const u8,
-        side: OrderTypes.PositionSide,
+        szi: Decimal,  // 基于真实 API: 有符号仓位大小
     ) !*Position {
         if (self.positions.get(symbol)) |pos| {
             return pos;
         }
 
         const pos = try self.allocator.create(Position);
-        pos.* = try Position.init(self.allocator, symbol, side);
+        pos.* = try Position.init(self.allocator, symbol, szi);
         try self.positions.put(symbol, pos);
 
         return pos;

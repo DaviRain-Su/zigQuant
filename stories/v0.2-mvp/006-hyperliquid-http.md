@@ -1,5 +1,8 @@
 # Story: Hyperliquid HTTP 客户端实现
 
+> **更新日期**: 2025-12-23
+> **更新内容**: 基于 Hyperliquid 真实 API 规范更新（参考: [API Research](HYPERLIQUID_API_RESEARCH.md)）
+
 **ID**: `STORY-006`
 **版本**: `v0.2`
 **创建日期**: 2025-12-23
@@ -162,10 +165,11 @@ pub const HyperliquidClient = struct {
 };
 ```
 
-#### 2. Ed25519 认证
+#### 2. Ed25519 认证 (基于真实 API)
 
 ```zig
 // src/exchange/hyperliquid/auth.zig
+// 基于真实 API: Ed25519 签名，使用 nonce (毫秒时间戳) 和 connection_id
 
 const std = @import("std");
 
@@ -195,45 +199,66 @@ pub const Auth = struct {
         _ = self;
     }
 
-    /// 生成请求签名
-    pub fn signRequest(
+    /// 生成 nonce (基于真实 API: 使用毫秒时间戳)
+    pub fn generateNonce() i64 {
+        return std.time.milliTimestamp();
+    }
+
+    /// 生成请求签名 (基于真实 API: sign_l1_action)
+    /// 签名消息格式: action 的 msgpack 序列化 + nonce
+    pub fn signL1Action(
         self: *Auth,
-        timestamp: i64,
-        method: []const u8,
-        path: []const u8,
-        body: []const u8,
-    ) ![]u8 {
+        action: []const u8,  // action 的 JSON/msgpack
+        nonce: i64,
+    ) !Signature {
         if (self.keypair == null) {
             return error.NoSecretKey;
         }
 
-        // 构造签名消息: timestamp + method + path + body
+        // 构造签名消息
+        // 注意: 实际实现需要使用 msgpack 而非 JSON
         var msg_buffer: [4096]u8 = undefined;
-        const msg = try std.fmt.bufPrint(&msg_buffer, "{d}{s}{s}{s}", .{
-            timestamp, method, path, body,
+        const msg = try std.fmt.bufPrint(&msg_buffer, "{s}{d}", .{
+            action, nonce,
         });
 
         // Ed25519 签名
         const signature = try self.keypair.?.sign(msg, null);
 
-        // 转换为 hex 字符串
-        var sig_hex: [128]u8 = undefined;
-        _ = try std.fmt.bufPrint(&sig_hex, "{x}", .{signature.toBytes()});
-
-        return try self.allocator.dupe(u8, &sig_hex);
+        // 转换为签名结构 (r, s, v 格式)
+        return Signature{
+            .r = signature.toBytes()[0..32].*,
+            .s = signature.toBytes()[32..64].*,
+            .v = 27,  // 或 28，取决于恢复 ID
+        };
     }
 
-    /// 获取公钥（用于 API 认证）
-    pub fn getPublicKey(self: *Auth) ![]const u8 {
+    /// 获取用户地址 (基于公钥派生)
+    pub fn getUserAddress(self: *Auth) ![]const u8 {
         if (self.keypair == null) {
             return error.NoSecretKey;
         }
 
+        // 从 Ed25519 公钥派生以太坊地址
+        // 注意: 实际实现需要 Keccak256 哈希
         const pub_key = self.keypair.?.public_key;
-        var pub_key_hex: [64]u8 = undefined;
-        _ = try std.fmt.bufPrint(&pub_key_hex, "{x}", .{pub_key.bytes});
+        var address: [42]u8 = undefined;
+        _ = try std.fmt.bufPrint(&address, "0x{x}", .{pub_key.bytes[0..20]});
 
-        return try self.allocator.dupe(u8, &pub_key_hex);
+        return try self.allocator.dupe(u8, &address);
+    }
+};
+
+/// 签名结构 (基于真实 API)
+pub const Signature = struct {
+    r: [32]u8,
+    s: [32]u8,
+    v: u8,
+
+    pub fn toHex(self: Signature, allocator: std.mem.Allocator) ![]u8 {
+        return try std.fmt.allocPrint(allocator, "0x{x}{x}", .{
+            self.r, self.s,
+        });
     }
 };
 ```
@@ -242,183 +267,306 @@ pub const Auth = struct {
 
 ```zig
 // src/exchange/hyperliquid/info_api.zig
+// 基于真实 API: 所有 Info API 使用 POST /info，通过 type 字段区分端点
 
 const std = @import("std");
 const HyperliquidClient = @import("http.zig").HyperliquidClient;
 const Decimal = @import("../../core/decimal.zig").Decimal;
 const Timestamp = @import("../../core/time.zig").Timestamp;
 
-/// 获取所有资产信息
-pub fn getAllAssets(client: *HyperliquidClient) ![]AssetInfo {
-    const result = try client.get("/info/all_assets", null);
-    return try parseAssetInfo(client.allocator, result);
+/// 获取所有币种中间价 (基于真实 API: allMids)
+pub fn getAllMids(client: *HyperliquidClient) !std.StringHashMap(Decimal) {
+    const body = .{
+        .type = "allMids",
+        .dex = "",  // 空字符串表示第一个 perp DEX
+    };
+    const result = try client.post("/info", body);
+    return try parseAllMids(client.allocator, result);
 }
 
-/// 获取订单簿
-pub fn getOrderBook(
-    client: *HyperliquidClient,
-    symbol: []const u8,
-) !OrderBook {
-    const params = std.json.Value{
-        .object = .{
-            .put("coin", .{ .string = symbol }),
-        },
+/// 获取资产元数据 (基于真实 API: meta)
+pub fn getMeta(client: *HyperliquidClient) !Meta {
+    const body = .{
+        .type = "meta",
     };
-    const result = try client.get("/info/l2_book", params);
+    const result = try client.post("/info", body);
+    return try parseMeta(client.allocator, result);
+}
+
+/// 获取订单簿快照 (基于真实 API: l2Book)
+pub fn getL2Book(
+    client: *HyperliquidClient,
+    coin: []const u8,
+) !OrderBook {
+    const body = .{
+        .type = "l2Book",
+        .coin = coin,
+    };
+    const result = try client.post("/info", body);
     return try parseOrderBook(client.allocator, result);
 }
 
-/// 获取账户状态
-pub fn getAccountState(
+/// 获取用户账户状态 (基于真实 API: clearinghouseState / userState)
+pub fn getUserState(
     client: *HyperliquidClient,
-    address: []const u8,
-) !AccountState {
-    const params = std.json.Value{
-        .object = .{
-            .put("user", .{ .string = address }),
-        },
+    user_address: []const u8,
+) !UserState {
+    const body = .{
+        .type = "clearinghouseState",
+        .user = user_address,  // 主账户或子账户地址，非 API wallet 地址
     };
-    const result = try client.get("/info/user_state", params);
-    return try parseAccountState(client.allocator, result);
+    const result = try client.post("/info", body);
+    return try parseUserState(client.allocator, result);
 }
 
-/// 获取最近成交
-pub fn getRecentTrades(
+/// 获取用户成交历史 (基于真实 API: userFills)
+pub fn getUserFills(
     client: *HyperliquidClient,
-    symbol: []const u8,
-    limit: u32,
-) ![]Trade {
-    const params = std.json.Value{
-        .object = .{
-            .put("coin", .{ .string = symbol }),
-            .put("limit", .{ .integer = @intCast(limit) }),
-        },
+    user_address: []const u8,
+) ![]Fill {
+    const body = .{
+        .type = "userFills",
+        .user = user_address,
     };
-    const result = try client.get("/info/recent_trades", params);
-    return try parseTrades(client.allocator, result);
+    const result = try client.post("/info", body);
+    return try parseFills(client.allocator, result);
 }
 
-// 数据类型
+/// 获取未完成订单 (基于真实 API: openOrders)
+pub fn getOpenOrders(
+    client: *HyperliquidClient,
+    user_address: []const u8,
+) ![]OpenOrder {
+    const body = .{
+        .type = "openOrders",
+        .user = user_address,
+    };
+    const result = try client.post("/info", body);
+    return try parseOpenOrders(client.allocator, result);
+}
+
+// 数据类型 (基于真实 API 响应格式)
+
+/// Meta 响应
+pub const Meta = struct {
+    universe: []AssetInfo,
+};
+
 pub const AssetInfo = struct {
     name: []const u8,
-    index: u32,
     szDecimals: u8,
+    maxLeverage: u32,
+    onlyIsolated: bool,
 };
 
+/// L2 订单簿 (基于真实 API 响应)
 pub const OrderBook = struct {
-    symbol: []const u8,
-    bids: []Level,
-    asks: []Level,
-    timestamp: Timestamp,
+    coin: []const u8,
+    time: Timestamp,
+    levels: [2][]Level,  // [0]=bids, [1]=asks
 
     pub const Level = struct {
-        price: Decimal,
-        size: Decimal,
+        px: Decimal,   // 价格
+        sz: Decimal,   // 数量
+        n: u32,        // 订单数量
     };
 };
 
-pub const AccountState = struct {
-    margin_summary: MarginSummary,
-    asset_positions: []AssetPosition,
+/// 用户状态 (基于真实 API: clearinghouseState 响应)
+pub const UserState = struct {
+    assetPositions: []AssetPosition,
+    marginSummary: MarginSummary,
+    crossMarginSummary: MarginSummary,
+    crossMaintenanceMarginUsed: Decimal,
+    withdrawable: Decimal,
+    time: Timestamp,
 
     pub const MarginSummary = struct {
-        account_value: Decimal,
-        total_margin_used: Decimal,
-        total_raw_usd: Decimal,
+        accountValue: Decimal,       // 账户总价值
+        totalMarginUsed: Decimal,    // 总已用保证金
+        totalNtlPos: Decimal,        // 总名义仓位价值
+        totalRawUsd: Decimal,        // 总原始 USD
     };
 
     pub const AssetPosition = struct {
         position: Position,
-        type_: []const u8, // "oneWay"
+        type_: []const u8,  // "oneWay" 或 "hedge"
     };
 };
 
+/// 仓位信息 (基于真实 API)
 pub const Position = struct {
     coin: []const u8,
-    entry_px: Decimal,
-    leverage: struct {
-        type_: []const u8,
-        value: u32,
-    },
-    liquidation_px: ?Decimal,
-    margin_used: Decimal,
-    position_value: Decimal,
-    return_on_equity: Decimal,
-    szi: Decimal, // 仓位大小
-    unrealized_pnl: Decimal,
+    szi: Decimal,                    // 仓位大小（有符号: +多头, -空头）
+    entryPx: Decimal,                // 开仓均价
+    leverage: Leverage,
+    liquidationPx: ?Decimal,         // 清算价格
+    marginUsed: Decimal,             // 已用保证金
+    maxLeverage: u32,
+    positionValue: Decimal,
+    returnOnEquity: Decimal,
+    unrealizedPnl: Decimal,          // 未实现盈亏
+    cumFunding: CumFunding,
+
+    pub const Leverage = struct {
+        type_: []const u8,           // "cross" 或 "isolated"
+        value: u32,                  // 杠杆倍数
+        rawUsd: Decimal,
+    };
+
+    pub const CumFunding = struct {
+        allTime: Decimal,
+        sinceChange: Decimal,
+        sinceOpen: Decimal,
+    };
 };
 
-pub const Trade = struct {
+/// 成交记录 (基于真实 API: userFills)
+pub const Fill = struct {
     coin: []const u8,
-    side: []const u8, // "A" (ask) or "B" (bid)
-    px: Decimal,
-    sz: Decimal,
+    px: Decimal,                     // 成交价格
+    sz: Decimal,                     // 成交数量
+    side: []const u8,                // "B" (买) 或 "A" (卖)
     time: Timestamp,
+    startPosition: Decimal,
+    dir: []const u8,                 // "Open Long", "Close Short", 等
+    closedPnl: Decimal,              // 已实现盈亏
     hash: []const u8,
-    tid: u64,
+    oid: u64,                        // 订单 ID
+    crossed: bool,
+    fee: Decimal,
+    feeToken: []const u8,            // 手续费币种 (如 "USDC")
+    tid: u64,                        // 成交 ID
 };
 ```
 
-#### 4. Exchange API
+#### 4. Exchange API (基于真实 API)
 
 ```zig
 // src/exchange/hyperliquid/exchange_api.zig
+// 基于真实 API: 所有交易操作使用 POST /exchange，需要 Ed25519 签名
 
 const std = @import("std");
 const HyperliquidClient = @import("http.zig").HyperliquidClient;
+const Auth = @import("auth.zig").Auth;
 const Decimal = @import("../../core/decimal.zig").Decimal;
 
-/// 下单
+/// 下单 (基于真实 API: order action)
 pub fn placeOrder(
     client: *HyperliquidClient,
     order: OrderRequest,
 ) !OrderResponse {
-    const body = try serializeOrderRequest(client.allocator, order);
-    defer client.allocator.free(body);
+    // 生成 nonce
+    const nonce = Auth.generateNonce();
 
-    const result = try client.post("/exchange/order", body);
+    // 构造 action
+    const action = .{
+        .type = "order",
+        .orders = &[_]Order{order.toApiFormat()},
+        .grouping = "na",
+    };
+
+    // 签名
+    const action_json = try std.json.stringifyAlloc(client.allocator, action, .{});
+    defer client.allocator.free(action_json);
+
+    const signature = try client.auth.signL1Action(action_json, nonce);
+
+    // 构造请求体
+    const body = .{
+        .action = action,
+        .nonce = nonce,
+        .signature = signature,
+        .vaultAddress = null,
+    };
+
+    const result = try client.post("/exchange", body);
     return try parseOrderResponse(client.allocator, result);
 }
 
-/// 撤单
+/// 撤单 (基于真实 API: cancel action)
 pub fn cancelOrder(
     client: *HyperliquidClient,
-    cancel: CancelRequest,
+    coin: []const u8,
+    oid: u64,
 ) !CancelResponse {
-    const body = try serializeCancelRequest(client.allocator, cancel);
-    defer client.allocator.free(body);
+    const nonce = Auth.generateNonce();
 
-    const result = try client.post("/exchange/cancel", body);
+    const action = .{
+        .type = "cancel",
+        .cancels = &[_]Cancel{.{
+            .a = try getAssetIndex(client, coin),  // 资产索引
+            .o = oid,
+        }},
+    };
+
+    const action_json = try std.json.stringifyAlloc(client.allocator, action, .{});
+    defer client.allocator.free(action_json);
+
+    const signature = try client.auth.signL1Action(action_json, nonce);
+
+    const body = .{
+        .action = action,
+        .nonce = nonce,
+        .signature = signature,
+        .vaultAddress = null,
+    };
+
+    const result = try client.post("/exchange", body);
     return try parseCancelResponse(client.allocator, result);
 }
 
-/// 批量撤单
-pub fn cancelOrders(
+/// 批量撤单 (基于真实 API: bulk_cancel)
+pub fn bulkCancel(
     client: *HyperliquidClient,
     cancels: []CancelRequest,
-) ![]CancelResponse {
-    const body = try serializeCancelRequests(client.allocator, cancels);
-    defer client.allocator.free(body);
-
-    const result = try client.post("/exchange/cancel_batch", body);
-    return try parseCancelResponses(client.allocator, result);
+) !CancelResponse {
+    // 类似 cancelOrder，但传递多个 cancels
+    // ...
 }
 
-/// 查询订单状态
-pub fn getOrderStatus(
+/// 修改订单 (基于真实 API: modify action)
+pub fn modifyOrder(
     client: *HyperliquidClient,
-    order_id: u64,
-) !OrderStatus {
-    const params = std.json.Value{
-        .object = .{
-            .put("oid", .{ .integer = @intCast(order_id) }),
-        },
-    };
-    const result = try client.get("/info/order_status", params);
-    return try parseOrderStatus(client.allocator, result);
+    oid: u64,
+    order: OrderRequest,
+) !OrderResponse {
+    // 实现类似 placeOrder，但 action.type = "modify"
+    // ...
 }
 
-// 数据类型
+/// 市价开仓 (基于真实 API: 使用 IOC 限价单模拟)
+pub fn marketOpen(
+    client: *HyperliquidClient,
+    coin: []const u8,
+    is_buy: bool,
+    sz: Decimal,
+    slippage: Decimal,
+) !OrderResponse {
+    // 获取当前市价
+    const mids = try client.getAllMids();
+    const mid_price = mids.get(coin) orelse return error.NoPriceData;
+
+    // 计算限价（带滑点保护）
+    const limit_px = if (is_buy)
+        mid_price.mul(Decimal.ONE.add(slippage))
+    else
+        mid_price.mul(Decimal.ONE.sub(slippage));
+
+    // 下 IOC 限价单
+    return try placeOrder(client, .{
+        .coin = coin,
+        .is_buy = is_buy,
+        .sz = sz,
+        .limit_px = limit_px,
+        .order_type = .{ .limit = .{ .tif = "Ioc" } },
+        .reduce_only = false,
+    });
+}
+
+// 数据类型 (基于真实 API)
+
+/// 订单请求 (基于真实 API 格式)
 pub const OrderRequest = struct {
     coin: []const u8,
     is_buy: bool,
@@ -426,45 +574,84 @@ pub const OrderRequest = struct {
     limit_px: Decimal,
     order_type: OrderType,
     reduce_only: bool,
+    cloid: ?[]const u8 = null,  // 客户端订单 ID (可选)
 
-    pub const OrderType = struct {
-        limit: ?LimitOrder,
+    /// 转换为 API 格式
+    pub fn toApiFormat(self: OrderRequest) Order {
+        return .{
+            .a = getAssetIndex(self.coin),  // 资产索引
+            .b = self.is_buy,
+            .p = self.limit_px.toString(),
+            .s = self.sz.toString(),
+            .r = self.reduce_only,
+            .t = self.order_type,
+            .c = self.cloid,
+        };
+    }
+};
 
-        pub const LimitOrder = struct {
-            tif: []const u8, // "Gtc", "Ioc", "Alo"
+/// API 订单格式 (基于真实 API)
+pub const Order = struct {
+    a: u32,              // 资产索引 (asset index)
+    b: bool,             // 买/卖 (true=买, false=卖)
+    p: []const u8,       // 限价 (字符串，保留精度)
+    s: []const u8,       // 数量 (字符串)
+    r: bool,             // 仅减仓 (reduce-only)
+    t: OrderType,        // 订单类型
+    c: ?[]const u8,      // 客户端订单 ID (可选)
+};
+
+/// 订单类型 (基于真实 API: 只有 Gtc, Ioc, Alo)
+pub const OrderType = struct {
+    limit: ?LimitOrder = null,
+    trigger: ?TriggerOrder = null,
+
+    pub const LimitOrder = struct {
+        tif: []const u8,  // "Gtc", "Ioc", "Alo" (无 FOK)
+    };
+
+    pub const TriggerOrder = struct {
+        triggerPx: []const u8,
+        isMarket: bool,
+        tpsl: []const u8,  // "tp" 或 "sl"
+    };
+};
+
+/// 订单响应 (基于真实 API)
+pub const OrderResponse = struct {
+    status: []const u8,  // "ok" or "err"
+    response: Response,
+
+    pub const Response = struct {
+        type_: []const u8,  // "order"
+        data: Data,
+
+        pub const Data = struct {
+            statuses: []Status,
+        };
+    };
+
+    pub const Status = union(enum) {
+        resting: RestingOrder,
+        filled: FilledOrder,
+        error: []const u8,
+
+        pub const RestingOrder = struct {
+            oid: u64,
+        };
+
+        pub const FilledOrder = struct {
+            totalSz: []const u8,
+            avgPx: []const u8,
+            oid: u64,
         };
     };
 };
 
-pub const OrderResponse = struct {
-    status: []const u8, // "ok" or "err"
-    response: union {
-        data: OrderData,
-        error: []const u8,
-    },
-
-    pub const OrderData = struct {
-        type_: []const u8, // "order"
-        data: struct {
-            statuses: []OrderStatus,
-        },
-    };
-};
-
-pub const OrderStatus = struct {
-    resting: ?RestingOrder,
-    filled: ?FilledOrder,
-    error: ?[]const u8,
-
-    pub const RestingOrder = struct {
-        oid: u64,
-    };
-
-    pub const FilledOrder = struct {
-        total_sz: Decimal,
-        avg_px: Decimal,
-        oid: u64,
-    };
+/// 撤单请求 (基于真实 API)
+pub const Cancel = struct {
+    a: u32,  // 资产索引
+    o: u64,  // 订单 ID
 };
 
 pub const CancelRequest = struct {
@@ -472,15 +659,31 @@ pub const CancelRequest = struct {
     oid: u64,
 };
 
+/// 撤单响应 (基于真实 API)
 pub const CancelResponse = struct {
     status: []const u8,
-    response: ?struct {
-        type_: []const u8,
-        data: struct {
-            statuses: [][]const u8,
-        },
-    },
+    response: ?Response,
+
+    pub const Response = struct {
+        type_: []const u8,  // "cancel"
+        data: Data,
+
+        pub const Data = struct {
+            statuses: [][]const u8,  // "success" 或错误消息
+        };
+    };
 };
+
+/// 获取资产索引 (基于真实 API: 从 meta.universe)
+fn getAssetIndex(client: *HyperliquidClient, coin: []const u8) !u32 {
+    const meta = try client.getMeta();
+    for (meta.universe, 0..) |asset, idx| {
+        if (std.mem.eql(u8, asset.name, coin)) {
+            return @intCast(idx);
+        }
+    }
+    return error.AssetNotFound;
+}
 ```
 
 #### 5. 速率限制器

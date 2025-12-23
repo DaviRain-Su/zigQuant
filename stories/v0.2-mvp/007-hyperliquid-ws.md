@@ -1,5 +1,8 @@
 # Story: Hyperliquid WebSocket 实时数据流
 
+> **更新日期**: 2025-12-23
+> **更新内容**: 基于 Hyperliquid 真实 API 规范更新（参考: [API Research](HYPERLIQUID_API_RESEARCH.md)）
+
 **ID**: `STORY-007`
 **版本**: `v0.2`
 **创建日期**: 2025-12-23
@@ -298,20 +301,42 @@ pub const HyperliquidWS = struct {
 
 const std = @import("std");
 
+// 基于真实 API: 完整的 19 种订阅类型
 pub const ChannelType = enum {
-    l2_book,        // 订单簿更新
-    trades,         // 交易数据
-    user_events,    // 用户订单事件
-    user_fills,     // 用户成交事件
-    all_mids,       // 所有币种的中间价
+    // 市场数据订阅
+    allMids,                        // 所有币种中间价
+    l2Book,                         // L2 订单簿
+    trades,                         // 交易数据
+    candle,                         // K线数据
+    bbo,                            // 最优买卖价
+    activeAssetCtx,                 // 资产上下文
+
+    // 用户数据订阅 (需要 user 参数)
+    notification,                   // 用户通知
+    webData3,                       // Web 数据
+    twapStates,                     // TWAP 状态
+    clearinghouseState,             // 账户状态
+    openOrders,                     // 未完成订单
+    orderUpdates,                   // 订单更新
+    userEvents,                     // 用户事件
+    userFills,                      // 用户成交
+    userFundings,                   // 用户资金费用
+    userNonFundingLedgerUpdates,    // 非资金费用账本
+    activeAssetData,                // 资产数据 (仅 Perps)
+    userTwapSliceFills,             // TWAP 切片成交
+    userTwapHistory,                // TWAP 历史
 };
 
 pub const Subscription = struct {
     channel: ChannelType,
-    coin: ?[]const u8, // 某些频道需要指定币种
-    user: ?[]const u8, // 用户频道需要地址
+    coin: ?[]const u8 = null,       // 某些频道需要币种 (如 l2Book, trades)
+    user: ?[]const u8 = null,       // 用户频道需要地址
+    interval: ?[]const u8 = null,   // K线周期 (如 "1h")
+    nSigFigs: ?u8 = null,           // 订单簿精度 (可选)
+    mantissa: ?u32 = null,          // 订单簿尾数 (可选)
+    aggregateByTime: ?bool = null,  // 是否按时间聚合 (userFills)
 
-    /// 生成订阅 JSON
+    /// 生成订阅 JSON (基于真实 API 格式)
     pub fn toJSON(self: Subscription, allocator: std.mem.Allocator) ![]u8 {
         var buffer = std.ArrayList(u8).init(allocator);
         defer buffer.deinit();
@@ -320,30 +345,27 @@ pub const Subscription = struct {
 
         try writer.writeAll("{\"method\":\"subscribe\",\"subscription\":{");
 
-        switch (self.channel) {
-            .l2_book => {
-                try writer.print("\"type\":\"l2Book\",\"coin\":\"{s}\"", .{
-                    self.coin.?,
-                });
-            },
-            .trades => {
-                try writer.print("\"type\":\"trades\",\"coin\":\"{s}\"", .{
-                    self.coin.?,
-                });
-            },
-            .user_events => {
-                try writer.print("\"type\":\"userEvents\",\"user\":\"{s}\"", .{
-                    self.user.?,
-                });
-            },
-            .user_fills => {
-                try writer.print("\"type\":\"userFills\",\"user\":\"{s}\"", .{
-                    self.user.?,
-                });
-            },
-            .all_mids => {
-                try writer.writeAll("\"type\":\"allMids\"");
-            },
+        // type 字段
+        try writer.print("\"type\":\"{s}\"", .{@tagName(self.channel)});
+
+        // 添加额外参数
+        if (self.coin) |coin| {
+            try writer.print(",\"coin\":\"{s}\"", .{coin});
+        }
+        if (self.user) |user| {
+            try writer.print(",\"user\":\"{s}\"", .{user});
+        }
+        if (self.interval) |interval| {
+            try writer.print(",\"interval\":\"{s}\"", .{interval});
+        }
+        if (self.nSigFigs) |n| {
+            try writer.print(",\"nSigFigs\":{d}", .{n});
+        }
+        if (self.mantissa) |m| {
+            try writer.print(",\"mantissa\":{d}", .{m});
+        }
+        if (self.aggregateByTime) |agg| {
+            try writer.print(",\"aggregateByTime\":{}", .{agg});
         }
 
         try writer.writeAll("}}");
@@ -351,10 +373,16 @@ pub const Subscription = struct {
         return buffer.toOwnedSlice();
     }
 
-    /// 生成取消订阅 JSON
+    /// 生成取消订阅 JSON (基于真实 API)
     pub fn toUnsubscribeJSON(self: Subscription, allocator: std.mem.Allocator) ![]u8 {
-        // 类似 toJSON，但 method 为 "unsubscribe"
-        // ...
+        // 将 subscribe 替换为 unsubscribe
+        const json = try self.toJSON(allocator);
+        defer allocator.free(json);
+
+        var result = try allocator.dupe(u8, json);
+        // 简单字符串替换
+        _ = std.mem.replace(u8, result, "subscribe", "unsubscribe", result);
+        return result;
     }
 };
 
@@ -403,97 +431,181 @@ pub const SubscriptionManager = struct {
 };
 ```
 
-#### 3. 消息类型
+#### 3. 消息类型 (基于真实 API)
 
 ```zig
 // src/exchange/hyperliquid/ws_types.zig
+// 基于真实 API: WebSocket 消息格式包含 channel 和 data 字段
 
 const std = @import("std");
 const Decimal = @import("../../core/decimal.zig").Decimal;
 const Timestamp = @import("../../core/time.zig").Timestamp;
 
-pub const Message = union(enum) {
-    l2_book: L2BookUpdate,
-    trade: Trade,
-    user_event: UserEvent,
-    user_fill: UserFill,
-    all_mids: AllMids,
-    error_msg: ErrorMessage,
-    pong: void,
+/// WebSocket 消息基础结构 (基于真实 API)
+pub const WsMessage = struct {
+    channel: []const u8,  // 频道名称 (如 "l2Book", "trades")
+    data: std.json.Value, // 数据内容
 };
 
-/// L2 订单簿更新
-pub const L2BookUpdate = struct {
+/// 订阅确认消息 (基于真实 API)
+pub const SubscriptionResponse = struct {
+    channel: []const u8,  // "subscriptionResponse"
+    data: struct {
+        method: []const u8,       // "subscribe" 或 "unsubscribe"
+        subscription: std.json.Value,
+    },
+};
+
+pub const Message = union(enum) {
+    l2_book: WsBook,
+    trades: []WsTrade,
+    user_fills: WsUserFills,
+    user_events: WsUserEvent,
+    order_updates: []WsOrder,
+    all_mids: AllMids,
+    candle: []Candle,
+    clearinghouse_state: ClearinghouseState,
+    subscription_response: SubscriptionResponse,
+    pong: void,
+    unknown: []const u8,
+};
+
+/// L2 订单簿更新 (基于真实 API: WsBook)
+pub const WsBook = struct {
     coin: []const u8,
     time: Timestamp,
-    levels: [2][]Level, // [bids, asks]
+    levels: [2][]Level,  // [0]=bids, [1]=asks
 
     pub const Level = struct {
-        px: Decimal,
-        sz: Decimal,
-        n: u32, // 订单数量
+        px: []const u8,  // 价格 (字符串)
+        sz: []const u8,  // 数量 (字符串)
+        n: u32,          // 订单数量
     };
 };
 
-/// 交易数据
-pub const Trade = struct {
+/// 交易数据 (基于真实 API: WsTrade)
+pub const WsTrade = struct {
     coin: []const u8,
-    side: []const u8, // "A" (ask) or "B" (bid)
-    px: Decimal,
-    sz: Decimal,
+    side: []const u8,    // "B" (买) 或 "A" (卖)
+    px: []const u8,      // 价格
+    sz: []const u8,      // 数量
     time: Timestamp,
     hash: []const u8,
+    tid: ?u64 = null,    // 交易 ID (可选)
 };
 
-/// 用户订单事件
-pub const UserEvent = struct {
+/// 用户成交数据 (基于真实 API: WsUserFills)
+pub const WsUserFills = struct {
+    isSnapshot: bool,           // 是否为快照
     user: []const u8,
-    event_type: EventType,
-    order: ?OrderUpdate,
+    fills: []UserFill,
 
-    pub const EventType = enum {
-        order_placed,
-        order_cancelled,
-        order_filled,
-        order_rejected,
+    pub const UserFill = struct {
+        coin: []const u8,
+        px: []const u8,
+        sz: []const u8,
+        side: []const u8,
+        time: Timestamp,
+        startPosition: []const u8,
+        dir: []const u8,        // "Open Long", "Close Short", 等
+        closedPnl: []const u8,
+        hash: []const u8,
+        oid: u64,
+        crossed: bool,
+        fee: []const u8,
+        feeToken: []const u8,   // 手续费币种
+        tid: u64,
+        builderFee: ?[]const u8 = null,
+    };
+};
+
+/// 用户事件 (基于真实 API: WsUserEvent)
+pub const WsUserEvent = union(enum) {
+    fills: []WsUserFills.UserFill,
+    funding: FundingEvent,
+    liquidation: LiquidationEvent,
+    nonUserCancel: []CancelEvent,
+
+    pub const FundingEvent = struct {
+        time: Timestamp,
+        coin: []const u8,
+        usdc: []const u8,
+        szi: []const u8,
+        fundingRate: []const u8,
     };
 
-    pub const OrderUpdate = struct {
+    pub const LiquidationEvent = struct {
+        // 清算事件字段
+        // ...
+    };
+
+    pub const CancelEvent = struct {
+        coin: []const u8,
         oid: u64,
+    };
+};
+
+/// 订单更新 (基于真实 API: WsOrder)
+pub const WsOrder = struct {
+    order: Order,
+    status: []const u8,
+    statusTimestamp: Timestamp,
+
+    pub const Order = struct {
         coin: []const u8,
         side: []const u8,
-        px: Decimal,
-        sz: Decimal,
+        limitPx: []const u8,
+        sz: []const u8,
+        oid: u64,
         timestamp: Timestamp,
+        origSz: []const u8,
+        cloid: ?[]const u8 = null,
     };
 };
 
-/// 用户成交事件
-pub const UserFill = struct {
-    user: []const u8,
-    coin: []const u8,
-    px: Decimal,
-    sz: Decimal,
-    side: []const u8,
+/// 账户状态 (基于真实 API: ClearinghouseState)
+pub const ClearinghouseState = struct {
+    assetPositions: []AssetPosition,
+    marginSummary: MarginSummary,
+    crossMarginSummary: MarginSummary,
+    withdrawable: []const u8,
     time: Timestamp,
-    start_position: Decimal,
-    dir: []const u8, // "Open Long", "Close Short", etc.
-    closed_pnl: Decimal,
-    hash: []const u8,
-    oid: u64,
-    crossed: bool,
-    fee: Decimal,
+
+    pub const AssetPosition = struct {
+        position: Position,
+        type_: []const u8,
+    };
+
+    pub const Position = struct {
+        coin: []const u8,
+        szi: []const u8,
+        entryPx: []const u8,
+        // ... 其他字段
+    };
+
+    pub const MarginSummary = struct {
+        accountValue: []const u8,
+        totalMarginUsed: []const u8,
+        totalNtlPos: []const u8,
+        totalRawUsd: []const u8,
+    };
 };
 
-/// 所有币种中间价
-pub const AllMids = struct {
-    mids: std.StringHashMap(Decimal),
-};
+/// 所有币种中间价 (基于真实 API)
+pub const AllMids = std.StringHashMap([]const u8);
 
-/// 错误消息
-pub const ErrorMessage = struct {
-    error_type: []const u8,
-    message: []const u8,
+/// K线数据
+pub const Candle = struct {
+    t: Timestamp,       // 时间
+    T: Timestamp,       // 结束时间
+    s: []const u8,      // 币种
+    i: []const u8,      // 周期
+    o: []const u8,      // 开盘价
+    h: []const u8,      // 最高价
+    l: []const u8,      // 最低价
+    c: []const u8,      // 收盘价
+    v: []const u8,      // 成交量
+    n: u64,             // 成交数
 };
 ```
 

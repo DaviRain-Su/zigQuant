@@ -1,5 +1,8 @@
 # Story: 订单管理器
 
+> **更新日期**: 2025-12-23
+> **更新内容**: 基于 Hyperliquid 真实 API 规范更新（参考: [API Research](HYPERLIQUID_API_RESEARCH.md)）
+
 **ID**: `STORY-010`
 **版本**: `v0.2`
 **创建日期**: 2025-12-23
@@ -120,7 +123,7 @@ pub const OrderManager = struct {
         self.order_store.deinit();
     }
 
-    /// 提交订单
+    /// 提交订单 (基于真实 API)
     pub fn submitOrder(self: *OrderManager, order: *Order) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -138,7 +141,7 @@ pub const OrderManager = struct {
             if (order.price) |p| p.toFloat() else null,
         });
 
-        // 构造请求
+        // 构造请求 (基于真实 API: {a, b, p, s, r, t, c})
         const request = ExchangeAPI.OrderRequest{
             .coin = order.symbol,
             .is_buy = (order.side == .buy),
@@ -146,33 +149,45 @@ pub const OrderManager = struct {
             .limit_px = order.price orelse Decimal.ZERO,
             .order_type = .{
                 .limit = if (order.order_type == .limit) .{
-                    .tif = order.time_in_force.toString(),
+                    .tif = order.time_in_force.toString(), // "Gtc", "Ioc", "Alo"
                 } else null,
             },
             .reduce_only = order.reduce_only,
+            .cloid = order.client_order_id, // 客户端订单 ID (可选)
         };
 
-        // 提交到交易所
+        // 提交到交易所 (基于真实 API: grouping = "na")
         const response = try ExchangeAPI.placeOrder(self.http_client, request);
 
-        // 处理响应
+        // 处理响应 (基于真实 API: resting, filled, error)
         if (std.mem.eql(u8, response.status, "ok")) {
-            if (response.response.data.data.statuses.len > 0) {
-                const status = response.response.data.data.statuses[0];
+            if (response.response.data.statuses.len > 0) {
+                const status = response.response.data.statuses[0];
 
-                if (status.resting) |resting| {
-                    order.exchange_order_id = resting.oid;
-                    order.updateStatus(.open);
-                    self.logger.info("Order placed successfully: OID={}", .{resting.oid});
-                } else if (status.filled) |filled| {
-                    order.exchange_order_id = filled.oid;
-                    order.updateFill(filled.total_sz, filled.avg_px, Decimal.ZERO);
-                    self.logger.info("Order filled immediately: OID={}", .{filled.oid});
-                } else if (status.error) |err_msg| {
-                    order.updateStatus(.rejected);
-                    order.error_message = try self.allocator.dupe(u8, err_msg);
-                    self.logger.err("Order rejected: {s}", .{err_msg});
-                    return Error.OrderRejected;
+                switch (status) {
+                    .resting => |resting| {
+                        // 订单挂单成功
+                        order.exchange_order_id = resting.oid;
+                        order.updateStatus(.open);
+                        self.logger.info("Order resting: OID={}", .{resting.oid});
+                    },
+                    .filled => |filled| {
+                        // 订单立即成交
+                        order.exchange_order_id = filled.oid;
+                        const total_sz = try Decimal.fromString(filled.totalSz);
+                        const avg_px = try Decimal.fromString(filled.avgPx);
+                        order.updateFill(total_sz, avg_px, Decimal.ZERO);
+                        self.logger.info("Order filled: OID={} {} @ {}", .{
+                            filled.oid, filled.totalSz, filled.avgPx,
+                        });
+                    },
+                    .error => |err_msg| {
+                        // 订单被拒绝
+                        order.updateStatus(.rejected);
+                        order.error_message = try self.allocator.dupe(u8, err_msg);
+                        self.logger.err("Order rejected: {s}", .{err_msg});
+                        return Error.OrderRejected;
+                    },
                 }
             }
 
@@ -184,14 +199,14 @@ pub const OrderManager = struct {
             }
         } else {
             order.updateStatus(.rejected);
-            const err_msg = response.response.error;
+            const err_msg = response.response;
             order.error_message = try self.allocator.dupe(u8, err_msg);
             self.logger.err("Order submission failed: {s}", .{err_msg});
             return Error.OrderRejected;
         }
     }
 
-    /// 取消订单
+    /// 取消订单 (基于真实 API: {a, o})
     pub fn cancelOrder(self: *OrderManager, order: *Order) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -202,6 +217,7 @@ pub const OrderManager = struct {
 
         self.logger.info("Cancelling order: OID={?}", .{order.exchange_order_id});
 
+        // 基于真实 API: CancelRequest {a, o}
         const request = ExchangeAPI.CancelRequest{
             .coin = order.symbol,
             .oid = order.exchange_order_id.?,
@@ -209,17 +225,54 @@ pub const OrderManager = struct {
 
         const response = try ExchangeAPI.cancelOrder(self.http_client, request);
 
+        // 处理响应 (基于真实 API: statuses 数组)
         if (std.mem.eql(u8, response.status, "ok")) {
-            order.updateStatus(.cancelled);
-            try self.order_store.update(order);
-
-            self.logger.info("Order cancelled successfully: OID={?}", .{order.exchange_order_id});
+            if (response.response) |resp| {
+                if (resp.data.statuses.len > 0) {
+                    const status = resp.data.statuses[0];
+                    if (std.mem.eql(u8, status, "success")) {
+                        order.updateStatus(.cancelled);
+                        try self.order_store.update(order);
+                        self.logger.info("Order cancelled successfully: OID={?}", .{order.exchange_order_id});
+                    } else {
+                        // 错误消息（如 "Order was never placed, already canceled, or filled."）
+                        self.logger.err("Failed to cancel order: {s}", .{status});
+                        return Error.CancelOrderFailed;
+                    }
+                }
+            }
 
             if (self.on_order_update) |callback| {
                 callback(order);
             }
         } else {
             self.logger.err("Failed to cancel order: OID={?}", .{order.exchange_order_id});
+            return Error.CancelOrderFailed;
+        }
+    }
+
+    /// 根据 CLOID 取消订单 (基于真实 API: cancelByCloid)
+    pub fn cancelOrderByCloid(
+        self: *OrderManager,
+        coin: []const u8,
+        cloid: []const u8,
+    ) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        self.logger.info("Cancelling order by CLOID: {s}", .{cloid});
+
+        const response = try ExchangeAPI.cancelByCloid(self.http_client, coin, cloid);
+
+        if (std.mem.eql(u8, response.status, "ok")) {
+            // 更新本地订单状态
+            if (self.order_store.getByClientId(cloid)) |order| {
+                order.updateStatus(.cancelled);
+                try self.order_store.update(order);
+            }
+            self.logger.info("Order cancelled by CLOID: {s}", .{cloid});
+        } else {
+            self.logger.err("Failed to cancel order by CLOID: {s}", .{cloid});
             return Error.CancelOrderFailed;
         }
     }
@@ -299,56 +352,105 @@ pub const OrderManager = struct {
         return try self.order_store.getHistory(symbol, limit);
     }
 
-    /// 处理 WebSocket 订单事件
-    pub fn handleUserEvent(self: *OrderManager, event: UserEvent) !void {
+    /// 处理 WebSocket 用户事件 (基于真实 API: fills, funding, liquidation, nonUserCancel)
+    pub fn handleUserEvent(self: *OrderManager, event: WsUserEvent) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        const order = self.order_store.getByExchangeId(event.order.?.oid) orelse {
-            self.logger.warn("Received event for unknown order: OID={}", .{event.order.?.oid});
-            return;
-        };
-
-        switch (event.event_type) {
-            .order_placed => {
-                order.updateStatus(.open);
+        switch (event) {
+            .fills => |fills| {
+                // 处理成交事件数组
+                for (fills) |fill| {
+                    try self.handleUserFill(fill);
+                }
             },
-            .order_cancelled => {
-                order.updateStatus(.cancelled);
+            .funding => |funding| {
+                // 资金费用事件（通常不影响订单状态）
+                self.logger.info("Funding event: {s} {s} USDC", .{
+                    funding.coin, funding.usdc,
+                });
             },
-            .order_filled => {
-                order.updateStatus(.filled);
+            .liquidation => |liquidation| {
+                // 清算事件
+                self.logger.warn("Liquidation event: {}", .{liquidation});
             },
-            .order_rejected => {
-                order.updateStatus(.rejected);
+            .nonUserCancel => |cancels| {
+                // 非用户主动撤单（如系统撤单）
+                for (cancels) |cancel| {
+                    if (self.order_store.getByExchangeId(cancel.oid)) |order| {
+                        order.updateStatus(.cancelled);
+                        try self.order_store.update(order);
+                        self.logger.warn("Order cancelled by system: OID={}", .{cancel.oid});
+                    }
+                }
             },
-        }
-
-        try self.order_store.update(order);
-
-        if (self.on_order_update) |callback| {
-            callback(order);
         }
     }
 
-    /// 处理 WebSocket 成交事件
-    pub fn handleUserFill(self: *OrderManager, fill: UserFill) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
+    /// 处理 WebSocket 成交事件 (基于真实 API: dir, closedPnl, feeToken)
+    pub fn handleUserFill(self: *OrderManager, fill: WsUserFills.UserFill) !void {
         const order = self.order_store.getByExchangeId(fill.oid) orelse {
             self.logger.warn("Received fill for unknown order: OID={}", .{fill.oid});
             return;
         };
 
-        order.updateFill(fill.sz, fill.px, fill.fee);
+        // 解析成交数据 (基于真实 API: 字符串格式)
+        const sz = try Decimal.fromString(fill.sz);
+        const px = try Decimal.fromString(fill.px);
+        const fee = try Decimal.fromString(fill.fee);
+
+        // 更新订单成交信息
+        order.updateFill(sz, px, fee);
         try self.order_store.update(order);
 
-        self.logger.info("Order fill: OID={} {} @ {}", .{
-            fill.oid, fill.sz.toFloat(), fill.px.toFloat(),
+        // 基于真实 API: dir 字段 ("Open Long", "Close Short", "Open Short", "Close Long")
+        const is_opening = std.mem.indexOf(u8, fill.dir, "Open") != null;
+
+        self.logger.info("Order fill: OID={} {} @ {} (dir: {s}, fee: {} {s})", .{
+            fill.oid, fill.sz, fill.px, fill.dir, fill.fee, fill.feeToken,
         });
 
+        // 如果包含 closedPnl，记录已实现盈亏
+        if (!std.mem.eql(u8, fill.closedPnl, "0.0")) {
+            const closed_pnl = try Decimal.fromString(fill.closedPnl);
+            self.logger.info("Closed PnL: {}", .{closed_pnl.toFloat()});
+        }
+
         if (self.on_order_fill) |callback| {
+            callback(order);
+        }
+    }
+
+    /// 处理订单更新事件 (基于真实 API: orderUpdates WebSocket)
+    pub fn handleOrderUpdate(self: *OrderManager, ws_order: WsOrder) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const order = self.order_store.getByExchangeId(ws_order.order.oid) orelse {
+            self.logger.warn("Received update for unknown order: OID={}", .{ws_order.order.oid});
+            return;
+        };
+
+        // 基于真实 API: status 字段 ("resting", "filled", "canceled", "triggered", "rejected")
+        if (std.mem.eql(u8, ws_order.status, "resting")) {
+            order.updateStatus(.open);
+        } else if (std.mem.eql(u8, ws_order.status, "filled")) {
+            order.updateStatus(.filled);
+        } else if (std.mem.eql(u8, ws_order.status, "canceled")) {
+            order.updateStatus(.cancelled);
+        } else if (std.mem.eql(u8, ws_order.status, "triggered")) {
+            order.updateStatus(.triggered);
+        } else if (std.mem.eql(u8, ws_order.status, "rejected")) {
+            order.updateStatus(.rejected);
+        }
+
+        try self.order_store.update(order);
+
+        self.logger.info("Order update: OID={} -> {s}", .{
+            ws_order.order.oid, ws_order.status,
+        });
+
+        if (self.on_order_update) |callback| {
             callback(order);
         }
     }
