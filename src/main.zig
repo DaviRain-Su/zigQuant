@@ -87,10 +87,8 @@ pub fn main() !void {
     // Demo 1: Console Logger with structured fields
     std.debug.print("Demo 1: Console Logger (stderr)\n", .{});
     {
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-
-        var console = zigQuant.ConsoleWriter.init(&stderr_writer.interface);
+        const ConsoleWriterType = zigQuant.ConsoleWriter(std.fs.File);
+        var console = ConsoleWriterType.init(allocator, std.fs.File.stderr());
         defer console.deinit();
 
         var log = zigQuant.Logger.init(allocator, console.writer(), .debug);
@@ -100,18 +98,13 @@ pub fn main() !void {
         try log.info("交易系统初始化", .{ .symbols = 5, .exchanges = 2 });
         try log.warn("API 延迟较高", .{ .latency_ms = 250, .threshold_ms = 100 });
         try log.err("订单执行失败", .{ .order_id = "ORD001", .reason = "insufficient_balance" });
-
-        // 刷新缓冲区
-        try stderr_writer.interface.flush();
     }
 
     // Demo 2: JSON Logger
     std.debug.print("\nDemo 2: JSON Logger (stdout)\n", .{});
     {
-        var stdout_buffer: [4096]u8 = undefined;
-        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-
-        var json = zigQuant.JSONWriter.init(&stdout_writer.interface);
+        const JSONWriterType = zigQuant.JSONWriter(std.fs.File);
+        var json = JSONWriterType.init(allocator, std.fs.File.stdout());
 
         var log = zigQuant.Logger.init(allocator, json.writer(), .info);
         defer log.deinit();
@@ -130,9 +123,6 @@ pub fn main() !void {
             .executed_price = 50100.0,
             .fee = 75.15,
         });
-
-        // 刷新缓冲区
-        try stdout_writer.interface.flush();
     }
 
     // Demo 3: File Logger
@@ -160,10 +150,8 @@ pub fn main() !void {
     // Demo 4: Log level filtering
     std.debug.print("\nDemo 4: 日志级别过滤 (只显示 warn 及以上)\n", .{});
     {
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-
-        var console = zigQuant.ConsoleWriter.init(&stderr_writer.interface);
+        const ConsoleWriterType = zigQuant.ConsoleWriter(std.fs.File);
+        var console = ConsoleWriterType.init(allocator, std.fs.File.stderr());
         defer console.deinit();
 
         var log = zigQuant.Logger.init(allocator, console.writer(), .warn);
@@ -173,18 +161,13 @@ pub fn main() !void {
         try log.info("普通信息", .{}); // 不会显示
         try log.warn("警告信息", .{ .code = 404 }); // 会显示
         try log.err("错误信息", .{ .error_type = "NetworkError" }); // 会显示
-
-        // 刷新缓冲区
-        try stderr_writer.interface.flush();
     }
 
     // Demo 5: All log levels
     std.debug.print("\nDemo 5: 所有日志级别\n", .{});
     {
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-
-        var console = zigQuant.ConsoleWriter.init(&stderr_writer.interface);
+        const ConsoleWriterType = zigQuant.ConsoleWriter(std.fs.File);
+        var console = ConsoleWriterType.init(allocator, std.fs.File.stderr());
         defer console.deinit();
 
         var log = zigQuant.Logger.init(allocator, console.writer(), .trace);
@@ -196,9 +179,79 @@ pub fn main() !void {
         try log.warn("警告信息", .{ .memory_usage = 85 });
         try log.err("错误信息", .{ .error_code = 500 });
         try log.fatal("致命错误", .{ .reason = "system_crash" });
+    }
 
-        // 刷新缓冲区
-        try stderr_writer.interface.flush();
+    std.debug.print("\n=== zigQuant - Config Module Demo ===\n\n", .{});
+
+    // Demo: Load configuration from JSON
+    std.debug.print("Demo: 从 JSON 加载配置\n", .{});
+    {
+        const config_json =
+            \\{
+            \\  "server": {
+            \\    "host": "0.0.0.0",
+            \\    "port": 8080
+            \\  },
+            \\  "exchanges": [
+            \\    {
+            \\      "name": "binance",
+            \\      "api_key": "your-api-key-here",
+            \\      "api_secret": "your-api-secret-here",
+            \\      "testnet": true
+            \\    },
+            \\    {
+            \\      "name": "okx",
+            \\      "api_key": "okx-api-key",
+            \\      "api_secret": "okx-api-secret",
+            \\      "testnet": false
+            \\    }
+            \\  ],
+            \\  "trading": {
+            \\    "max_position_size": 10000.0,
+            \\    "leverage": 3,
+            \\    "risk_limit": 0.02
+            \\  },
+            \\  "logging": {
+            \\    "level": "info",
+            \\    "max_size": 20000000
+            \\  }
+            \\}
+        ;
+
+        const config_parsed = try zigQuant.ConfigLoader.loadFromJSON(
+            allocator,
+            config_json,
+            zigQuant.AppConfig,
+        );
+        defer config_parsed.deinit();
+
+        const config = config_parsed.value;
+
+        std.debug.print("服务器配置: {s}:{}\n", .{ config.server.host, config.server.port });
+        std.debug.print("交易所数量: {}\n", .{config.exchanges.len});
+
+        for (config.exchanges) |exchange| {
+            std.debug.print("  - {s} (testnet: {})\n", .{ exchange.name, exchange.testnet });
+        }
+
+        std.debug.print("交易配置:\n", .{});
+        std.debug.print("  最大持仓: {d}\n", .{config.trading.max_position_size});
+        std.debug.print("  杠杆倍数: {}\n", .{config.trading.leverage});
+        std.debug.print("  风险限制: {d}\n", .{config.trading.risk_limit});
+
+        // Test sanitize - hide sensitive information
+        const sanitized = try config.sanitize(allocator);
+        defer allocator.free(sanitized.exchanges);
+
+        std.debug.print("\n敏感信息保护 (sanitized):\n", .{});
+        for (sanitized.exchanges) |exchange| {
+            std.debug.print("  - {s}: api_key={s}\n", .{ exchange.name, exchange.api_key });
+        }
+
+        // Test getExchange
+        if (config.getExchange("binance")) |binance| {
+            std.debug.print("\n查找交易所 'binance': 找到 (testnet={})\n", .{binance.testnet});
+        }
     }
 
     std.debug.print("\n=== Demo Complete ===\n", .{});

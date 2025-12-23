@@ -7,6 +7,7 @@ const std = @import("std");
 pub const time = @import("core/time.zig");
 pub const errors = @import("core/errors.zig");
 pub const logger = @import("core/logger.zig");
+pub const config = @import("core/config.zig");
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -32,10 +33,20 @@ pub const FileWriter = logger.FileWriter;
 pub const JSONWriter = logger.JSONWriter;
 pub const StdLogWriter = logger.StdLogWriter;
 
+// Re-export config types
+pub const AppConfig = config.AppConfig;
+pub const ServerConfig = config.ServerConfig;
+pub const ExchangeConfig = config.ExchangeConfig;
+pub const TradingConfig = config.TradingConfig;
+pub const LoggingConfig = config.LoggingConfig;
+pub const ConfigLoader = config.ConfigLoader;
+pub const ConfigError = config.ConfigError;
+
 test {
     // Run tests from all modules
     std.testing.refAllDecls(@This());
     _ = time;
     _ = errors;
     _ = logger;
+    _ = config;
 }

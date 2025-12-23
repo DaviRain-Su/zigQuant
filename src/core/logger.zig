@@ -252,60 +252,87 @@ fn valueFromAny(value: anytype) !Value {
 // ============================================================================
 
 /// Console writer (outputs to stdout/stderr)
-pub const ConsoleWriter = struct {
-    underlying_writer: *std.io.Writer,
-    mutex: std.Thread.Mutex = .{},
+/// Generic over the underlying writer type
+pub fn ConsoleWriter(comptime WriterType: type) type {
+    return struct {
+        underlying_writer: WriterType,
+        allocator: Allocator,
+        mutex: std.Thread.Mutex = .{},
 
-    pub fn init(underlying: *std.io.Writer) ConsoleWriter {
-        return .{
-            .underlying_writer = underlying,
-        };
-    }
+        const Self = @This();
 
-    pub fn deinit(self: *ConsoleWriter) void {
-        _ = self;
-    }
-
-    pub fn writer(self: *ConsoleWriter) LogWriter {
-        return LogWriter{
-            .ptr = self,
-            .writeFn = writeFn,
-            .flushFn = flushFn,
-            .closeFn = closeFn,
-        };
-    }
-
-    fn writeFn(ptr: *anyopaque, record: LogRecord) anyerror!void {
-        const self: *ConsoleWriter = @ptrCast(@alignCast(ptr));
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        const w = self.underlying_writer;
-
-        // Format: [LEVEL] timestamp message key1=value1 key2=value2
-        try w.print("[{s}] {} {s}", .{
-            record.level.toString(),
-            record.timestamp,
-            record.message,
-        });
-
-        for (record.fields) |field| {
-            try w.print(" {s}=", .{field.key});
-            try field.value.format(w);
+        pub fn init(allocator: Allocator, underlying: WriterType) Self {
+            return .{
+                .allocator = allocator,
+                .underlying_writer = underlying,
+            };
         }
 
-        try w.writeAll("\n");
-    }
+        pub fn deinit(self: *Self) void {
+            _ = self;
+        }
 
-    fn flushFn(ptr: *anyopaque) anyerror!void {
-        _ = ptr;
-        // Console typically auto-flushes
-    }
+        pub fn writer(self: *Self) LogWriter {
+            return LogWriter{
+                .ptr = self,
+                .writeFn = writeFn,
+                .flushFn = flushFn,
+                .closeFn = closeFn,
+            };
+        }
 
-    fn closeFn(ptr: *anyopaque) void {
-        _ = ptr;
-    }
-};
+        fn writeFn(ptr: *anyopaque, record: LogRecord) anyerror!void {
+            const self: *Self = @ptrCast(@alignCast(ptr));
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            var buf = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+            defer buf.deinit(self.allocator);
+
+            // Format: [LEVEL] timestamp message key1=value1 key2=value2
+            const w = buf.writer(self.allocator);
+            try w.print("[{s}] {} {s}", .{
+                record.level.toString(),
+                record.timestamp,
+                record.message,
+            });
+
+            for (record.fields) |field| {
+                try w.print(" {s}=", .{field.key});
+                switch (field.value) {
+                    .string => |s| try w.print("{s}", .{s}),
+                    .int => |i| try w.print("{}", .{i}),
+                    .uint => |u| try w.print("{}", .{u}),
+                    .float => |f| try w.print("{d}", .{f}),
+                    .bool => |b| try w.print("{}", .{b}),
+                }
+            }
+
+            try buf.append(self.allocator, '\n');
+
+            // Handle different writer types
+            if (WriterType == std.fs.File) {
+                // Direct File write
+                _ = try self.underlying_writer.writeAll(buf.items);
+            } else if (@hasField(WriterType, "interface")) {
+                // BufferedWriter (has .interface field)
+                try self.underlying_writer.interface.writeAll(buf.items);
+            } else {
+                // GenericWriter (direct methods)
+                try self.underlying_writer.writeAll(buf.items);
+            }
+        }
+
+        fn flushFn(ptr: *anyopaque) anyerror!void {
+            _ = ptr;
+            // Console typically auto-flushes
+        }
+
+        fn closeFn(ptr: *anyopaque) void {
+            _ = ptr;
+        }
+    };
+}
 
 // ============================================================================
 // File Writer
@@ -352,9 +379,11 @@ pub const FileWriter = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var file_writer = self.file.writer(&self.buffer);
-        const w = &file_writer.interface;
+        // Build the log message in a buffer
+        var buf = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer buf.deinit(self.allocator);
 
+        const w = buf.writer(self.allocator);
         try w.print("[{s}] {} {s}", .{
             record.level.toString(),
             record.timestamp,
@@ -367,6 +396,9 @@ pub const FileWriter = struct {
         }
 
         try w.writeAll("\n");
+
+        // Write directly to file
+        _ = try self.file.writeAll(buf.items);
     }
 
     fn flushFn(ptr: *anyopaque) anyerror!void {
@@ -385,59 +417,80 @@ pub const FileWriter = struct {
 // ============================================================================
 
 /// JSON writer (outputs JSON format)
-pub const JSONWriter = struct {
-    underlying_writer: *std.io.Writer,
-    mutex: std.Thread.Mutex = .{},
+/// Generic over the underlying writer type
+pub fn JSONWriter(comptime WriterType: type) type {
+    return struct {
+        underlying_writer: WriterType,
+        allocator: Allocator,
+        mutex: std.Thread.Mutex = .{},
 
-    pub fn init(underlying: *std.io.Writer) JSONWriter {
-        return .{
-            .underlying_writer = underlying,
-        };
-    }
+        const Self = @This();
 
-    pub fn writer(self: *JSONWriter) LogWriter {
-        return LogWriter{
-            .ptr = self,
-            .writeFn = writeFn,
-            .flushFn = flushFn,
-            .closeFn = closeFn,
-        };
-    }
+        pub fn init(allocator: Allocator, underlying: WriterType) Self {
+            return .{
+                .allocator = allocator,
+                .underlying_writer = underlying,
+            };
+        }
 
-    fn writeFn(ptr: *anyopaque, record: LogRecord) anyerror!void {
-        const self: *JSONWriter = @ptrCast(@alignCast(ptr));
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        pub fn writer(self: *Self) LogWriter {
+            return LogWriter{
+                .ptr = self,
+                .writeFn = writeFn,
+                .flushFn = flushFn,
+                .closeFn = closeFn,
+            };
+        }
 
-        const w = self.underlying_writer;
+        fn writeFn(ptr: *anyopaque, record: LogRecord) anyerror!void {
+            const self: *Self = @ptrCast(@alignCast(ptr));
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
-        try w.writeAll("{");
-        try w.print("\"level\":\"{s}\",", .{record.level.toString()});
-        try w.print("\"msg\":\"{s}\",", .{record.message});
-        try w.print("\"timestamp\":{}", .{record.timestamp});
+            var buf = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+            defer buf.deinit(self.allocator);
 
-        for (record.fields) |field| {
-            try w.print(",\"{s}\":", .{field.key});
-            switch (field.value) {
-                .string => |s| try w.print("\"{s}\"", .{s}),
-                .int => |i| try w.print("{}", .{i}),
-                .uint => |u| try w.print("{}", .{u}),
-                .float => |f| try w.print("{d}", .{f}),
-                .bool => |b| try w.writeAll(if (b) "true" else "false"),
+            const w = buf.writer(self.allocator);
+            try w.writeAll("{");
+            try w.print("\"level\":\"{s}\",", .{record.level.toString()});
+            try w.print("\"msg\":\"{s}\",", .{record.message});
+            try w.print("\"timestamp\":{}", .{record.timestamp});
+
+            for (record.fields) |field| {
+                try w.print(",\"{s}\":", .{field.key});
+                switch (field.value) {
+                    .string => |s| try w.print("\"{s}\"", .{s}),
+                    .int => |i| try w.print("{}", .{i}),
+                    .uint => |u| try w.print("{}", .{u}),
+                    .float => |f| try w.print("{d}", .{f}),
+                    .bool => |b| try w.writeAll(if (b) "true" else "false"),
+                }
+            }
+
+            try w.writeAll("}\n");
+
+            // Handle different writer types
+            if (WriterType == std.fs.File) {
+                // Direct File write
+                _ = try self.underlying_writer.writeAll(buf.items);
+            } else if (@hasField(WriterType, "interface")) {
+                // BufferedWriter (has .interface field)
+                try self.underlying_writer.interface.writeAll(buf.items);
+            } else {
+                // GenericWriter (direct methods)
+                try self.underlying_writer.writeAll(buf.items);
             }
         }
 
-        try w.writeAll("}\n");
-    }
+        fn flushFn(ptr: *anyopaque) anyerror!void {
+            _ = ptr;
+        }
 
-    fn flushFn(ptr: *anyopaque) anyerror!void {
-        _ = ptr;
-    }
-
-    fn closeFn(ptr: *anyopaque) void {
-        _ = ptr;
-    }
-};
+        fn closeFn(ptr: *anyopaque) void {
+            _ = ptr;
+        }
+    };
+}
 
 // ============================================================================
 // StdLogWriter - Bridge to std.log
@@ -554,7 +607,8 @@ test "Logger basic" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    var console = ConsoleWriter.init(fbs.writer().any());
+    const WriterType = @TypeOf(fbs.writer());
+    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
     defer console.deinit();
 
     var log = Logger.init(std.testing.allocator, console.writer(), .info);
@@ -570,7 +624,8 @@ test "Logger with fields" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    var console = ConsoleWriter.init(fbs.writer().any());
+    const WriterType = @TypeOf(fbs.writer());
+    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
     var log = Logger.init(std.testing.allocator, console.writer(), .debug);
     defer log.deinit();
 
@@ -584,7 +639,8 @@ test "Logger level filtering" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    var console = ConsoleWriter.init(fbs.writer().any());
+    const WriterType = @TypeOf(fbs.writer());
+    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
     var log = Logger.init(std.testing.allocator, console.writer(), .warn);
     defer log.deinit();
 
@@ -605,7 +661,8 @@ test "JSONWriter" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    var json = JSONWriter.init(fbs.writer().any());
+    const WriterType = @TypeOf(fbs.writer());
+    var json = JSONWriter(WriterType).init(std.testing.allocator, fbs.writer());
     var log = Logger.init(std.testing.allocator, json.writer(), .info);
     defer log.deinit();
 
@@ -622,7 +679,8 @@ test "StdLogWriter bridge" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    var console = ConsoleWriter.init(fbs.writer().any());
+    const WriterType = @TypeOf(fbs.writer());
+    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
     var log = Logger.init(std.testing.allocator, console.writer(), .debug);
     defer log.deinit();
 
@@ -642,7 +700,8 @@ test "StdLogWriter with formatting" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    var console = ConsoleWriter.init(fbs.writer().any());
+    const WriterType = @TypeOf(fbs.writer());
+    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
     var log = Logger.init(std.testing.allocator, console.writer(), .debug);
     defer log.deinit();
 
