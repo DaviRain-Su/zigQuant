@@ -9,6 +9,7 @@
 ## 📖 项目文档
 
 ### 核心文档
+- **[📊 项目进度](./docs/PROGRESS.md)** - 完整的项目进度跟踪和状态 ⭐
 - [项目大纲](./docs/PROJECT_OUTLINE.md) - 项目愿景、阶段规划和路线图
 - [架构设计](./docs/ARCHITECTURE.md) - 系统架构和设计决策
 - [功能补充说明](./docs/FEATURES_SUPPLEMENT.md) - 各模块功能详细说明
