@@ -15,6 +15,7 @@ pub const exchange_types = @import("exchange/types.zig");
 pub const exchange_interface = @import("exchange/interface.zig");
 pub const exchange_registry = @import("exchange/registry.zig");
 pub const exchange_symbol_mapper = @import("exchange/symbol_mapper.zig");
+pub const hyperliquid_connector = @import("exchange/hyperliquid/connector.zig");
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -67,6 +68,7 @@ pub const Position = exchange_types.Position;
 pub const ExchangeRegistry = exchange_registry.ExchangeRegistry;
 pub const SymbolMapper = exchange_symbol_mapper;
 pub const ExchangeType = exchange_symbol_mapper.ExchangeType;
+pub const HyperliquidConnector = hyperliquid_connector.HyperliquidConnector;
 
 test {
     // Run tests from all modules
@@ -80,4 +82,5 @@ test {
     _ = exchange_interface;
     _ = exchange_registry;
     _ = exchange_symbol_mapper;
+    _ = hyperliquid_connector;
 }
