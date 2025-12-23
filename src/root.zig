@@ -13,6 +13,8 @@ pub const decimal = @import("core/decimal.zig");
 // Exchange modules
 pub const exchange_types = @import("exchange/types.zig");
 pub const exchange_interface = @import("exchange/interface.zig");
+pub const exchange_registry = @import("exchange/registry.zig");
+pub const exchange_symbol_mapper = @import("exchange/symbol_mapper.zig");
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -62,6 +64,9 @@ pub const OrderbookLevel = exchange_types.OrderbookLevel;
 pub const Orderbook = exchange_types.Orderbook;
 pub const Balance = exchange_types.Balance;
 pub const Position = exchange_types.Position;
+pub const ExchangeRegistry = exchange_registry.ExchangeRegistry;
+pub const SymbolMapper = exchange_symbol_mapper;
+pub const ExchangeType = exchange_symbol_mapper.ExchangeType;
 
 test {
     // Run tests from all modules
@@ -73,4 +78,6 @@ test {
     _ = decimal;
     _ = exchange_types;
     _ = exchange_interface;
+    _ = exchange_registry;
+    _ = exchange_symbol_mapper;
 }
