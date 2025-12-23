@@ -30,6 +30,7 @@ pub const Level = logger.Level;
 pub const ConsoleWriter = logger.ConsoleWriter;
 pub const FileWriter = logger.FileWriter;
 pub const JSONWriter = logger.JSONWriter;
+pub const StdLogWriter = logger.StdLogWriter;
 
 test {
     // Run tests from all modules

@@ -2,7 +2,7 @@
 
 > 完整的 API 文档和使用示例
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-01-23
 
 ---
 
@@ -113,7 +113,10 @@ pub const ConsoleWriter = struct {
 ### 示例
 
 ```zig
-var console = ConsoleWriter.init(std.io.getStdOut().writer());
+var stderr_buffer: [4096]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+
+var console = ConsoleWriter.init(&stderr_writer.interface);
 defer console.deinit();
 
 var log = Logger.init(allocator, console.writer(), .info);
@@ -161,7 +164,10 @@ pub const JSONWriter = struct {
 ### 示例
 
 ```zig
-var json = JSONWriter.init(std.io.getStdOut().writer());
+var stdout_buffer: [4096]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+
+var json = JSONWriter.init(&stdout_writer.interface);
 var log = Logger.init(allocator, json.writer(), .info);
 
 try log.info("Order created", .{
@@ -173,39 +179,59 @@ try log.info("Order created", .{
 
 ---
 
-## RotatingFileWriter
+## StdLogWriter
 
-自动轮转的文件输出
+std.log 桥接，允许将标准库日志路由到自定义 Logger
 
 ```zig
-pub const RotatingFileWriter = struct {
-    pub const Config = struct {
-        max_size: usize,      // 最大文件大小（字节）
-        max_backups: u32,     // 保留备份数量
-    };
+pub const StdLogWriter = struct {
+    /// 设置全局 Logger 实例
+    pub fn setLogger(logger: *Logger) void;
 
-    pub fn init(allocator: Allocator, path: []const u8, config: Config) !RotatingFileWriter;
-    pub fn deinit(self: *RotatingFileWriter) void;
-    pub fn writer(self: *RotatingFileWriter) LogWriter;
+    /// std.log 兼容的日志函数
+    pub fn logFn(
+        comptime level: std.log.Level,
+        comptime scope: @TypeOf(.EnumLiteral),
+        comptime format: []const u8,
+        args: anytype,
+    ) void;
 };
 ```
 
 ### 示例
 
 ```zig
-var rotating = try RotatingFileWriter.init(
-    allocator,
-    "logs/app.log",
-    .{
-        .max_size = 10 * 1024 * 1024,  // 10MB
-        .max_backups = 5,
-    },
-);
-defer rotating.deinit();
+// 1. 声明全局 Logger 实例
+var logger_instance: Logger = undefined;
 
-var log = Logger.init(allocator, rotating.writer(), .info);
-try log.info("Rotating log", .{});
-// 文件达到 10MB 时自动轮转为 app.log.1, app.log.2, ...
+// 2. 配置 std_options
+pub const std_options = .{
+    .logFn = StdLogWriter.logFn,
+};
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    // 3. 初始化 Logger
+    var stderr_buffer: [4096]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+
+    var console = ConsoleWriter.init(&stderr_writer.interface);
+    logger_instance = Logger.init(gpa.allocator(), console.writer(), .debug);
+    defer logger_instance.deinit();
+
+    // 4. 设置全局 Logger
+    StdLogWriter.setLogger(&logger_instance);
+
+    // 5. 使用 std.log（会路由到我们的 Logger）
+    std.log.info("Server started on port {}", .{8080});
+
+    // 6. Scoped logging
+    const db_log = std.log.scoped(.database);
+    db_log.info("Connected", .{});
+    // 输出: [info] 1737541845000 Connected scope=database
+}
 ```
 
 ---
@@ -290,4 +316,4 @@ pub fn benchmarkOperation(log: *Logger) !void {
 
 ---
 
-*Last updated: 2025-01-22*
+*Last updated: 2025-01-23*

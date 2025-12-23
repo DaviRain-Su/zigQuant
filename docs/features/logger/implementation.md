@@ -2,7 +2,7 @@
 
 > 内部实现说明和设计决策
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-01-23
 
 ---
 
@@ -78,8 +78,6 @@ pub const Value = union(enum) {
 
     pub fn format(
         self: Value,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         switch (self) {
@@ -163,7 +161,7 @@ pub const Logger = struct {
         const record = LogRecord{
             .level = level,
             .message = msg,
-            .timestamp = std.time.timestamp() * 1000,
+            .timestamp = std.time.milliTimestamp(),
             .fields = field_array,
         };
 
@@ -174,41 +172,25 @@ pub const Logger = struct {
         const FieldsType = @TypeOf(fields);
         const fields_info = @typeInfo(FieldsType);
 
-        if (fields_info != .Struct) {
-            return &[_]Field{};
-        }
+        switch (fields_info) {
+            .@"struct" => |struct_info| {
+                const struct_fields = struct_info.fields;
+                var result = try self.allocator.alloc(Field, struct_fields.len);
 
-        const struct_fields = fields_info.Struct.fields;
-        var result = try self.allocator.alloc(Field, struct_fields.len);
-
-        inline for (struct_fields, 0..) |field, i| {
-            const value = @field(fields, field.name);
-            result[i] = Field{
-                .key = field.name,
-                .value = try self.valueFromAny(value),
-            };
-        }
-
-        return result;
-    }
-
-    fn valueFromAny(self: *Logger, value: anytype) !Value {
-        const T = @TypeOf(value);
-        return switch (@typeInfo(T)) {
-            .Int => if (T == i64 or T == i32 or T == i16 or T == i8)
-                Value{ .int = value }
-            else
-                Value{ .uint = value },
-            .Float => Value{ .float = @floatCast(value) },
-            .Bool => Value{ .bool = value },
-            .Pointer => |ptr_info| blk: {
-                if (ptr_info.size == .Slice and ptr_info.child == u8) {
-                    break :blk Value{ .string = value };
+                inline for (struct_fields, 0..) |field, i| {
+                    const value = @field(fields, field.name);
+                    result[i] = Field{
+                        .key = field.name,
+                        .value = try valueFromAny(value),
+                    };
                 }
-                @compileError("Unsupported pointer type");
+
+                return result;
             },
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
-        };
+            else => {
+                return &[_]Field{};
+            },
+        }
     }
 
     // 便捷方法
@@ -236,6 +218,40 @@ pub const Logger = struct {
         try self.log(.fatal, msg, fields);
     }
 };
+
+/// Convert anytype value to Value
+fn valueFromAny(value: anytype) !Value {
+    const T = @TypeOf(value);
+    return switch (@typeInfo(T)) {
+        .@"int" => |int_info| {
+            if (int_info.signedness == .signed) {
+                return Value{ .int = @intCast(value) };
+            } else {
+                return Value{ .uint = @intCast(value) };
+            }
+        },
+        .comptime_int => Value{ .int = value },
+        .@"float", .comptime_float => Value{ .float = @floatCast(value) },
+        .bool => Value{ .bool = value },
+        .pointer => |ptr_info| {
+            // Handle []const u8 slices
+            if (ptr_info.size == .slice and ptr_info.child == u8) {
+                return Value{ .string = value };
+            }
+            // Handle string literals (*const [N:0]u8)
+            if (ptr_info.size == .one) {
+                if (@typeInfo(ptr_info.child) == .array) {
+                    const array_info = @typeInfo(ptr_info.child).array;
+                    if (array_info.child == u8) {
+                        return Value{ .string = value };
+                    }
+                }
+            }
+            @compileError("Unsupported pointer type: " ++ @typeName(T));
+        },
+        else => @compileError("Unsupported type for logging: " ++ @typeName(T)),
+    };
+}
 ```
 
 **关键算法**:
@@ -243,6 +259,8 @@ pub const Logger = struct {
 1. **级别过滤**: 提前返回，避免不必要的分配
 2. **编译时字段转换**: 使用 `inline for` 和 `@field`
 3. **类型推导**: 使用 `@typeInfo` 自动转换 anytype
+4. **字符串字面量支持**: 处理 `*const [N:0]u8` 类型
+5. **Comptime 类型支持**: 支持 `comptime_int` 和 `comptime_float`
 
 ---
 
@@ -255,9 +273,9 @@ pub const ConsoleWriter = struct {
     underlying_writer: std.io.AnyWriter,
     mutex: std.Thread.Mutex = .{},
 
-    pub fn init(writer: anytype) ConsoleWriter {
+    pub fn init(underlying: anytype) ConsoleWriter {
         return .{
-            .underlying_writer = writer,
+            .underlying_writer = underlying,  // 接受 &writer.interface
         };
     }
 
@@ -290,21 +308,18 @@ pub const ConsoleWriter = struct {
 
         for (record.fields) |field| {
             try w.print(" {s}=", .{field.key});
-            try field.value.format("", .{}, w);
+            try field.value.format(w);
         }
 
         try w.writeAll("\n");
     }
 
     fn flushFn(ptr: *anyopaque) anyerror!void {
-        const self: *ConsoleWriter = @ptrCast(@alignCast(ptr));
-        // Console writer 通常自动刷新
-        _ = self;
+        _ = ptr;
     }
 
     fn closeFn(ptr: *anyopaque) void {
-        const self: *ConsoleWriter = @ptrCast(@alignCast(ptr));
-        _ = self;
+        _ = ptr;
     }
 };
 ```
@@ -313,6 +328,13 @@ pub const ConsoleWriter = struct {
 - 使用 `Mutex` 保证线程安全
 - 简单的键值对格式，易于阅读
 - 自动添加换行符
+
+**使用示例**:
+```zig
+var stderr_buffer: [4096]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+var console = ConsoleWriter.init(&stderr_writer.interface);
+```
 
 ---
 
@@ -367,7 +389,7 @@ pub const FileWriter = struct {
 
         for (record.fields) |field| {
             try w.print(" {s}=", .{field.key});
-            try field.value.format("", .{}, w);
+            try field.value.format(w);
         }
 
         try w.writeAll("\n");
@@ -394,9 +416,9 @@ pub const JSONWriter = struct {
     underlying_writer: std.io.AnyWriter,
     mutex: std.Thread.Mutex = .{},
 
-    pub fn init(writer: anytype) JSONWriter {
+    pub fn init(underlying: anytype) JSONWriter {
         return .{
-            .underlying_writer = writer,
+            .underlying_writer = underlying,
         };
     }
 
@@ -450,105 +472,79 @@ pub const JSONWriter = struct {
 - 字符串需要转义（简化版未实现完整转义）
 - 便于日志解析工具处理
 
+**使用示例**:
+```zig
+var stdout_buffer: [4096]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+var json = JSONWriter.init(&stdout_writer.interface);
+```
+
 ---
 
-### RotatingFileWriter
+### StdLogWriter
+
+std.log 桥接，允许将标准库日志路由到自定义 Logger
 
 ```zig
-pub const RotatingFileWriter = struct {
-    allocator: Allocator,
-    path: []const u8,
-    config: Config,
-    current_file: std.fs.File,
-    current_size: usize,
-    mutex: std.Thread.Mutex = .{},
+pub const StdLogWriter = struct {
+    var global_logger: ?*Logger = null;
+    var fallback_buffer: [4096]u8 = undefined;
+    var fallback_fbs = std.io.fixedBufferStream(&fallback_buffer);
 
-    pub const Config = struct {
-        max_size: usize,
-        max_backups: u32,
-    };
+    /// 设置全局 Logger 实例
+    pub fn setLogger(logger: *Logger) void {
+        global_logger = logger;
+    }
 
-    pub fn init(allocator: Allocator, path: []const u8, config: Config) !RotatingFileWriter {
-        const path_copy = try allocator.dupe(u8, path);
-        const file = try std.fs.cwd().createFile(path, .{ .truncate = false });
-        const stat = try file.stat();
-
-        return .{
-            .allocator = allocator,
-            .path = path_copy,
-            .config = config,
-            .current_file = file,
-            .current_size = stat.size,
+    /// std.log 兼容的日志函数
+    pub fn logFn(
+        comptime level: std.log.Level,
+        comptime scope: @TypeOf(.EnumLiteral),
+        comptime format: []const u8,
+        args: anytype,
+    ) void {
+        // 转换 std.log.Level 到我们的 Level
+        const our_level = switch (level) {
+            .debug => Level.debug,
+            .info => Level.info,
+            .warn => Level.warn,
+            .err => Level.err,
         };
-    }
 
-    pub fn deinit(self: *RotatingFileWriter) void {
-        self.current_file.close();
-        self.allocator.free(self.path);
-    }
+        // 格式化消息
+        var buf: [1024]u8 = undefined;
+        const message = std.fmt.bufPrint(&buf, format, args) catch blk: {
+            // 消息太长，使用 fallback buffer
+            fallback_fbs.reset();
+            fallback_fbs.writer().print(format, args) catch {
+                break :blk "<message too long>";
+            };
+            break :blk fallback_fbs.getWritten();
+        };
 
-    fn rotate(self: *RotatingFileWriter) !void {
-        self.current_file.close();
+        // 获取 scope 名称
+        const scope_name = @tagName(scope);
 
-        // 轮转备份文件
-        var i = self.config.max_backups;
-        while (i > 0) : (i -= 1) {
-            const old_name = if (i == 1)
-                try std.fmt.allocPrint(self.allocator, "{s}", .{self.path})
-            else
-                try std.fmt.allocPrint(self.allocator, "{s}.{}", .{ self.path, i - 1 });
-            defer self.allocator.free(old_name);
-
-            const new_name = try std.fmt.allocPrint(self.allocator, "{s}.{}", .{ self.path, i });
-            defer self.allocator.free(new_name);
-
-            std.fs.cwd().rename(old_name, new_name) catch {};
+        // 记录日志（包含 scope 字段）
+        if (global_logger) |logger| {
+            logger.log(our_level, message, .{ .scope = scope_name }) catch {
+                // 失败时降级到 stderr
+                std.debug.print("[{s}] ({s}) {s}\n", .{ our_level.toString(), scope_name, message });
+            };
+        } else {
+            // Logger 未设置，输出到 stderr
+            std.debug.print("[{s}] ({s}) {s}\n", .{ our_level.toString(), scope_name, message });
         }
-
-        // 创建新文件
-        self.current_file = try std.fs.cwd().createFile(self.path, .{ .truncate = true });
-        self.current_size = 0;
     }
-
-    fn writeFn(ptr: *anyopaque, record: LogRecord) anyerror!void {
-        const self: *RotatingFileWriter = @ptrCast(@alignCast(ptr));
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        // 检查是否需要轮转
-        if (self.current_size >= self.config.max_size) {
-            try self.rotate();
-        }
-
-        const w = self.current_file.writer();
-
-        const start_pos = try self.current_file.getPos();
-
-        try w.print("[{s}] {} {s}", .{
-            record.level.toString(),
-            record.timestamp,
-            record.message,
-        });
-
-        for (record.fields) |field| {
-            try w.print(" {s}=", .{field.key});
-            try field.value.format("", .{}, w);
-        }
-
-        try w.writeAll("\n");
-
-        const end_pos = try self.current_file.getPos();
-        self.current_size += end_pos - start_pos;
-    }
-
-    // ...
 };
 ```
 
 **设计决策**:
-- 达到最大大小时自动轮转
-- 保留指定数量的备份文件
-- 文件命名: `app.log`, `app.log.1`, `app.log.2`, ...
+- 全局单例模式，通过 `setLogger()` 设置 Logger
+- 支持消息格式化，带 fallback 机制
+- 自动提取 scope 并作为结构化字段
+- 优雅降级：未设置 Logger 或失败时输出到 stderr
+- 兼容 `std.log` API，可通过 `std_options.logFn` 配置
 
 ---
 
@@ -591,4 +587,4 @@ pub fn toString(self: Level) []const u8 {
 
 ---
 
-*Last updated: 2025-01-22*
+*Last updated: 2025-01-23*

@@ -437,6 +437,86 @@ pub const JSONWriter = struct {
 };
 
 // ============================================================================
+// StdLogWriter - Bridge to std.log
+// ============================================================================
+
+/// StdLogWriter bridges std.log calls to our Logger
+///
+/// Usage in your application:
+/// ```zig
+/// var logger_instance: Logger = undefined;
+///
+/// pub const std_options = .{
+///     .logFn = StdLogWriter.logFn,
+/// };
+///
+/// pub fn main() !void {
+///     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+///     defer _ = gpa.deinit();
+///
+///     var console = ConsoleWriter.init(std.io.getStdErr().writer().any());
+///     logger_instance = Logger.init(gpa.allocator(), console.writer(), .debug);
+///     defer logger_instance.deinit();
+///
+///     StdLogWriter.setLogger(&logger_instance);
+///
+///     std.log.info("Hello from std.log", .{});
+/// }
+/// ```
+pub const StdLogWriter = struct {
+    var global_logger: ?*Logger = null;
+    var fallback_buffer: [4096]u8 = undefined;
+    var fallback_fbs = std.io.fixedBufferStream(&fallback_buffer);
+
+    /// Set the global logger instance
+    pub fn setLogger(logger: *Logger) void {
+        global_logger = logger;
+    }
+
+    /// Log function compatible with std.log
+    pub fn logFn(
+        comptime level: std.log.Level,
+        comptime scope: @TypeOf(.EnumLiteral),
+        comptime format: []const u8,
+        args: anytype,
+    ) void {
+        // Convert std.log.Level to our Level
+        const our_level = switch (level) {
+            .debug => Level.debug,
+            .info => Level.info,
+            .warn => Level.warn,
+            .err => Level.err,
+        };
+
+        // Format the message
+        var buf: [1024]u8 = undefined;
+        const message = std.fmt.bufPrint(&buf, format, args) catch blk: {
+            // If message is too long, use fallback buffer
+            fallback_fbs.reset();
+            fallback_fbs.writer().print(format, args) catch {
+                // Even fallback failed, just use error message
+                break :blk "<message too long>";
+            };
+            break :blk fallback_fbs.getWritten();
+        };
+
+        // Get scope name
+        const scope_name = @tagName(scope);
+
+        // Log with scope field
+        if (global_logger) |logger| {
+            logger.log(our_level, message, .{ .scope = scope_name }) catch {
+                // If logging fails, fall back to stderr
+                std.debug.print("[{s}] ({s}) {s}\n", .{ our_level.toString(), scope_name, message });
+            };
+        } else {
+            // No logger set, output to stderr
+            std.debug.print("[{s}] ({s}) {s}\n", .{ our_level.toString(), scope_name, message });
+        }
+    }
+};
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -533,4 +613,43 @@ test "JSONWriter" {
     try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "\"msg\":\"Order created\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "\"order_id\":\"ORD123\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "\"price\":50000"));
+}
+
+test "StdLogWriter bridge" {
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+
+    var console = ConsoleWriter.init(fbs.writer().any());
+    var log = Logger.init(std.testing.allocator, console.writer(), .debug);
+    defer log.deinit();
+
+    // Set the global logger
+    StdLogWriter.setLogger(&log);
+
+    // Call through std.log interface
+    StdLogWriter.logFn(.info, .database, "Connection established", .{});
+
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "[info]"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "Connection established"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "scope=database"));
+}
+
+test "StdLogWriter with formatting" {
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+
+    var console = ConsoleWriter.init(fbs.writer().any());
+    var log = Logger.init(std.testing.allocator, console.writer(), .debug);
+    defer log.deinit();
+
+    StdLogWriter.setLogger(&log);
+
+    // Test with format arguments
+    StdLogWriter.logFn(.warn, .network, "Connection timeout after {} seconds", .{30});
+
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "[warn]"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "Connection timeout after 30 seconds"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "scope=network"));
 }
