@@ -130,10 +130,13 @@ pub fn add(self: Decimal, other: Decimal) Decimal {
 #### 乘法（需要避免溢出）
 ```zig
 pub fn mul(self: Decimal, other: Decimal) Decimal {
-    const result = @as(i256, self.value) * @as(i256, other.value);
-    const scaled = @divTrunc(result, MULTIPLIER);
+    const a = @as(i256, self.value);
+    const b = @as(i256, other.value);
+    const product = a * b;
+    const scaled = @divTrunc(product, MULTIPLIER);
+
     return .{
-        .value = @intCast(scaled),
+        .value = @as(i128, @intCast(scaled)),
         .scale = self.scale,
     };
 }
@@ -142,12 +145,16 @@ pub fn mul(self: Decimal, other: Decimal) Decimal {
 #### 除法（需要处理除零）
 ```zig
 pub fn div(self: Decimal, other: Decimal) !Decimal {
-    if (other.value == 0) return error.DivisionByZero;
+    if (other.value == 0) {
+        return error.DivisionByZero;
+    }
 
-    const scaled = @as(i256, self.value) * MULTIPLIER;
-    const result = @divTrunc(scaled, other.value);
+    const a = @as(i256, self.value) * MULTIPLIER;
+    const b = @as(i256, other.value);
+    const quotient = @divTrunc(a, b);
+
     return .{
-        .value = @intCast(result),
+        .value = @as(i128, @intCast(quotient)),
         .scale = self.scale,
     };
 }

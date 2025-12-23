@@ -78,133 +78,71 @@
 
 const std = @import("std");
 
-/// 应用配置
-pub const Config = struct {
-    /// 应用配置
-    app: AppConfig,
+// ========== Phase 0: 已实现的基础配置 ==========
 
-    /// 日志配置
-    log: LogConfig,
-
-    /// 交易所配置
-    exchanges: []ExchangeConfig,
-
-    /// 策略配置
-    strategy: StrategyConfig,
-
-    /// 风控配置
-    risk: RiskConfig,
-
-    /// 从文件加载
-    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !Config {
-        const file_content = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
-        defer allocator.free(file_content);
-
-        // 根据文件扩展名选择解析器
-        if (std.mem.endsWith(u8, path, ".json")) {
-            return try parseJSON(allocator, file_content);
-        } else if (std.mem.endsWith(u8, path, ".toml")) {
-            return try parseTOML(allocator, file_content);
-        } else {
-            return error.UnsupportedConfigFormat;
-        }
-    }
-
-    /// 从环境变量加载
-    pub fn loadFromEnv(self: *Config) !void {
-        // 覆盖配置
-        if (std.process.getEnvVarOwned(self.allocator, "ZIGQUANT_LOG_LEVEL")) |level| {
-            self.log.level = level;
-        } else |_| {}
-
-        // 交易所配置
-        if (std.process.getEnvVarOwned(self.allocator, "ZIGQUANT_API_KEY")) |key| {
-            // 覆盖 API Key
-            for (self.exchanges) |*exchange| {
-                exchange.api_key = key;
-            }
-        } else |_| {}
-    }
-
-    /// 验证配置
-    pub fn validate(self: Config) !void {
-        // 验证必填字段
-        if (self.app.name.len == 0) {
-            return error.InvalidConfig;
-        }
-
-        // 验证交易所配置
-        for (self.exchanges) |exchange| {
-            if (exchange.name.len == 0) {
-                return error.InvalidExchangeConfig;
-            }
-            if (exchange.api_key.len == 0) {
-                return error.MissingAPIKey;
-            }
-        }
-
-        // 验证风控参数
-        if (self.risk.max_position_size <= 0) {
-            return error.InvalidRiskConfig;
-        }
-    }
-
-    /// 合并配置
-    pub fn merge(self: *Config, other: Config) void {
-        // 合并逻辑：other 覆盖 self
-        if (other.app.name.len > 0) {
-            self.app.name = other.app.name;
-        }
-        // ... 其他字段类似
-    }
+/// 服务器配置 ✅ Phase 0
+pub const ServerConfig = struct {
+    host: []const u8 = "localhost",
+    port: u16 = 8080,
 };
 
-/// 应用配置
+/// 交易配置 ✅ Phase 0
+pub const TradingConfig = struct {
+    max_position_size: f64 = 10000.0,
+    leverage: u8 = 1,
+    risk_limit: f64 = 0.02,  // 2% 风险限制
+};
+
+/// 日志配置 ✅ Phase 0
+pub const LoggingConfig = struct {
+    level: []const u8 = "info",
+    file: ?[]const u8 = null,
+    max_size: usize = 10_000_000,  // 10MB
+};
+
+/// 应用配置（Phase 0 实际实现） ✅ Phase 0
 pub const AppConfig = struct {
-    name: []const u8 = "ZigQuant",
-    version: []const u8 = "0.1.0",
-    environment: []const u8 = "development",  // development, testing, production
-    data_dir: []const u8 = "./data",
+    server: ServerConfig = .{},
+    exchanges: []ExchangeConfig = &[_]ExchangeConfig{},
+    trading: TradingConfig = .{},
+    logging: LoggingConfig = .{},
 };
 
-/// 日志配置
-pub const LogConfig = struct {
-    level: []const u8 = "info",  // trace, debug, info, warn, error, fatal
-    output: []const u8 = "console",  // console, file, json
-    file_path: ?[]const u8 = null,
-    max_file_size: usize = 10 * 1024 * 1024,  // 10MB
-    max_files: u32 = 5,
-};
-
-/// 交易所配置
+/// 交易所配置（基础版本） ✅ Phase 0
 pub const ExchangeConfig = struct {
     name: []const u8,
-    type: []const u8,  // "hyperliquid", "binance", "okx", etc.
     api_key: []const u8 = "",
     api_secret: []const u8 = "",
     testnet: bool = false,
-    rate_limit: RateLimitConfig,
 
     /// 敏感信息脱敏
     pub fn sanitize(self: ExchangeConfig) ExchangeConfig {
-        var sanitized = self;
-        if (sanitized.api_key.len > 0) {
-            sanitized.api_key = "***REDACTED***";
-        }
-        if (sanitized.api_secret.len > 0) {
-            sanitized.api_secret = "***REDACTED***";
-        }
-        return sanitized;
+        return .{
+            .name = self.name,
+            .api_key = if (self.api_key.len > 0) "***REDACTED***" else "",
+            .api_secret = if (self.api_secret.len > 0) "***REDACTED***" else "",
+            .testnet = self.testnet,
+        };
     }
 };
 
-/// 限流配置
+// ========== Phase 1: 规划中的高级配置 ==========
+
+/// 限流配置 📋 Phase 1 规划
 pub const RateLimitConfig = struct {
     requests_per_second: u32 = 10,
     burst: u32 = 20,
 };
 
-/// 策略配置
+/// 高级交易所配置 📋 Phase 1 规划
+/// 扩展 ExchangeConfig，添加 rate_limit, type 等高级功能
+pub const AdvancedExchangeConfig = struct {
+    base: ExchangeConfig,
+    type: []const u8,  // "hyperliquid", "binance", "okx", etc.
+    rate_limit: RateLimitConfig,
+};
+
+/// 策略配置 📋 Phase 1 规划
 pub const StrategyConfig = struct {
     name: []const u8 = "default",
     params: std.StringHashMap([]const u8),
@@ -237,7 +175,7 @@ pub const StrategyConfig = struct {
     }
 };
 
-/// 风控配置
+/// 风控配置 📋 Phase 1 规划
 pub const RiskConfig = struct {
     max_position_size: f64 = 1.0,  // BTC
     max_order_size: f64 = 0.1,  // BTC
@@ -247,8 +185,88 @@ pub const RiskConfig = struct {
     take_profit_pct: f64 = 0.05,  // 5%
 };
 
-/// ========== 配置加载器 ==========
+// ========== Phase 1: 未来的统一配置结构 ==========
 
+/// 统一配置（整合所有子配置） 📋 Phase 1 规划
+/// 当 Phase 1 实现后，这将成为顶层配置结构
+pub const Config = struct {
+    /// 应用配置
+    app: AppConfig,              // ✅ Phase 0 已实现
+
+    /// 日志配置
+    logging: LoggingConfig,      // ✅ Phase 0 已实现
+
+    /// 交易所配置
+    exchanges: []ExchangeConfig, // ✅ Phase 0 已实现
+
+    /// 策略配置
+    strategy: StrategyConfig,    // 📋 Phase 1 规划
+
+    /// 风控配置
+    risk: RiskConfig,            // 📋 Phase 1 规划
+
+    /// 从文件加载 📋 Phase 1
+    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !Config {
+        const file_content = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+        defer allocator.free(file_content);
+
+        // 根据文件扩展名选择解析器
+        if (std.mem.endsWith(u8, path, ".json")) {
+            return try parseJSON(allocator, file_content);
+        } else if (std.mem.endsWith(u8, path, ".toml")) {
+            return try parseTOML(allocator, file_content);
+        } else {
+            return error.UnsupportedConfigFormat;
+        }
+    }
+
+    /// 从环境变量加载 📋 Phase 1
+    pub fn loadFromEnv(self: *Config) !void {
+        // 覆盖配置
+        if (std.process.getEnvVarOwned(self.allocator, "ZIGQUANT_LOG_LEVEL")) |level| {
+            self.logging.level = level;
+        } else |_| {}
+
+        // 交易所配置
+        if (std.process.getEnvVarOwned(self.allocator, "ZIGQUANT_API_KEY")) |key| {
+            // 覆盖 API Key
+            for (self.exchanges) |*exchange| {
+                exchange.api_key = key;
+            }
+        } else |_| {}
+    }
+
+    /// 验证配置 📋 Phase 1
+    pub fn validate(self: Config) !void {
+        // 验证必填字段
+        if (self.app.server.host.len == 0) {
+            return error.InvalidConfig;
+        }
+
+        // 验证交易所配置
+        for (self.exchanges) |exchange| {
+            if (exchange.name.len == 0) {
+                return error.InvalidExchangeConfig;
+            }
+            if (exchange.api_key.len == 0) {
+                return error.MissingAPIKey;
+            }
+        }
+
+        // 验证风控参数
+        if (self.risk.max_position_size <= 0) {
+            return error.InvalidRiskConfig;
+        }
+    }
+
+    /// 合并配置 📋 Phase 1
+    pub fn merge(self: *Config, other: Config) void {
+        // 合并逻辑：other 覆盖 self
+        // ... 实现细节
+    }
+};
+
+/// 配置加载器 📋 Phase 1 规划
 pub const ConfigLoader = struct {
     allocator: std.mem.Allocator,
     config: Config,
@@ -258,7 +276,7 @@ pub const ConfigLoader = struct {
             .allocator = allocator,
             .config = Config{
                 .app = AppConfig{},
-                .log = LogConfig{},
+                .logging = LoggingConfig{},
                 .exchanges = &[_]ExchangeConfig{},
                 .strategy = StrategyConfig.init(allocator),
                 .risk = RiskConfig{},
@@ -292,7 +310,7 @@ pub const ConfigLoader = struct {
     }
 };
 
-/// ========== JSON 解析 ==========
+/// ========== JSON 解析 📋 Phase 1 ==========
 
 fn parseJSON(allocator: std.mem.Allocator, content: []const u8) !Config {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
@@ -303,17 +321,26 @@ fn parseJSON(allocator: std.mem.Allocator, content: []const u8) !Config {
     // 解析 app 配置
     var app = AppConfig{};
     if (root.get("app")) |app_obj| {
-        if (app_obj.object.get("name")) |name| {
-            app.name = try allocator.dupe(u8, name.string);
+        // 解析 ServerConfig
+        if (app_obj.object.get("server")) |server_obj| {
+            if (server_obj.object.get("host")) |host| {
+                app.server.host = try allocator.dupe(u8, host.string);
+            }
+            if (server_obj.object.get("port")) |port| {
+                app.server.port = @intCast(port.integer);
+            }
         }
         // ... 其他字段
     }
 
-    // 解析 log 配置
-    var log = LogConfig{};
-    if (root.get("log")) |log_obj| {
+    // 解析 logging 配置
+    var logging = LoggingConfig{};
+    if (root.get("logging")) |log_obj| {
         if (log_obj.object.get("level")) |level| {
-            log.level = try allocator.dupe(u8, level.string);
+            logging.level = try allocator.dupe(u8, level.string);
+        }
+        if (log_obj.object.get("file")) |file| {
+            logging.file = try allocator.dupe(u8, file.string);
         }
         // ... 其他字段
     }
@@ -324,11 +351,9 @@ fn parseJSON(allocator: std.mem.Allocator, content: []const u8) !Config {
         for (exchanges_arr.array.items) |exchange_obj| {
             const exchange = ExchangeConfig{
                 .name = try allocator.dupe(u8, exchange_obj.object.get("name").?.string),
-                .type = try allocator.dupe(u8, exchange_obj.object.get("type").?.string),
                 .api_key = if (exchange_obj.object.get("api_key")) |key| try allocator.dupe(u8, key.string) else "",
                 .api_secret = if (exchange_obj.object.get("api_secret")) |secret| try allocator.dupe(u8, secret.string) else "",
                 .testnet = if (exchange_obj.object.get("testnet")) |testnet| testnet.bool else false,
-                .rate_limit = RateLimitConfig{},
             };
             try exchanges.append(exchange);
         }
@@ -336,14 +361,14 @@ fn parseJSON(allocator: std.mem.Allocator, content: []const u8) !Config {
 
     return Config{
         .app = app,
-        .log = log,
+        .logging = logging,
         .exchanges = try exchanges.toOwnedSlice(),
         .strategy = StrategyConfig.init(allocator),
         .risk = RiskConfig{},
     };
 }
 
-/// ========== TOML 解析 ==========
+/// ========== TOML 解析 📋 Phase 1 ==========
 
 fn parseTOML(allocator: std.mem.Allocator, content: []const u8) !Config {
     // TODO: 使用 TOML 解析库
@@ -444,7 +469,9 @@ take_profit_pct = 0.05
 }
 ```
 
-### 使用示例
+### 使用示例 📋 Phase 1
+
+> 注意：以下示例展示 Phase 1 完成后的统一配置使用方式
 
 ```zig
 const std = @import("std");
@@ -455,7 +482,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // 加载配置
+    // 加载配置 📋 Phase 1 功能
     var loader = config.ConfigLoader.init(allocator);
     defer loader.deinit();
 
@@ -464,9 +491,8 @@ pub fn main() !void {
     const cfg = loader.getConfig();
 
     // 使用配置
-    std.debug.print("App: {s} v{s}\n", .{ cfg.app.name, cfg.app.version });
-    std.debug.print("Environment: {s}\n", .{cfg.app.environment});
-    std.debug.print("Log level: {s}\n", .{cfg.log.level});
+    std.debug.print("Server: {s}:{}\n", .{ cfg.app.server.host, cfg.app.server.port });
+    std.debug.print("Log level: {s}\n", .{cfg.logging.level});
 
     // 访问交易所配置
     for (cfg.exchanges) |exchange| {

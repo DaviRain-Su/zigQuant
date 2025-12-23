@@ -47,13 +47,13 @@ Zig 使用 **error sets** 和 **error union types** 进行错误处理，我们�
 
 ## 🎯 验收标准
 
-- [ ] 错误类型分类清晰（Network, API, Data, Business, System）
-- [ ] ErrorContext 提供足够的上下文信息
-- [ ] 支持错误包装（wrap）和传播
-- [ ] 提供实用的错误处理工具函数
-- [ ] 错误信息易于理解和调试
-- [ ] 所有测试用例通过
-- [ ] 测试覆盖率 > 85%
+- [x] 错误类型分类清晰（Network, API, Data, Business, System）
+- [x] ErrorContext 提供足够的上下文信息
+- [x] 支持错误包装（wrap）和传播
+- [x] 提供实用的错误处理工具函数
+- [x] 错误信息易于理解和调试
+- [x] 所有测试用例通过
+- [x] 测试覆盖率 > 85%
 
 ---
 
@@ -102,62 +102,50 @@ const std = @import("std");
 /// 网络错误
 pub const NetworkError = error{
     ConnectionFailed,
-    ConnectionClosed,
     Timeout,
     DNSResolutionFailed,
     SSLError,
-    ProxyError,
 };
 
 /// API 错误
 pub const APIError = error{
-    AuthenticationFailed,
-    InvalidAPIKey,
-    InvalidSignature,
+    Unauthorized,
     RateLimitExceeded,
-    InvalidParameters,
-    ResourceNotFound,
-    MethodNotAllowed,
-    ServiceUnavailable,
-    InternalServerError,
+    InvalidRequest,
+    ServerError,
+    BadRequest,
+    NotFound,
 };
 
 /// 数据错误
 pub const DataError = error{
-    ParseError,
-    ValidationError,
-    MissingField,
     InvalidFormat,
-    InvalidValue,
-    DataCorrupted,
+    ParseError,
+    ValidationFailed,
+    MissingField,
+    TypeMismatch,
 };
 
 /// 业务错误
 pub const BusinessError = error{
     InsufficientBalance,
-    InsufficientMargin,
-    OrderRejected,
     OrderNotFound,
+    InvalidOrderStatus,
     PositionNotFound,
-    InvalidOrderSize,
-    InvalidPrice,
+    InvalidQuantity,
     MarketClosed,
-    TradingDisabled,
 };
 
 /// 系统错误
 pub const SystemError = error{
     OutOfMemory,
     FileNotFound,
-    FileReadError,
-    FileWriteError,
     PermissionDenied,
-    InvalidState,
-    NotImplemented,
+    ResourceExhausted,
 };
 
 /// 所有错误的并集
-pub const ZigQuantError = NetworkError || APIError || DataError || BusinessError || SystemError;
+pub const TradingError = NetworkError || APIError || DataError || BusinessError || SystemError;
 
 /// ========== 错误上下文 ==========
 
@@ -456,31 +444,31 @@ pub fn tryClosePosition(position_id: []const u8) void {
 ## 📝 任务分解
 
 ### Phase 1: 错误类型定义 ✅
-- [ ] 任务 1.1: 定义 NetworkError
-- [ ] 任务 1.2: 定义 APIError
-- [ ] 任务 1.3: 定义 DataError
-- [ ] 任务 1.4: 定义 BusinessError
-- [ ] 任务 1.5: 定义 SystemError
-- [ ] 任务 1.6: 定义 ZigQuantError 并集
+- [x] 任务 1.1: 定义 NetworkError
+- [x] 任务 1.2: 定义 APIError
+- [x] 任务 1.3: 定义 DataError
+- [x] 任务 1.4: 定义 BusinessError
+- [x] 任务 1.5: 定义 SystemError
+- [x] 任务 1.6: 定义 ZigQuantError 并集
 
-### Phase 2: 错误上下文 🚧
-- [ ] 任务 2.1: 实现 ErrorContext 结构体
-- [ ] 任务 2.2: 实现 WrappedError 结构体
-- [ ] 任务 2.3: 实现错误包装函数
+### Phase 2: 错误上下文 ✅
+- [x] 任务 2.1: 实现 ErrorContext 结构体
+- [x] 任务 2.2: 实现 WrappedError 结构体
+- [x] 任务 2.3: 实现错误包装函数
 
-### Phase 3: 错误处理工具 📋
-- [ ] 任务 3.1: 实现 retry 函数
-- [ ] 任务 3.2: 实现 retryWithBackoff 函数
-- [ ] 任务 3.3: 实现 ignoreError 函数
-- [ ] 任务 3.4: 实现 mapError 函数
-- [ ] 任务 3.5: 实现错误断言函数
+### Phase 3: 错误处理工具 ✅
+- [x] 任务 3.1: 实现 retry 函数
+- [x] 任务 3.2: 实现 retryWithBackoff 函数
+- [x] 任务 3.3: 实现 ignoreError 函数
+- [x] 任务 3.4: 实现 mapError 函数
+- [x] 任务 3.5: 实现错误断言函数
 
-### Phase 4: 测试与文档 📋
-- [ ] 任务 4.1: 编写基础测试
-- [ ] 任务 4.2: 编写重试逻辑测试
-- [ ] 任务 4.3: 编写错误映射测试
-- [ ] 任务 4.4: 更新文档
-- [ ] 任务 4.5: 代码审查
+### Phase 4: 测试与文档 ✅
+- [x] 任务 4.1: 编写基础测试
+- [x] 任务 4.2: 编写重试逻辑测试
+- [x] 任务 4.3: 编写错误映射测试
+- [x] 任务 4.4: 更新文档
+- [x] 任务 4.5: 代码审查
 
 ---
 
@@ -632,9 +620,9 @@ test "ignoreError: ignore specific error" {
 ## 📚 相关文档
 
 ### 设计文档
-- [ ] `docs/features/error-system/README.md` - 功能概览
-- [ ] `docs/features/error-system/implementation.md` - 实现细节
-- [ ] `docs/features/error-system/api.md` - API 文档
+- [x] `docs/features/error-system/README.md` - 功能概览
+- [x] `docs/features/error-system/implementation.md` - 实现细节
+- [x] `docs/features/error-system/api.md` - API 文档
 - [ ] `docs/features/error-system/best-practices.md` - 最佳实践
 
 ### 参考资料
