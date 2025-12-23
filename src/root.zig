@@ -8,11 +8,13 @@ pub const time = @import("core/time.zig");
 pub const errors = @import("core/errors.zig");
 pub const logger = @import("core/logger.zig");
 pub const config = @import("core/config.zig");
+pub const decimal = @import("core/decimal.zig");
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
 pub const Duration = time.Duration;
 pub const KlineInterval = time.KlineInterval;
+pub const Decimal = decimal.Decimal;
 
 // Re-export error types
 pub const NetworkError = errors.NetworkError;
@@ -49,4 +51,5 @@ test {
     _ = errors;
     _ = logger;
     _ = config;
+    _ = decimal;
 }
