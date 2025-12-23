@@ -4,6 +4,19 @@
 
 本目录包含 ZigQuant v0.2 MVP 所有核心功能的详细文档。
 
+## 📖 文档结构说明
+
+每个功能模块都遵循统一的文档结构，包含以下标准文件：
+
+- **README.md** - 功能概览、快速开始、核心API
+- **implementation.md** - 内部实现细节、算法和数据结构
+- **api.md** - 完整的 API 参考文档
+- **testing.md** - 测试覆盖和性能基准
+- **bugs.md** - 已知问题和修复记录
+- **changelog.md** - 版本历史和更新记录
+
+---
+
 ## 功能模块
 
 ### 1. Hyperliquid 连接器
@@ -11,24 +24,26 @@
 Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 - [功能概览](./hyperliquid-connector/README.md)
-- [API 参考](./hyperliquid-connector/api-reference.md)
-- [认证详解](./hyperliquid-connector/authentication.md)
-- [WebSocket 指南](./hyperliquid-connector/websocket.md)
-- [订阅类型](./hyperliquid-connector/subscriptions.md)
-- [消息类型](./hyperliquid-connector/message-types.md)
-- [测试指南](./hyperliquid-connector/testing.md)
+- [实现细节](./hyperliquid-connector/implementation.md)
+- [API 参考](./hyperliquid-connector/api.md)
+- [测试文档](./hyperliquid-connector/testing.md)
+- [Bug 追踪](./hyperliquid-connector/bugs.md)
+- [变更日志](./hyperliquid-connector/changelog.md)
 
-**Story**: [006-hyperliquid-http](../../stories/v0.2-mvp/006-hyperliquid-http.md), [007-hyperliquid-ws](../../stories/v0.2-mvp/007-hyperliquid-ws.md)
+**Story**: [006-hyperliquid-http](../../stories/v0.2-mvp/006-hyperliquid-http.md) | [007-hyperliquid-ws](../../stories/v0.2-mvp/007-hyperliquid-ws.md)
 
 ---
 
 ### 2. 订单簿
 
-高性能 L2 订单簿实现。
+高性能 L2 订单簿实现，支持快照和增量更新。
 
 - [功能概览](./orderbook/README.md)
-- [API 参考](./orderbook/api-reference.md)
-- [性能优化](./orderbook/performance.md)
+- [实现细节](./orderbook/implementation.md)
+- [API 参考](./orderbook/api.md)
+- [测试文档](./orderbook/testing.md)
+- [Bug 追踪](./orderbook/bugs.md)
+- [变更日志](./orderbook/changelog.md)
 
 **Story**: [008-orderbook](../../stories/v0.2-mvp/008-orderbook.md)
 
@@ -36,11 +51,14 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ### 3. 订单系统
 
-订单类型定义和生命周期管理。
+订单类型定义、验证和生命周期管理。
 
 - [功能概览](./order-system/README.md)
-- [订单类型](./order-system/order-types.md)
-- [订单生命周期](./order-system/order-lifecycle.md)
+- [实现细节](./order-system/implementation.md)
+- [API 参考](./order-system/api.md)
+- [测试文档](./order-system/testing.md)
+- [Bug 追踪](./order-system/bugs.md)
+- [变更日志](./order-system/changelog.md)
 
 **Story**: [009-order-types](../../stories/v0.2-mvp/009-order-types.md)
 
@@ -48,11 +66,14 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ### 4. 订单管理器
 
-订单提交、撤单、状态追踪。
+订单提交、取消、状态追踪和事件处理。
 
 - [功能概览](./order-manager/README.md)
-- [API 参考](./order-manager/api-reference.md)
-- [错误处理](./order-manager/error-handling.md)
+- [实现细节](./order-manager/implementation.md)
+- [API 参考](./order-manager/api.md)
+- [测试文档](./order-manager/testing.md)
+- [Bug 追踪](./order-manager/bugs.md)
+- [变更日志](./order-manager/changelog.md)
 
 **Story**: [010-order-manager](../../stories/v0.2-mvp/010-order-manager.md)
 
@@ -60,22 +81,29 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ### 5. 仓位追踪器
 
-实时仓位追踪和盈亏计算。
+实时仓位追踪、盈亏计算和风险指标。
 
 - [功能概览](./position-tracker/README.md)
-- [盈亏计算](./position-tracker/pnl-calculation.md)
+- [实现细节](./position-tracker/implementation.md)
+- [API 参考](./position-tracker/api.md)
+- [测试文档](./position-tracker/testing.md)
+- [Bug 追踪](./position-tracker/bugs.md)
+- [变更日志](./position-tracker/changelog.md)
 
 **Story**: [011-position-tracker](../../stories/v0.2-mvp/011-position-tracker.md)
 
 ---
 
-### 6. CLI
+### 6. CLI 界面
 
-命令行界面。
+命令行界面，提供交互式和脚本化的交易操作。
 
-- [使用指南](../cli/README.md)
-- [命令参考](../cli/commands.md)
-- [使用示例](../cli/examples.md)
+- [功能概览](./cli/README.md)
+- [实现细节](./cli/implementation.md)
+- [API 参考](./cli/api.md)
+- [测试文档](./cli/testing.md)
+- [Bug 追踪](./cli/bugs.md)
+- [变更日志](./cli/changelog.md)
 
 **Story**: [012-cli-interface](../../stories/v0.2-mvp/012-cli-interface.md)
 
@@ -84,37 +112,60 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 ## 文档结构
 
 ```
-docs/
-├── features/
-│   ├── README.md (本文件)
-│   ├── hyperliquid-connector/
-│   │   ├── README.md
-│   │   ├── api-reference.md
-│   │   ├── authentication.md
-│   │   ├── testing.md
-│   │   ├── websocket.md
-│   │   ├── subscriptions.md
-│   │   └── message-types.md
-│   ├── orderbook/
-│   │   ├── README.md
-│   │   ├── api-reference.md
-│   │   └── performance.md
-│   ├── order-system/
-│   │   ├── README.md
-│   │   ├── order-types.md
-│   │   └── order-lifecycle.md
-│   ├── order-manager/
-│   │   ├── README.md
-│   │   ├── api-reference.md
-│   │   └── error-handling.md
-│   └── position-tracker/
-│       ├── README.md
-│       └── pnl-calculation.md
-└── cli/
+docs/features/
+├── README.md (本文件)
+├── templates/                          # 文档模板
+│   ├── README.md
+│   ├── implementation.md
+│   ├── api.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── hyperliquid-connector/              # Hyperliquid 连接器 (6 文件)
+│   ├── README.md
+│   ├── implementation.md
+│   ├── api.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── orderbook/                          # 订单簿 (6 文件)
+│   ├── README.md
+│   ├── implementation.md
+│   ├── api.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── order-system/                       # 订单系统 (6 文件)
+│   ├── README.md
+│   ├── implementation.md
+│   ├── api.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── order-manager/                      # 订单管理器 (6 文件)
+│   ├── README.md
+│   ├── implementation.md
+│   ├── api.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── position-tracker/                   # 仓位追踪器 (6 文件)
+│   ├── README.md
+│   ├── implementation.md
+│   ├── api.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+└── cli/                                # CLI 界面 (6 文件)
     ├── README.md
-    ├── commands.md
-    └── examples.md
+    ├── implementation.md
+    ├── api.md
+    ├── testing.md
+    ├── bugs.md
+    └── changelog.md
 ```
+
+---
 
 ## 快速导航
 
@@ -122,43 +173,67 @@ docs/
 
 **市场数据**:
 - [订单簿维护](./orderbook/README.md)
-- [WebSocket 订阅](./hyperliquid-connector/websocket.md)
+- [WebSocket 订阅](./hyperliquid-connector/README.md#websocket-客户端)
+- [实时数据流](./hyperliquid-connector/implementation.md#websocket-客户端实现)
 
 **交易操作**:
-- [下单和撤单](./order-manager/README.md)
-- [订单类型](./order-system/order-types.md)
+- [订单提交和取消](./order-manager/README.md)
+- [订单类型](./order-system/README.md)
+- [订单验证](./order-system/implementation.md#订单验证逻辑)
 
 **账户管理**:
 - [仓位追踪](./position-tracker/README.md)
-- [盈亏计算](./position-tracker/pnl-calculation.md)
+- [盈亏计算](./position-tracker/implementation.md#盈亏计算算法)
+- [风险指标](./position-tracker/api.md#仓位数据结构)
 
 **集成**:
-- [Hyperliquid API](./hyperliquid-connector/api-reference.md)
-- [认证机制](./hyperliquid-connector/authentication.md)
+- [HTTP 客户端](./hyperliquid-connector/README.md#http-客户端)
+- [WebSocket 客户端](./hyperliquid-connector/README.md#websocket-客户端)
+- [Ed25519 签名](./hyperliquid-connector/implementation.md#ed25519-认证实现)
+
+**用户界面**:
+- [CLI 命令行界面](./cli/README.md)
+- [市场数据查询](./cli/api.md#market-命令)
+- [订单操作](./cli/api.md#order-命令)
+- [交互式 REPL](./cli/implementation.md#repl-交互式模式)
 
 ### 按开发阶段
 
 **初始化**:
 1. [创建 HTTP 客户端](./hyperliquid-connector/README.md#快速开始)
-2. [创建 WebSocket 客户端](./hyperliquid-connector/websocket.md#快速开始)
+2. [创建 WebSocket 客户端](./hyperliquid-connector/README.md#websocket-客户端)
 3. [初始化订单簿](./orderbook/README.md#快速开始)
+4. [初始化订单管理器](./order-manager/README.md#快速开始)
+5. [初始化仓位追踪器](./position-tracker/README.md#快速开始)
 
 **开发**:
-1. [下单流程](./order-manager/README.md#使用指南)
-2. [订单簿更新](./orderbook/README.md#更新订单簿)
-3. [仓位追踪](./position-tracker/README.md#使用指南)
+1. [订单提交流程](./order-manager/implementation.md#订单提交流程)
+2. [订单簿更新](./orderbook/implementation.md#快照应用)
+3. [仓位追踪](./position-tracker/implementation.md#仓位追踪实现)
 
 **测试**:
 1. [HTTP 客户端测试](./hyperliquid-connector/testing.md)
-2. [WebSocket 测试](./hyperliquid-connector/testing.md#websocket-测试)
-3. [集成测试](./hyperliquid-connector/testing.md#集成测试)
-
-## 相关资源
-
-- [Stories](../../stories/v0.2-mvp/) - 技术设计文档
-- [Hyperliquid API Research](../../stories/v0.2-mvp/HYPERLIQUID_API_RESEARCH.md) - API 研究文档
-- [Hyperliquid Official Docs](https://hyperliquid.gitbook.io/hyperliquid-docs/)
+2. [订单系统测试](./order-system/testing.md)
+3. [订单管理器测试](./order-manager/testing.md)
+4. [仓位追踪器测试](./position-tracker/testing.md)
+5. [CLI 测试](./cli/testing.md)
 
 ---
 
-*Last updated: 2025-12-23*
+## 相关资源
+
+- **Templates**: [文档模板](./templates/) - 用于创建新功能文档的标准模板
+- **Stories**: [技术设计文档](../../stories/v0.2-mvp/) - 详细的技术设计和任务分解
+- **API Research**: [Hyperliquid API 研究](../../stories/v0.2-mvp/HYPERLIQUID_API_RESEARCH.md) - API 完整研究文档
+- **Official Docs**: [Hyperliquid 官方文档](https://hyperliquid.gitbook.io/hyperliquid-docs/)
+
+---
+
+## 文档版本
+
+- **v0.2.0**: 初始版本，包含 6 个核心功能模块的完整文档
+- **最后更新**: 2025-12-23
+
+---
+
+*所有功能文档遵循统一的模板结构，确保一致性和可维护性*
