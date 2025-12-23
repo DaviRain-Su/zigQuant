@@ -256,9 +256,10 @@ pub const Ticker = struct {
     volume_24h: Decimal,
     timestamp: Timestamp,
 
-    /// Get mid price
+    /// Get mid price (average of bid and ask)
     pub fn midPrice(self: Ticker) Decimal {
-        return self.bid.add(self.ask);
+        const sum = self.bid.add(self.ask);
+        return sum.div(Decimal.fromInt(2)) catch Decimal.ZERO;
     }
 
     /// Get spread
@@ -267,13 +268,14 @@ pub const Ticker = struct {
     }
 
     /// Get spread in basis points (0.01%)
+    /// Formula: (spread / mid_price) * 10000
     pub fn spreadBps(self: Ticker) Decimal {
         const mid = self.midPrice();
         if (mid.isZero()) return Decimal.ZERO;
 
         const s = self.spread();
-        // spread / mid * 10000
-        return s.div(mid) catch Decimal.ZERO;
+        const ratio = s.div(mid) catch return Decimal.ZERO;
+        return ratio.mul(Decimal.fromInt(10000));
     }
 };
 
@@ -314,12 +316,13 @@ pub const Orderbook = struct {
         return if (self.asks.len > 0) self.asks[0] else null;
     }
 
-    /// Get mid price
+    /// Get mid price (average of best bid and best ask)
     pub fn getMidPrice(self: Orderbook) ?Decimal {
         const best_bid = self.getBestBid() orelse return null;
         const best_ask = self.getBestAsk() orelse return null;
 
-        return best_bid.price.add(best_ask.price);
+        const sum = best_bid.price.add(best_ask.price);
+        return sum.div(Decimal.fromInt(2)) catch null;
     }
 
     /// Get spread
@@ -488,9 +491,9 @@ test "Ticker: calculations" {
         .timestamp = Timestamp.now(),
     };
 
-    // Mid price should be 50000 + 50100 = 100100 (note: we don't divide by 2)
+    // Mid price should be (50000 + 50100) / 2 = 50050
     const mid = ticker.midPrice();
-    try std.testing.expect((Decimal.fromInt(100100)).eql(mid));
+    try std.testing.expect((Decimal.fromInt(50050)).eql(mid));
 
     // Spread should be 50100 - 50000 = 100
     const s = ticker.spread();

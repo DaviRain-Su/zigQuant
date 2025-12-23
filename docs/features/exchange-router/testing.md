@@ -296,38 +296,30 @@ test "ExchangeRegistry: connectAll" {
 
 ```zig
 test "SymbolMapper: toHyperliquid - valid pair" {
-    var mapper = SymbolMapper.init();
-
     const pair = TradingPair{ .base = "ETH", .quote = "USDC" };
-    const symbol = try mapper.toHyperliquid(pair);
+    const symbol = try symbol_mapper.toHyperliquid(pair);
 
     try std.testing.expectEqualStrings("ETH", symbol);
 }
 
 test "SymbolMapper: toHyperliquid - invalid quote" {
-    var mapper = SymbolMapper.init();
-
     const pair = TradingPair{ .base = "ETH", .quote = "USDT" };
-    const result = mapper.toHyperliquid(pair);
+    const result = symbol_mapper.toHyperliquid(pair);
 
-    try std.testing.expectError(error.UnsupportedQuoteCurrency, result);
+    try std.testing.expectError(error.InvalidQuoteAsset, result);
 }
 
 test "SymbolMapper: fromHyperliquid" {
-    var mapper = SymbolMapper.init();
-
-    const pair = try mapper.fromHyperliquid("BTC");
+    const pair = symbol_mapper.fromHyperliquid("BTC");
 
     try std.testing.expectEqualStrings("BTC", pair.base);
     try std.testing.expectEqualStrings("USDC", pair.quote);
 }
 
 test "SymbolMapper: round-trip conversion" {
-    var mapper = SymbolMapper.init();
-
     const original = TradingPair{ .base = "ETH", .quote = "USDC" };
-    const symbol = try mapper.toHyperliquid(original);
-    const converted = try mapper.fromHyperliquid(symbol);
+    const symbol = try symbol_mapper.toHyperliquid(original);
+    const converted = symbol_mapper.fromHyperliquid(symbol);
 
     try std.testing.expect(original.eql(converted));
 }
@@ -513,12 +505,13 @@ test "HyperliquidConnector: connect to testnet" {
         .testnet = true,
     };
 
-    const exchange = try HyperliquidConnector.create(
+    const connector = try HyperliquidConnector.create(
         std.testing.allocator,
         config,
         logger,
     );
-    defer exchange.disconnect();
+    defer connector.destroy();
+    const exchange = connector.interface();
 
     try exchange.connect();
     try std.testing.expect(exchange.isConnected());
@@ -537,12 +530,13 @@ test "HyperliquidConnector: getTicker" {
         .testnet = true,
     };
 
-    const exchange = try HyperliquidConnector.create(
+    const connector = try HyperliquidConnector.create(
         std.testing.allocator,
         config,
         logger,
     );
-    defer exchange.disconnect();
+    defer connector.destroy();
+    const exchange = connector.interface();
 
     try exchange.connect();
 
@@ -568,12 +562,13 @@ test "HyperliquidConnector: getOrderbook" {
         .testnet = true,
     };
 
-    const exchange = try HyperliquidConnector.create(
+    const connector = try HyperliquidConnector.create(
         std.testing.allocator,
         config,
         logger,
     );
-    defer exchange.disconnect();
+    defer connector.destroy();
+    const exchange = connector.interface();
 
     try exchange.connect();
 
@@ -629,7 +624,6 @@ test "benchmark: vtable call overhead" {
 
 ```zig
 test "benchmark: symbol conversion" {
-    var mapper = SymbolMapper.init();
     const pair = TradingPair{ .base = "ETH", .quote = "USDC" };
 
     const iterations = 100_000;
@@ -637,7 +631,7 @@ test "benchmark: symbol conversion" {
 
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
-        _ = try mapper.toHyperliquid(pair);
+        _ = try symbol_mapper.toHyperliquid(pair);
     }
 
     const end = std.time.nanoTimestamp();

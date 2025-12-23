@@ -273,7 +273,9 @@ const mids = try InfoAPI.getAllMids(&hl_client);
 var registry = ExchangeRegistry.init(allocator, logger);
 defer registry.deinit();
 
-const exchange = try HyperliquidConnector.create(allocator, config, logger);
+const connector = try HyperliquidConnector.create(allocator, config, logger);
+defer connector.destroy();
+const exchange = connector.interface();
 try registry.setExchange(exchange, config);
 try registry.connectAll();
 

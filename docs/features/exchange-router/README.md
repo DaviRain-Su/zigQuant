@@ -111,7 +111,9 @@ const config = ExchangeConfig{
     .testnet = true,
 };
 
-const exchange = try HyperliquidConnector.create(allocator, config, logger);
+const connector = try HyperliquidConnector.create(allocator, config, logger);
+defer connector.destroy();
+const exchange = connector.interface();
 ```
 
 #### 3. 注册到 Registry
@@ -217,8 +219,8 @@ pub const SymbolMapper = struct {
     // ETH-USDC → "ETH" (Hyperliquid)
     pub fn toHyperliquid(pair: TradingPair) ![]const u8
 
-    // "ETH" → ETH-USDC
-    pub fn fromHyperliquid(symbol: []const u8) !TradingPair
+    // "ETH" → ETH-USDC (不返回错误)
+    pub fn fromHyperliquid(symbol: []const u8) TradingPair
 
     // 未来：toBinance, toOKX, etc.
 };
@@ -249,7 +251,8 @@ pub const HyperliquidConnector = struct {
     http: HyperliquidClient,
     symbol_mapper: SymbolMapper,
 
-    pub fn create(allocator, config, logger) !IExchange
+    pub fn create(allocator, config, logger) !*HyperliquidConnector
+    pub fn destroy(self) void
     pub fn interface(self) IExchange
 
     // VTable 实现
@@ -257,7 +260,7 @@ pub const HyperliquidConnector = struct {
         const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
         // 1. 转换符号
-        const symbol = try self.symbol_mapper.toHyperliquid(pair);
+        const symbol = try symbol_mapper.toHyperliquid(pair);
 
         // 2. 调用 Hyperliquid API
         const mids = try InfoAPI.getAllMids(&self.http);
@@ -287,7 +290,7 @@ CLI
 Registry.getExchange()
   ↓ IExchange.getTicker(pair)
 HyperliquidConnector.getTicker(ptr, pair)
-  ↓ SymbolMapper.toHyperliquid(pair) → "ETH"
+  ↓ symbol_mapper.toHyperliquid(pair) → "ETH"
 InfoAPI.getAllMids(http_client)
   ↓ POST /info {"type": "allMids"}
 Hyperliquid API
@@ -305,7 +308,7 @@ CLI
 OrderManager
   ↓ registry.getExchange().createOrder(request)
 HyperliquidConnector.createOrder(ptr, request)
-  ↓ SymbolMapper.toHyperliquid(request.pair)
+  ↓ symbol_mapper.toHyperliquid(request.pair)
   ↓ 转换为 Hyperliquid 订单格式
 ExchangeAPI.placeOrder(http_client, hl_request)
   ↓ POST /exchange {"action": {"type": "order", ...}}

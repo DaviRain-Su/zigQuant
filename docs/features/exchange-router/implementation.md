@@ -231,39 +231,35 @@ pub const IExchange = struct {
 pub const HyperliquidConnector = struct {
     allocator: std.mem.Allocator,
     config: ExchangeConfig,
-    http: HyperliquidClient,      // HTTP 客户端
-    symbol_mapper: SymbolMapper,  // 符号转换器
     logger: Logger,
     connected: bool,
+    // TODO Phase D: Add HTTP and WebSocket clients
+    // http: HyperliquidClient,
+    // ws: ?WebSocketClient,
 
     pub fn create(
         allocator: std.mem.Allocator,
         config: ExchangeConfig,
         logger: Logger,
-    ) !IExchange {
+    ) !*HyperliquidConnector {
         const self = try allocator.create(HyperliquidConnector);
         errdefer allocator.destroy(self);
 
         self.* = .{
             .allocator = allocator,
             .config = config,
-            .http = try HyperliquidClient.init(allocator, .{
-                .base_url = if (config.testnet)
-                    HyperliquidConfig.DEFAULT_TESTNET_URL
-                else
-                    HyperliquidConfig.DEFAULT_MAINNET_URL,
-                .api_key = config.api_key,
-                .secret_key = config.api_secret,
-                .testnet = config.testnet,
-                .timeout_ms = 10000,
-                .max_retries = 3,
-            }, logger),
-            .symbol_mapper = SymbolMapper.init(),
             .logger = logger,
             .connected = false,
         };
 
-        return self.interface();
+        return self;
+    }
+
+    pub fn destroy(self: *HyperliquidConnector) void {
+        if (self.connected) {
+            disconnect(self);
+        }
+        self.allocator.destroy(self);
     }
 
     pub fn interface(self: *HyperliquidConnector) IExchange {
@@ -310,23 +306,24 @@ pub const HyperliquidConnector = struct {
         const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
         // 1. 转换符号: ETH-USDC → "ETH"
-        const symbol = try self.symbol_mapper.toHyperliquid(pair);
+        const symbol = try symbol_mapper.toHyperliquid(pair);
 
-        // 2. 调用 Info API
-        const mids = try InfoAPI.getAllMids(&self.http);
-        defer mids.deinit();
+        // TODO Phase D: 调用 Info API
+        // const mids = try InfoAPI.getAllMids(&self.http);
+        // defer mids.deinit();
+        //
+        // const mid_price = mids.get(symbol) orelse return error.SymbolNotFound;
+        //
+        // return Ticker{
+        //     .pair = pair,
+        //     .bid = mid_price,
+        //     .ask = mid_price,
+        //     .last = mid_price,
+        //     .volume_24h = Decimal.ZERO,
+        //     .timestamp = Timestamp.now(),
+        // };
 
-        const mid_price = mids.get(symbol) orelse return error.SymbolNotFound;
-
-        // 3. 返回统一格式
-        return Ticker{
-            .pair = pair,
-            .bid = mid_price,
-            .ask = mid_price,
-            .last = mid_price,
-            .volume_24h = Decimal.ZERO,
-            .timestamp = Timestamp.now(),
-        };
+        return error.NotImplemented;
     }
 
     // ... 其他方法实现
@@ -347,30 +344,22 @@ pub const HyperliquidConnector = struct {
 ```zig
 pub const SymbolMapper = struct {
     /// 转换为 Hyperliquid 格式: ETH-USDC → "ETH"
-    pub fn toHyperliquid(self: SymbolMapper, pair: TradingPair) ![]const u8 {
-        _ = self;
-
+    pub fn toHyperliquid(pair: TradingPair) ![]const u8 {
         // Hyperliquid 永续合约只使用 base 币种
         // 所有合约都是 USDC 结算
         if (!std.mem.eql(u8, pair.quote, "USDC")) {
-            return error.UnsupportedQuoteCurrency;
+            return error.InvalidQuoteAsset;
         }
 
         return pair.base;
     }
 
     /// 从 Hyperliquid 格式转换: "ETH" → ETH-USDC
-    pub fn fromHyperliquid(self: SymbolMapper, symbol: []const u8) !TradingPair {
-        _ = self;
-
+    pub fn fromHyperliquid(symbol: []const u8) TradingPair {
         return TradingPair{
             .base = symbol,
             .quote = "USDC",
         };
-    }
-
-    pub fn init() SymbolMapper {
-        return .{};
     }
 };
 ```
@@ -415,7 +404,7 @@ pub fn toBinance(self: SymbolMapper, pair: TradingPair) ![]const u8 {
 
 4. SymbolMapper 转换
    ↓
-   const symbol = try self.symbol_mapper.toHyperliquid(pair);
+   const symbol = try symbol_mapper.toHyperliquid(pair);
    // "ETH-USDC" → "ETH"
 
 5. InfoAPI.getAllMids
@@ -472,7 +461,7 @@ pub fn toBinance(self: SymbolMapper, pair: TradingPair) ![]const u8 {
 
 5. 转换为 Hyperliquid 格式
    ↓
-   const symbol = try self.symbol_mapper.toHyperliquid(request.pair);
+   const symbol = try symbol_mapper.toHyperliquid(request.pair);
    const hl_order = HyperliquidOrderRequest{
        .coin = symbol,
        .is_buy = request.side == .buy,
@@ -599,15 +588,19 @@ pub const ExchangeRegistry = struct {
 
 ```zig
 // 创建
-const self = try allocator.create(HyperliquidConnector);
-errdefer allocator.destroy(self);
+const connector = try HyperliquidConnector.create(allocator, config, logger);
+defer connector.destroy();
 
-self.* = .{ ... };
+// 使用接口
+const exchange = connector.interface();
 
-// 释放
-pub fn deinit(ptr: *anyopaque) void {
-    const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
-    self.http.deinit();
+// 释放（通过 destroy）
+pub fn destroy(self: *HyperliquidConnector) void {
+    if (self.connected) {
+        disconnect(self);
+    }
+    // TODO Phase D: cleanup HTTP client
+    // self.http.deinit();
     self.allocator.destroy(self);
 }
 ```
@@ -656,7 +649,7 @@ pub const ExchangeError = error{
 
     // 数据错误
     InvalidSymbolFormat,
-    UnsupportedQuoteCurrency,
+    InvalidQuoteAsset,
     ParseError,
 };
 ```
@@ -668,8 +661,9 @@ pub const ExchangeError = error{
 fn getTicker(ptr: *anyopaque, pair: TradingPair) !Ticker {
     const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
-    const symbol = try self.symbol_mapper.toHyperliquid(pair);
-    const mids = try InfoAPI.getAllMids(&self.http);
+    const symbol = try symbol_mapper.toHyperliquid(pair);
+    // TODO Phase D: Call API
+    // const mids = try InfoAPI.getAllMids(&self.http);
     // 错误自动传播
 }
 

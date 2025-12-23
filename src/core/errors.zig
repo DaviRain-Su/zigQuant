@@ -26,6 +26,9 @@ pub const NetworkError = error{
     Timeout,
     DNSResolutionFailed,
     SSLError,
+    HttpError,
+    RequestFailed,
+    ResponseFailed,
 };
 
 /// API-related errors

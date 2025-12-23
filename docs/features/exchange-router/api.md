@@ -679,6 +679,37 @@ pub const ExchangeRegistry = struct {
 
 ---
 
+### ExchangeConfig
+
+交易所配置结构。
+
+```zig
+pub const ExchangeConfig = struct {
+    name: []const u8,
+    api_key: []const u8 = "",
+    api_secret: []const u8 = "",
+    testnet: bool = false,
+};
+```
+
+**字段说明**:
+- `name`: 交易所名称（如 "hyperliquid", "binance"）
+- `api_key`: API 密钥（可选，用于私有 API）
+- `api_secret`: API 密钥（可选，用于签名认证）
+- `testnet`: 是否使用测试网（默认 false）
+
+**示例**:
+```zig
+const config = ExchangeConfig{
+    .name = "hyperliquid",
+    .api_key = "your_api_key",
+    .api_secret = "your_api_secret",
+    .testnet = true,
+};
+```
+
+---
+
 ### `init`
 
 初始化注册表。
@@ -720,7 +751,9 @@ pub fn setExchange(
 
 **示例**:
 ```zig
-const exchange = try HyperliquidConnector.create(allocator, config, logger);
+const connector = try HyperliquidConnector.create(allocator, config, logger);
+defer connector.destroy();
+const exchange = connector.interface();
 try registry.setExchange(exchange, config);
 ```
 
@@ -768,9 +801,8 @@ try registry.connectAll();
 
 ```zig
 pub const SymbolMapper = struct {
-    pub fn init() SymbolMapper
-    pub fn toHyperliquid(self: SymbolMapper, pair: TradingPair) ![]const u8
-    pub fn fromHyperliquid(self: SymbolMapper, symbol: []const u8) !TradingPair
+    pub fn toHyperliquid(pair: TradingPair) ![]const u8
+    pub fn fromHyperliquid(symbol: []const u8) TradingPair
 };
 ```
 
@@ -781,7 +813,7 @@ pub const SymbolMapper = struct {
 转换为 Hyperliquid 格式。
 
 ```zig
-pub fn toHyperliquid(self: SymbolMapper, pair: TradingPair) ![]const u8
+pub fn toHyperliquid(pair: TradingPair) ![]const u8
 ```
 
 **参数**:
@@ -790,14 +822,12 @@ pub fn toHyperliquid(self: SymbolMapper, pair: TradingPair) ![]const u8
 **返回**: Hyperliquid 符号（如 "ETH"）
 
 **错误**:
-- `error.UnsupportedQuoteCurrency`: 不支持的计价货币
+- `error.InvalidQuoteAsset`: 不支持的计价货币（必须是 USDC）
 
 **示例**:
 ```zig
-var mapper = SymbolMapper.init();
-
 const pair = TradingPair{ .base = "ETH", .quote = "USDC" };
-const symbol = try mapper.toHyperliquid(pair);
+const symbol = try symbol_mapper.toHyperliquid(pair);
 // symbol = "ETH"
 ```
 
@@ -808,17 +838,17 @@ const symbol = try mapper.toHyperliquid(pair);
 从 Hyperliquid 格式转换。
 
 ```zig
-pub fn fromHyperliquid(self: SymbolMapper, symbol: []const u8) !TradingPair
+pub fn fromHyperliquid(symbol: []const u8) TradingPair
 ```
 
 **参数**:
 - `symbol`: Hyperliquid 符号
 
-**返回**: 标准交易对
+**返回**: 标准交易对（不返回错误）
 
 **示例**:
 ```zig
-const pair = try mapper.fromHyperliquid("BTC");
+const pair = symbol_mapper.fromHyperliquid("BTC");
 // pair = TradingPair{ .base = "BTC", .quote = "USDC" }
 ```
 
@@ -858,7 +888,9 @@ pub fn main() !void {
         .testnet = true,
     };
 
-    const exchange = try HyperliquidConnector.create(allocator, config, logger);
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+    const exchange = connector.interface();
 
     // 4. 注册并连接
     try registry.setExchange(exchange, config);

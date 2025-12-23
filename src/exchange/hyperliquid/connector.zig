@@ -17,6 +17,13 @@ const symbol_mapper = @import("../symbol_mapper.zig");
 const Logger = @import("../../root.zig").Logger;
 const ExchangeConfig = @import("../../root.zig").ExchangeConfig;
 const Timestamp = @import("../../root.zig").Timestamp;
+const Decimal = @import("../../root.zig").Decimal;
+
+// Hyperliquid modules
+const HttpClient = @import("http.zig").HttpClient;
+const RateLimiter = @import("rate_limiter.zig").RateLimiter;
+const InfoAPI = @import("info_api.zig").InfoAPI;
+const hl_types = @import("types.zig");
 
 // Re-export types for convenience
 const TradingPair = types.TradingPair;
@@ -40,8 +47,12 @@ pub const HyperliquidConnector = struct {
     logger: Logger,
     connected: bool,
 
-    // TODO Phase D: Add HTTP and WebSocket clients
-    // http: HyperliquidClient,
+    // Phase D: HTTP client and API modules
+    http_client: HttpClient,
+    rate_limiter: RateLimiter,
+    info_api: InfoAPI,
+
+    // TODO Phase D.2: WebSocket client (optional)
     // ws: ?WebSocketClient,
 
     /// Create a new Hyperliquid connector and return it as IExchange
@@ -53,11 +64,24 @@ pub const HyperliquidConnector = struct {
         const self = try allocator.create(HyperliquidConnector);
         errdefer allocator.destroy(self);
 
+        // Initialize HTTP client
+        const http_client = HttpClient.init(allocator, config.testnet, logger);
+
+        // Initialize rate limiter (20 req/s)
+        const rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter();
+
+        // Initialize Info API
+        var http_client_mut = http_client;
+        const info_api = InfoAPI.init(allocator, &http_client_mut, logger);
+
         self.* = .{
             .allocator = allocator,
             .config = config,
             .logger = logger,
             .connected = false,
+            .http_client = http_client_mut,
+            .rate_limiter = rate_limiter,
+            .info_api = info_api,
         };
 
         return self;
@@ -68,6 +92,8 @@ pub const HyperliquidConnector = struct {
         if (self.connected) {
             disconnect(self);
         }
+        // Cleanup HTTP client
+        self.http_client.deinit();
         self.allocator.destroy(self);
     }
 
@@ -163,24 +189,29 @@ pub const HyperliquidConnector = struct {
 
         // Convert to Hyperliquid symbol format
         const symbol = try symbol_mapper.toHyperliquid(pair);
-        _ = symbol; // unused for now
 
-        self.logger.debug("getTicker called for {s}-{s}", .{ pair.base, pair.quote }) catch {};
+        self.logger.debug("getTicker called for {s}-{s} (HL: {s})", .{ pair.base, pair.quote, symbol }) catch {};
 
-        // TODO Phase D: Call Info API /info endpoint with {"type": "allMids"}
-        // const mids = try self.http.getAllMids();
-        // const mid_price = mids.get(symbol) orelse return error.SymbolNotFound;
-        //
-        // return Ticker{
-        //     .pair = pair,
-        //     .bid = mid_price,
-        //     .ask = mid_price,
-        //     .last = mid_price,
-        //     .volume_24h = Decimal.ZERO,
-        //     .timestamp = Timestamp.now(),
-        // };
+        // Rate limit
+        self.rate_limiter.wait();
 
-        return error.NotImplemented;
+        // Call Info API to get all mid prices
+        var mids = try self.info_api.getAllMids();
+        defer self.info_api.freeAllMids(&mids);
+
+        // Get mid price for this symbol
+        const mid_price_str = mids.get(symbol) orelse return error.SymbolNotFound;
+        const mid_price = try hl_types.parsePrice(mid_price_str);
+
+        // Return ticker (Hyperliquid only provides mid price, so bid/ask/last are the same)
+        return Ticker{
+            .pair = pair,
+            .bid = mid_price,
+            .ask = mid_price,
+            .last = mid_price,
+            .volume_24h = Decimal.ZERO, // Not available from allMids
+            .timestamp = Timestamp.now(),
+        };
     }
 
     fn getOrderbook(ptr: *anyopaque, pair: TradingPair, depth: u32) anyerror!Orderbook {
@@ -196,23 +227,47 @@ pub const HyperliquidConnector = struct {
             depth,
         }) catch {};
 
-        // TODO Phase D: Call Info API /info endpoint with {"type": "l2Book", "coin": symbol}
-        // const l2_data = try self.http.getL2Book(symbol);
-        //
-        // // Convert Hyperliquid format to unified Orderbook
-        // var bids = try self.allocator.alloc(OrderbookLevel, l2_data.levels[0].len);
-        // var asks = try self.allocator.alloc(OrderbookLevel, l2_data.levels[1].len);
-        //
-        // // Parse and sort...
-        //
-        // return Orderbook{
-        //     .pair = pair,
-        //     .bids = bids,
-        //     .asks = asks,
-        //     .timestamp = Timestamp.now(),
-        // };
+        // Rate limit
+        self.rate_limiter.wait();
 
-        return error.NotImplemented;
+        // Call Info API to get L2 orderbook
+        const l2_data = try self.info_api.getL2Book(symbol);
+
+        // Convert Hyperliquid format to unified Orderbook
+        // l2_data.levels[0] = bids, l2_data.levels[1] = asks
+        const num_bids = @min(l2_data.levels[0].len, depth);
+        const num_asks = @min(l2_data.levels[1].len, depth);
+
+        var bids = try self.allocator.alloc(types.OrderbookLevel, num_bids);
+        errdefer self.allocator.free(bids);
+
+        var asks = try self.allocator.alloc(types.OrderbookLevel, num_asks);
+        errdefer self.allocator.free(asks);
+
+        // Parse bids (already sorted from high to low by Hyperliquid)
+        for (l2_data.levels[0][0..num_bids], 0..) |level, i| {
+            bids[i] = types.OrderbookLevel{
+                .price = try hl_types.parsePrice(level.px),
+                .quantity = try hl_types.parseSize(level.sz),
+                .num_orders = level.n,
+            };
+        }
+
+        // Parse asks (already sorted from low to high by Hyperliquid)
+        for (l2_data.levels[1][0..num_asks], 0..) |level, i| {
+            asks[i] = types.OrderbookLevel{
+                .price = try hl_types.parsePrice(level.px),
+                .quantity = try hl_types.parseSize(level.sz),
+                .num_orders = level.n,
+            };
+        }
+
+        return Orderbook{
+            .pair = pair,
+            .bids = bids,
+            .asks = asks,
+            .timestamp = Timestamp.now(),
+        };
     }
 
     // ========================================================================
@@ -493,7 +548,7 @@ test "HyperliquidConnector: connect and disconnect" {
     try std.testing.expect(!exchange.isConnected());
 }
 
-test "HyperliquidConnector: stub methods return NotImplemented" {
+test "HyperliquidConnector: trading methods return NotImplemented" {
     const allocator = std.testing.allocator;
 
     const DummyWriter = struct {
@@ -522,11 +577,10 @@ test "HyperliquidConnector: stub methods return NotImplemented" {
 
     const exchange = connector.interface();
 
-    const pair = TradingPair{ .base = "ETH", .quote = "USDC" };
-
-    // All stub methods should return NotImplemented
-    try std.testing.expectError(error.NotImplemented, exchange.getTicker(pair));
-    try std.testing.expectError(error.NotImplemented, exchange.getOrderbook(pair, 10));
+    // Trading and account methods should return NotImplemented (Phase D.2)
     try std.testing.expectError(error.NotImplemented, exchange.getBalance());
     try std.testing.expectError(error.NotImplemented, exchange.getPositions());
+
+    // Note: getTicker and getOrderbook are now implemented (Phase D.1)
+    // but require network access, so they are tested in integration tests
 }
