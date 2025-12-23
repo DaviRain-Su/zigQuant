@@ -337,9 +337,10 @@ std.debug.print("Cost: {}\n", .{cost.toFloat()});
 - [x] 项目结构已搭建
 
 ### 被依赖
-- Story 002: Time Utils
-- Story 004: Order Types
-- Story 005: Pricing Engine
+- Phase 1: MVP - 交易所连接器（价格、数量、金额计算）
+- Phase 2: 订单管理系统（订单价格、数量）
+- Phase 2: 风险管理模块（持仓计算、盈亏计算）
+- 未来: 定价引擎、回测系统
 
 ---
 
