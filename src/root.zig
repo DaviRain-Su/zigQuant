@@ -6,6 +6,7 @@ const std = @import("std");
 // Core modules
 pub const time = @import("core/time.zig");
 pub const errors = @import("core/errors.zig");
+pub const logger = @import("core/logger.zig");
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -23,9 +24,17 @@ pub const ErrorContext = errors.ErrorContext;
 pub const WrappedError = errors.WrappedError;
 pub const RetryConfig = errors.RetryConfig;
 
+// Re-export logger types
+pub const Logger = logger.Logger;
+pub const Level = logger.Level;
+pub const ConsoleWriter = logger.ConsoleWriter;
+pub const FileWriter = logger.FileWriter;
+pub const JSONWriter = logger.JSONWriter;
+
 test {
     // Run tests from all modules
     std.testing.refAllDecls(@This());
     _ = time;
     _ = errors;
+    _ = logger;
 }
