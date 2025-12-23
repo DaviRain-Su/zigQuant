@@ -97,7 +97,7 @@ pub const HttpClient = struct {
             .payload = request_body,
             .extra_headers = header_list.items,
             .response_writer = &body_writer.writer,
-            .keep_alive = false,
+            .keep_alive = true,
         }) catch return NetworkError.ConnectionFailed;
 
         // Check status code
@@ -145,7 +145,7 @@ pub const HttpClient = struct {
             .location = .{ .url = url },
             .method = .GET,
             .response_writer = &body_writer.writer,
-            .keep_alive = false,
+            .keep_alive = true,
         }) catch return NetworkError.ConnectionFailed;
 
         // Check status code

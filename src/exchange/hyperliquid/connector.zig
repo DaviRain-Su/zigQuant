@@ -64,25 +64,19 @@ pub const HyperliquidConnector = struct {
         const self = try allocator.create(HyperliquidConnector);
         errdefer allocator.destroy(self);
 
-        // Initialize HTTP client
-        const http_client = HttpClient.init(allocator, config.testnet, logger);
-
-        // Initialize rate limiter (20 req/s)
-        const rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter();
-
-        // Initialize Info API
-        var http_client_mut = http_client;
-        const info_api = InfoAPI.init(allocator, &http_client_mut, logger);
-
+        // Initialize struct fields (http_client first, then info_api gets pointer to it)
         self.* = .{
             .allocator = allocator,
             .config = config,
             .logger = logger,
             .connected = false,
-            .http_client = http_client_mut,
-            .rate_limiter = rate_limiter,
-            .info_api = info_api,
+            .http_client = HttpClient.init(allocator, config.testnet, logger),
+            .rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter(),
+            .info_api = undefined, // Initialize after http_client is in place
         };
+
+        // Now initialize info_api with stable pointer to self.http_client
+        self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
 
         return self;
     }
@@ -231,7 +225,9 @@ pub const HyperliquidConnector = struct {
         self.rate_limiter.wait();
 
         // Call Info API to get L2 orderbook
-        const l2_data = try self.info_api.getL2Book(symbol);
+        const parsed_l2_data = try self.info_api.getL2Book(symbol);
+        defer parsed_l2_data.deinit();
+        const l2_data = parsed_l2_data.value;
 
         // Convert Hyperliquid format to unified Orderbook
         // l2_data.levels[0] = bids, l2_data.levels[1] = asks

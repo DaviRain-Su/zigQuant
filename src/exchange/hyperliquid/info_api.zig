@@ -44,6 +44,7 @@ pub const InfoAPI = struct {
             "{{\"type\":\"allMids\"}}",
             .{},
         );
+        defer self.allocator.free(request_json);
 
         // Send request
         const response_body = try self.http_client.postInfo(request_json);
@@ -87,8 +88,8 @@ pub const InfoAPI = struct {
     /// Get L2 orderbook for a coin
     ///
     /// @param coin: Symbol (e.g., "ETH")
-    /// @return L2BookResponse with bids and asks
-    pub fn getL2Book(self: *InfoAPI, coin: []const u8) !types.L2BookResponse {
+    /// @return Parsed L2BookResponse (caller must call deinit())
+    pub fn getL2Book(self: *InfoAPI, coin: []const u8) !std.json.Parsed(types.L2BookResponse) {
         self.logger.debug("Fetching L2 book for {s}", .{coin}) catch {};
 
         // Prepare request
@@ -97,22 +98,21 @@ pub const InfoAPI = struct {
             "{{\"type\":\"l2Book\",\"coin\":\"{s}\"}}",
             .{coin},
         );
+        defer self.allocator.free(request_json);
 
         // Send request
         const response_body = try self.http_client.postInfo(request_json);
         defer self.allocator.free(response_body);
 
-        // Parse response
+        // Parse response (caller must call deinit() on returned Parsed object)
         const parsed = try std.json.parseFromSlice(
             types.L2BookResponse,
             self.allocator,
             response_body,
             .{ .allocate = .alloc_always },
         );
-        defer parsed.deinit();
 
-        // Note: Caller must free the response fields
-        return parsed.value;
+        return parsed;
     }
 
     /// Get asset metadata
