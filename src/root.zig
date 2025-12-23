@@ -10,6 +10,10 @@ pub const logger = @import("core/logger.zig");
 pub const config = @import("core/config.zig");
 pub const decimal = @import("core/decimal.zig");
 
+// Exchange modules
+pub const exchange_types = @import("exchange/types.zig");
+pub const exchange_interface = @import("exchange/interface.zig");
+
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
 pub const Duration = time.Duration;
@@ -44,6 +48,21 @@ pub const LoggingConfig = config.LoggingConfig;
 pub const ConfigLoader = config.ConfigLoader;
 pub const ConfigError = config.ConfigError;
 
+// Re-export exchange types
+pub const IExchange = exchange_interface.IExchange;
+pub const TradingPair = exchange_types.TradingPair;
+pub const Side = exchange_types.Side;
+pub const OrderType = exchange_types.OrderType;
+pub const TimeInForce = exchange_types.TimeInForce;
+pub const OrderStatus = exchange_types.OrderStatus;
+pub const OrderRequest = exchange_types.OrderRequest;
+pub const Order = exchange_types.Order;
+pub const Ticker = exchange_types.Ticker;
+pub const OrderbookLevel = exchange_types.OrderbookLevel;
+pub const Orderbook = exchange_types.Orderbook;
+pub const Balance = exchange_types.Balance;
+pub const Position = exchange_types.Position;
+
 test {
     // Run tests from all modules
     std.testing.refAllDecls(@This());
@@ -52,4 +71,6 @@ test {
     _ = logger;
     _ = config;
     _ = decimal;
+    _ = exchange_types;
+    _ = exchange_interface;
 }
