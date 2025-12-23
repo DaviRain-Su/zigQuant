@@ -8,39 +8,48 @@
 
 ## 核心算法
 
-### 1. 配置加载优先级
+### 1. 配置加载流程
 
 ```zig
-pub fn load(allocator: Allocator, path: []const u8, comptime T: type) !T {
-    // 1. 加载默认配置
-    var cfg = T{};
+pub fn loadFromJSON(
+    allocator: Allocator,
+    json_str: []const u8,
+    comptime T: type,
+) !std.json.Parsed(T) {
+    // 1. 从 JSON 解析配置
+    var parsed = try std.json.parseFromSlice(
+        T,
+        allocator,
+        json_str,
+        .{ .allocate = .alloc_always },
+    );
+    errdefer parsed.deinit();
 
-    // 2. 从文件加载（覆盖默认值）
-    const file_content = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
-    defer allocator.free(file_content);
+    // 2. 应用环境变量覆盖（最高优先级）
+    try applyEnvOverrides(&parsed.value, "ZIGQUANT", allocator);
 
-    cfg = try parseConfig(allocator, file_content, T);
-
-    // 3. 应用环境变量（最高优先级）
-    try applyEnvOverrides(&cfg, "ZIGQUANT");
-
-    // 4. 验证配置
+    // 3. 验证配置
     if (@hasDecl(T, "validate")) {
-        try cfg.validate();
+        try parsed.value.validate();
     }
 
-    return cfg;
+    // 4. 返回 Parsed 对象（调用者负责 deinit）
+    return parsed;
 }
 ```
 
-**优先级**: 环境变量 > 文件 > 默认值
+**优先级**: 环境变量 > JSON 文件 > 结构体默认值
 
 ---
 
 ### 2. 环境变量覆盖
 
 ```zig
-pub fn applyEnvOverrides(config: anytype, prefix: []const u8) !void {
+pub fn applyEnvOverrides(
+    config: anytype,
+    prefix: []const u8,
+    allocator: Allocator,
+) !void {
     const T = @TypeOf(config.*);
     const fields = @typeInfo(T).Struct.fields;
 
@@ -52,7 +61,7 @@ pub fn applyEnvOverrides(config: anytype, prefix: []const u8) !void {
         );
         defer allocator.free(env_key);
 
-        if (std.os.getenv(env_key)) |value| {
+        if (std.posix.getenv(env_key)) |value| {
             @field(config, field.name) = try parseValue(field.type, value);
         }
 
@@ -65,7 +74,7 @@ pub fn applyEnvOverrides(config: anytype, prefix: []const u8) !void {
             );
             defer allocator.free(nested_prefix);
 
-            try applyEnvOverrides(&@field(config, field.name), nested_prefix);
+            try applyEnvOverrides(&@field(config, field.name), nested_prefix, allocator);
         }
 
         // 处理数组/切片（如 exchanges）
@@ -82,7 +91,7 @@ pub fn applyEnvOverrides(config: anytype, prefix: []const u8) !void {
                 );
                 defer allocator.free(indexed_prefix);
 
-                try applyEnvOverrides(item, indexed_prefix);
+                try applyEnvOverrides(item, indexed_prefix, allocator);
 
                 // 支持按名称覆盖: ZIGQUANT_EXCHANGES_BINANCE_API_KEY
                 if (@hasField(@TypeOf(item.*), "name")) {
@@ -94,7 +103,7 @@ pub fn applyEnvOverrides(config: anytype, prefix: []const u8) !void {
                     );
                     defer allocator.free(named_prefix);
 
-                    try applyEnvOverrides(item, named_prefix);
+                    try applyEnvOverrides(item, named_prefix, allocator);
                 }
             }
         }
@@ -202,26 +211,33 @@ pub const AppConfig = struct {
 
 ## JSON 解析
 
-```zig
-fn parseConfig(allocator: Allocator, content: []const u8, comptime T: type) !T {
-    const parsed = try std.json.parseFromSlice(T, allocator, content, .{});
-    defer parsed.deinit();
+实际实现中，JSON 解析直接在 `loadFromJSON` 中进行：
 
-    return parsed.value;
-}
+```zig
+var parsed = try std.json.parseFromSlice(
+    T,
+    allocator,
+    json_str,
+    .{ .allocate = .alloc_always },
+);
 ```
+
+**注意**: 返回 `std.json.Parsed(T)` 对象，需要调用者手动 deinit
 
 ---
 
-## TOML 解析
+## TOML 支持（未实现）
+
+TOML 格式当前未实现，load() 方法会返回错误：
 
 ```zig
-fn parseConfigTOML(allocator: Allocator, content: []const u8, comptime T: type) !T {
-    // 使用第三方 TOML 库
-    const toml = @import("toml");
-    return try toml.parse(T, allocator, content);
+} else if (std.mem.endsWith(u8, path, ".toml")) {
+    // TOML support can be added later
+    return error.UnsupportedFormat;  // ⚠️ 未实现
 }
 ```
+
+未来可以通过集成 TOML 库来实现此功能。
 
 ---
 
@@ -268,6 +284,10 @@ pub fn validate(self: AppConfig) !void {
         return error.InvalidPositionSize;
     }
 
+    if (self.trading.risk_limit <= 0 or self.trading.risk_limit > 1.0) {
+        return error.InvalidRiskLimit;
+    }
+
     // 日志配置验证
     const valid_levels = [_][]const u8{ "trace", "debug", "info", "warn", "error", "fatal" };
     var valid = false;
@@ -297,20 +317,22 @@ comptime {
 }
 ```
 
-### 2. 缓存环境变量
+### 2. 直接返回 Parsed 对象
+
+当前实现直接返回 `std.json.Parsed(T)` 对象，避免了额外的内存拷贝：
 
 ```zig
-var env_cache = std.StringHashMap([]const u8).init(allocator);
-defer env_cache.deinit();
+// ✅ 高效：直接返回 parsed
+return parsed;
 
-// 只读取一次环境变量
-if (env_cache.get(key)) |value| {
-    return value;
-}
-
-const value = std.os.getenv(key);
-try env_cache.put(key, value);
+// ❌ 低效：拷贝并释放 parsed
+defer parsed.deinit();
+return parsed.value;  // 会导致 use-after-free
 ```
+
+### 3. 环境变量查找优化
+
+使用 `std.posix.getenv` 直接查找，无额外缓存开销。
 
 ---
 

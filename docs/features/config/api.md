@@ -10,39 +10,31 @@
 
 配置加载器
 
-### `load(allocator, path, T) !T`
+### `loadFromJSON(allocator, json_str, T) !std.json.Parsed(T)`
 
-从文件加载配置
+从 JSON 字符串加载配置
 
-```zig
-const cfg = try ConfigLoader.load(
-    allocator,
-    "config.json",
-    AppConfig,
-);
-defer cfg.deinit(allocator);
-```
-
-### `loadFromJSON(allocator, json_str, T) !T`
-
-从 JSON 字符串加载
+**返回**: `std.json.Parsed(T)` - 必须调用 `.deinit()` 释放内存
 
 ```zig
 const json =
     \\{
-    \\  "server": {"host": "localhost", "port": 8080}
+    \\  "server": {"host": "localhost", "port": 8080},
+    \\  "exchanges": []
     \\}
 ;
-const cfg = try ConfigLoader.loadFromJSON(allocator, json, AppConfig);
+var parsed = try ConfigLoader.loadFromJSON(allocator, json, AppConfig);
+defer parsed.deinit();
+const cfg = parsed.value;
 ```
 
-### `applyEnvOverrides(config, prefix) !void`
+### `applyEnvOverrides(config, prefix, allocator) !void`
 
 应用环境变量覆盖
 
 ```zig
 var cfg = AppConfig{ ... };
-try ConfigLoader.applyEnvOverrides(&cfg, "ZIGQUANT");
+try ConfigLoader.applyEnvOverrides(&cfg, "ZIGQUANT", allocator);
 ```
 
 ---
@@ -59,11 +51,12 @@ pub const AppConfig = struct {
     logging: LoggingConfig,
 
     pub fn validate(self: AppConfig) !void;
-    pub fn sanitize(self: AppConfig) AppConfig;
-    pub fn deinit(self: *AppConfig, allocator: Allocator) void;
+    pub fn sanitize(self: AppConfig, allocator: Allocator) !AppConfig;
 
     /// 通过名称查找交易所配置
     pub fn getExchange(self: AppConfig, name: []const u8) ?ExchangeConfig;
+
+    // 注意：内存由 Parsed(AppConfig) 管理，无 deinit 方法
 };
 ```
 
@@ -72,7 +65,12 @@ pub const AppConfig = struct {
 通过交易所名称查找配置
 
 ```zig
-const cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
+const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+defer allocator.free(json_str);
+
+var parsed = try ConfigLoader.loadFromJSON(allocator, json_str, AppConfig);
+defer parsed.deinit();
+const cfg = parsed.value;
 
 if (cfg.getExchange("binance")) |binance| {
     std.debug.print("Binance: {s}\n", .{binance.name});
@@ -86,14 +84,19 @@ if (cfg.getExchange("okx")) |okx| {
 ### 示例
 
 ```zig
-var cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
-defer cfg.deinit(allocator);
+const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+defer allocator.free(json_str);
 
-try cfg.validate();
+var parsed = try ConfigLoader.loadFromJSON(allocator, json_str, AppConfig);
+defer parsed.deinit();
+const cfg = parsed.value;
+
+// 配置已自动验证（loadFromJSON 内部调用 validate）
 
 // 遍历所有交易所
 for (cfg.exchanges) |exchange| {
-    std.debug.print("Exchange: {}\n", .{exchange.sanitize()});
+    const sanitized = exchange.sanitize();
+    std.debug.print("Exchange: {}\n", .{sanitized});
 }
 
 // 查找特定交易所
@@ -141,8 +144,8 @@ std.debug.print("{}\n", .{cfg.sanitize()});
 ### 示例 1: 多环境配置
 
 ```zig
-pub fn loadConfig(allocator: Allocator) !AppConfig {
-    const env = std.os.getenv("ENV") orelse "dev";
+pub fn loadConfig(allocator: Allocator) !std.json.Parsed(AppConfig) {
+    const env = std.posix.getenv("ENV") orelse "dev";
 
     const config_file = if (std.mem.eql(u8, env, "prod"))
         "config.prod.json"
@@ -151,39 +154,49 @@ pub fn loadConfig(allocator: Allocator) !AppConfig {
     else
         "config.dev.json";
 
-    var cfg = try ConfigLoader.load(allocator, config_file, AppConfig);
-    try cfg.validate();
+    const json_str = try std.fs.cwd().readFileAlloc(allocator, config_file, 1024 * 1024);
+    defer allocator.free(json_str);
+
+    var parsed = try ConfigLoader.loadFromJSON(allocator, json_str, AppConfig);
+    // 配置已自动验证
 
     // 打印所有配置的交易所
-    std.log.info("Loaded {} exchanges", .{cfg.exchanges.len});
-    for (cfg.exchanges) |exchange| {
+    std.log.info("Loaded {} exchanges", .{parsed.value.exchanges.len});
+    for (parsed.value.exchanges) |exchange| {
         std.log.info("  - {s} (testnet: {})", .{exchange.name, exchange.testnet});
     }
 
-    return cfg;
+    return parsed;  // 调用者负责 deinit
 }
 ```
 
 ### 示例 2: 配置验证
 
 ```zig
-const cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
+const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+defer allocator.free(json_str);
 
-cfg.validate() catch |err| {
+// loadFromJSON 自动验证配置，如果无效会返回错误
+var parsed = ConfigLoader.loadFromJSON(allocator, json_str, AppConfig) catch |err| {
     std.log.err("Invalid config: {}", .{err});
     return err;
 };
+defer parsed.deinit();
 
 std.log.info("Config loaded successfully", .{});
-std.log.info("Configured exchanges: {}", .{cfg.exchanges.len});
+std.log.info("Configured exchanges: {}", .{parsed.value.exchanges.len});
 ```
 
 ### 示例 3: 跨交易所套利
 
 ```zig
 pub fn setupArbitrageSystem(allocator: Allocator) !void {
-    const cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
-    defer cfg.deinit(allocator);
+    const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+    defer allocator.free(json_str);
+
+    var parsed = try ConfigLoader.loadFromJSON(allocator, json_str, AppConfig);
+    defer parsed.deinit();
+    const cfg = parsed.value;
 
     // 获取两个交易所用于套利
     const binance = cfg.getExchange("binance") orelse return error.BinanceNotConfigured;

@@ -2,10 +2,10 @@
 
 > 灵活的配置加载、环境变量覆盖、敏感信息保护
 
-**状态**: 📋 待开始
-**版本**: v0.1.0
+**状态**: ✅ 已完成
+**版本**: v0.2.0
 **Story**: [005-config](../../../stories/v0.1-foundation/005-config.md)
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-23
 
 ---
 
@@ -23,7 +23,7 @@ Config 模块提供统一的配置管理系统，支持多种格式、环境变�
 
 ### 核心特性
 
-- ✅ **多格式支持**: JSON, TOML
+- ✅ **多格式支持**: JSON (TOML 计划中)
 - ✅ **多交易所配置**: 同时连接多个交易所
 - ✅ **优先级加载**: 默认值 → 文件 → 环境变量
 - ✅ **环境变量覆盖**: ZIGQUANT_* 前缀
@@ -46,13 +46,14 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // 加载配置
-    var cfg = try config.ConfigLoader.load(
+    // 加载配置 (从文件)
+    var parsed = try config.ConfigLoader.loadFromJSON(
         allocator,
-        "config.json",
+        try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024),
         config.AppConfig,
     );
-    defer cfg.deinit(allocator);
+    defer parsed.deinit();
+    const cfg = parsed.value;
 
     std.debug.print("Server: {s}:{}\n", .{ cfg.server.host, cfg.server.port });
 }
@@ -88,28 +89,10 @@ pub fn main() !void {
 }
 ```
 
-**config.toml**:
+**TOML 支持** (计划中):
 ```toml
-[server]
-host = "localhost"
-port = 8080
-
-# 多交易所配置
-[[exchanges]]
-name = "binance"
-api_key = "binance-key"
-api_secret = "binance-secret"
-testnet = false
-
-[[exchanges]]
-name = "okx"
-api_key = "okx-key"
-api_secret = "okx-secret"
-testnet = false
-
-[trading]
-max_position_size = 10000.0
-leverage = 1
+# ⚠️ TOML 支持尚未实现，当前仅支持 JSON
+# 未来版本将支持 TOML 格式
 ```
 
 ### 环境变量覆盖
@@ -130,11 +113,14 @@ export ZIGQUANT_EXCHANGES_OKX_API_KEY="okx-production-key"
 ### 敏感信息保护
 
 ```zig
-const cfg = try config.ConfigLoader.load(allocator, "config.json", config.AppConfig);
+var parsed = try config.ConfigLoader.loadFromJSON(allocator, json_str, config.AppConfig);
+defer parsed.deinit();
+const cfg = parsed.value;
 
 // 打印配置（敏感信息自动隐藏）
 for (cfg.exchanges) |exchange| {
-    std.debug.print("{}\n", .{exchange.sanitize()});
+    const sanitized = exchange.sanitize();  // ExchangeConfig.sanitize() 不需要 allocator
+    std.debug.print("{}\n", .{sanitized});
 }
 // 输出: ExchangeConfig{ .name = "binance", .api_key = "***REDACTED***", .api_secret = "***REDACTED***" }
 //       ExchangeConfig{ .name = "okx", .api_key = "***REDACTED***", .api_secret = "***REDACTED***" }
@@ -143,8 +129,12 @@ for (cfg.exchanges) |exchange| {
 ### 多交易所使用
 
 ```zig
-const cfg = try config.ConfigLoader.load(allocator, "config.json", config.AppConfig);
-defer cfg.deinit(allocator);
+const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+defer allocator.free(json_str);
+
+var parsed = try config.ConfigLoader.loadFromJSON(allocator, json_str, config.AppConfig);
+defer parsed.deinit();
+const cfg = parsed.value;
 
 // 遍历所有交易所
 for (cfg.exchanges) |exchange| {
@@ -185,31 +175,19 @@ try executeArbitrage(binance_client, okx_client);
 ```zig
 /// 配置加载器
 pub const ConfigLoader = struct {
-    /// 从文件加载配置
-    pub fn load(
-        allocator: Allocator,
-        path: []const u8,
-        comptime T: type,
-    ) !T;
-
-    /// 从 JSON 字符串加载
+    /// 从 JSON 字符串加载配置
+    /// 返回 Parsed(T) 对象，调用者必须调用 .deinit() 释放内存
     pub fn loadFromJSON(
         allocator: Allocator,
         json_str: []const u8,
         comptime T: type,
-    ) !T;
-
-    /// 从 TOML 字符串加载
-    pub fn loadFromTOML(
-        allocator: Allocator,
-        toml_str: []const u8,
-        comptime T: type,
-    ) !T;
+    ) !std.json.Parsed(T);
 
     /// 应用环境变量覆盖
     pub fn applyEnvOverrides(
         config: anytype,
         prefix: []const u8,
+        allocator: Allocator,
     ) !void;
 };
 
@@ -221,11 +199,13 @@ pub const AppConfig = struct {
     logging: LoggingConfig,
 
     pub fn validate(self: AppConfig) !void;
-    pub fn sanitize(self: AppConfig) AppConfig;
-    pub fn deinit(self: *AppConfig, allocator: Allocator) void;
+    pub fn sanitize(self: AppConfig, allocator: Allocator) !AppConfig;
 
     /// 通过名称查找交易所配置
     pub fn getExchange(self: AppConfig, name: []const u8) ?ExchangeConfig;
+
+    // 注意：内存管理由 JSON 解析器处理
+    // 使用 loadFromJSON 返回的 Parsed(AppConfig) 对象的 .deinit() 方法释放内存
 };
 
 /// 服务器配置
@@ -287,19 +267,28 @@ export ZIGQUANT_EXCHANGES_BINANCE_API_SECRET="binance-secret"
 export ZIGQUANT_EXCHANGES_OKX_API_KEY="okx-key"
 export ZIGQUANT_EXCHANGES_OKX_API_SECRET="okx-secret"
 
-// 2. 验证配置
-const cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
-try cfg.validate();  // 确保配置有效
+// 2. 验证配置（自动在 loadFromJSON 中执行）
+const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+defer allocator.free(json_str);
+var parsed = try ConfigLoader.loadFromJSON(allocator, json_str, AppConfig);
+defer parsed.deinit();
+const cfg = parsed.value;  // 配置已自动验证
 
 // 3. 打印时隐藏敏感信息
-std.debug.print("{}\n", .{cfg.sanitize()});
+const sanitized = try cfg.sanitize(allocator);
+defer allocator.free(sanitized.exchanges);
+std.debug.print("{}\n", .{sanitized});
 
 // 4. 使用不同环境的配置文件
-const env = std.os.getenv("ENV") orelse "dev";
+const env = std.posix.getenv("ENV") orelse "dev";
 const config_file = if (std.mem.eql(u8, env, "prod"))
     "config.prod.json"
 else
     "config.dev.json";
+const json = try std.fs.cwd().readFileAlloc(allocator, config_file, 1024 * 1024);
+defer allocator.free(json);
+var parsed = try ConfigLoader.loadFromJSON(allocator, json, AppConfig);
+defer parsed.deinit();
 ```
 
 ### ❌ DON'T
@@ -359,12 +348,14 @@ const cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
 
 ## 💡 未来改进
 
+- [ ] 支持 TOML 格式 (当前 load() 返回 error.UnsupportedFormat)
 - [ ] 支持 YAML 格式
 - [ ] 配置热更新（文件监听）
 - [ ] 配置加密（AES）
 - [ ] 远程配置中心集成
 - [ ] 配置版本管理
 - [ ] 配置 diff 工具
+- [ ] 添加 AppConfig.deinit() 方法简化内存管理
 
 ---
 
