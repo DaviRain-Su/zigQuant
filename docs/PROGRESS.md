@@ -229,13 +229,13 @@ pub const Decimal = struct {
 
 ### Stories 清单
 详见 `stories/v0.2-mvp/` 目录：
-- [ ] `001-hyperliquid-http.md` - Hyperliquid REST API 集成
-- [ ] `002-hyperliquid-ws.md` - Hyperliquid WebSocket 实时数据
-- [ ] `003-orderbook.md` - 链上订单簿数据结构
-- [ ] `004-order-types.md` - 订单类型定义
-- [ ] `005-order-manager.md` - 订单管理器
-- [ ] `006-position-tracker.md` - 仓位追踪器
-- [ ] `007-cli-interface.md` - 基础 CLI 界面
+- [ ] `006-hyperliquid-http.md` - Hyperliquid REST API 集成
+- [ ] `007-hyperliquid-ws.md` - Hyperliquid WebSocket 实时数据
+- [ ] `008-orderbook.md` - 链上订单簿数据结构
+- [ ] `009-order-types.md` - 订单类型定义
+- [ ] `0010-order-manager.md` - 订单管理器
+- [ ] `0011-position-tracker.md` - 仓位追踪器
+- [ ] `0012-cli-interface.md` - 基础 CLI 界面
 
 ### 预计工时
 3-4 周
