@@ -82,24 +82,124 @@ pub fn main() !void {
     std.debug.print("  ConnectionFailed: {}\n", .{zigQuant.errors.isRetryable(zigQuant.NetworkError.ConnectionFailed)});
     std.debug.print("  Unauthorized: {}\n", .{zigQuant.errors.isRetryable(zigQuant.APIError.Unauthorized)});
 
+    std.debug.print("\n=== zigQuant - Logger Module Demo ===\n\n", .{});
+
+    // Demo 1: Console Logger with structured fields
+    std.debug.print("Demo 1: Console Logger (stderr)\n", .{});
+    {
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+
+        var console = zigQuant.ConsoleWriter.init(&stderr_writer.interface);
+        defer console.deinit();
+
+        var log = zigQuant.Logger.init(allocator, console.writer(), .debug);
+        defer log.deinit();
+
+        try log.debug("应用程序启动", .{ .version = "0.1.0", .pid = 12345 });
+        try log.info("交易系统初始化", .{ .symbols = 5, .exchanges = 2 });
+        try log.warn("API 延迟较高", .{ .latency_ms = 250, .threshold_ms = 100 });
+        try log.err("订单执行失败", .{ .order_id = "ORD001", .reason = "insufficient_balance" });
+
+        // 刷新缓冲区
+        try stderr_writer.interface.flush();
+    }
+
+    // Demo 2: JSON Logger
+    std.debug.print("\nDemo 2: JSON Logger (stdout)\n", .{});
+    {
+        var stdout_buffer: [4096]u8 = undefined;
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+
+        var json = zigQuant.JSONWriter.init(&stdout_writer.interface);
+
+        var log = zigQuant.Logger.init(allocator, json.writer(), .info);
+        defer log.deinit();
+
+        try log.info("订单创建", .{
+            .order_id = "ORD001",
+            .symbol = "BTC/USDT",
+            .side = "buy",
+            .price = 50000.0,
+            .quantity = 1.5,
+        });
+
+        try log.info("交易执行", .{
+            .trade_id = "TRD001",
+            .order_id = "ORD001",
+            .executed_price = 50100.0,
+            .fee = 75.15,
+        });
+
+        // 刷新缓冲区
+        try stdout_writer.interface.flush();
+    }
+
+    // Demo 3: File Logger
+    std.debug.print("\nDemo 3: File Logger\n", .{});
+    {
+        var file_writer = try zigQuant.FileWriter.init(allocator, "/tmp/zigquant_demo.log");
+        defer file_writer.deinit();
+
+        var log = zigQuant.Logger.init(allocator, file_writer.writer(), .info);
+        defer log.deinit();
+
+        try log.info("系统启动", .{
+            .timestamp = std.time.timestamp(),
+            .mode = "production",
+        });
+
+        try log.info("策略加载", .{
+            .strategy = "momentum",
+            .parameters = 5,
+        });
+
+        std.debug.print("日志已写入 /tmp/zigquant_demo.log\n", .{});
+    }
+
+    // Demo 4: Log level filtering
+    std.debug.print("\nDemo 4: 日志级别过滤 (只显示 warn 及以上)\n", .{});
+    {
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+
+        var console = zigQuant.ConsoleWriter.init(&stderr_writer.interface);
+        defer console.deinit();
+
+        var log = zigQuant.Logger.init(allocator, console.writer(), .warn);
+        defer log.deinit();
+
+        try log.debug("调试信息", .{}); // 不会显示
+        try log.info("普通信息", .{}); // 不会显示
+        try log.warn("警告信息", .{ .code = 404 }); // 会显示
+        try log.err("错误信息", .{ .error_type = "NetworkError" }); // 会显示
+
+        // 刷新缓冲区
+        try stderr_writer.interface.flush();
+    }
+
+    // Demo 5: All log levels
+    std.debug.print("\nDemo 5: 所有日志级别\n", .{});
+    {
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+
+        var console = zigQuant.ConsoleWriter.init(&stderr_writer.interface);
+        defer console.deinit();
+
+        var log = zigQuant.Logger.init(allocator, console.writer(), .trace);
+        defer log.deinit();
+
+        try log.trace("追踪信息", .{ .function = "processOrder" });
+        try log.debug("调试信息", .{ .variable = "price", .value = 50000 });
+        try log.info("一般信息", .{ .event = "order_created" });
+        try log.warn("警告信息", .{ .memory_usage = 85 });
+        try log.err("错误信息", .{ .error_code = 500 });
+        try log.fatal("致命错误", .{ .reason = "system_crash" });
+
+        // 刷新缓冲区
+        try stderr_writer.interface.flush();
+    }
+
     std.debug.print("\n=== Demo Complete ===\n", .{});
-}
-
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }

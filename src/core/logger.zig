@@ -253,10 +253,10 @@ fn valueFromAny(value: anytype) !Value {
 
 /// Console writer (outputs to stdout/stderr)
 pub const ConsoleWriter = struct {
-    underlying_writer: std.io.AnyWriter,
+    underlying_writer: *std.io.Writer,
     mutex: std.Thread.Mutex = .{},
 
-    pub fn init(underlying: anytype) ConsoleWriter {
+    pub fn init(underlying: *std.io.Writer) ConsoleWriter {
         return .{
             .underlying_writer = underlying,
         };
@@ -315,6 +315,7 @@ pub const ConsoleWriter = struct {
 pub const FileWriter = struct {
     allocator: Allocator,
     file: std.fs.File,
+    buffer: [4096]u8,
     mutex: std.Thread.Mutex = .{},
 
     pub fn init(allocator: Allocator, path: []const u8) !FileWriter {
@@ -329,6 +330,7 @@ pub const FileWriter = struct {
         return .{
             .allocator = allocator,
             .file = file,
+            .buffer = undefined,
         };
     }
 
@@ -350,7 +352,8 @@ pub const FileWriter = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        const w = self.file.writer();
+        var file_writer = self.file.writer(&self.buffer);
+        const w = &file_writer.interface;
 
         try w.print("[{s}] {} {s}", .{
             record.level.toString(),
@@ -372,8 +375,8 @@ pub const FileWriter = struct {
     }
 
     fn closeFn(ptr: *anyopaque) void {
-        const self: *FileWriter = @ptrCast(@alignCast(ptr));
-        self.deinit();
+        // Don't close here - let the user call deinit() explicitly
+        _ = ptr;
     }
 };
 
@@ -383,10 +386,10 @@ pub const FileWriter = struct {
 
 /// JSON writer (outputs JSON format)
 pub const JSONWriter = struct {
-    underlying_writer: std.io.AnyWriter,
+    underlying_writer: *std.io.Writer,
     mutex: std.Thread.Mutex = .{},
 
-    pub fn init(underlying: anytype) JSONWriter {
+    pub fn init(underlying: *std.io.Writer) JSONWriter {
         return .{
             .underlying_writer = underlying,
         };
