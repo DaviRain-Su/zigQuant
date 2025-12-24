@@ -5,7 +5,7 @@
 **状态**: ✅ 已完成
 **版本**: v0.2.0
 **Story**: [005-config](../../../stories/v0.1-foundation/005-config.md)
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -23,10 +23,11 @@ Config 模块提供统一的配置管理系统，支持多种格式、环境变�
 
 ### 核心特性
 
-- ✅ **多格式支持**: JSON (TOML 计划中)
+- ✅ **JSON 格式支持**: 完整的 JSON 解析
+- ⚠️ **TOML 支持**: 未实现（返回 error.UnsupportedFormat）
 - ✅ **多交易所配置**: 同时连接多个交易所
 - ✅ **优先级加载**: 默认值 → 文件 → 环境变量
-- ✅ **环境变量覆盖**: ZIGQUANT_* 前缀
+- ✅ **环境变量覆盖**: ZIGQUANT_* 前缀，支持索引和名称两种方式
 - ✅ **敏感信息保护**: sanitize() 方法
 - ✅ **类型安全**: 编译时类型检查
 - ✅ **验证机制**: 自动验证配置有效性
@@ -46,10 +47,18 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // 加载配置 (从文件)
+    // 读取 JSON 文件内容
+    const json_str = try std.fs.cwd().readFileAlloc(
+        allocator,
+        "config.json",
+        1024 * 1024,
+    );
+    defer allocator.free(json_str);
+
+    // 加载配置并自动应用环境变量覆盖和验证
     var parsed = try config.ConfigLoader.loadFromJSON(
         allocator,
-        try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024),
+        json_str,
         config.AppConfig,
     );
     defer parsed.deinit();
@@ -84,26 +93,41 @@ pub fn main() !void {
   ],
   "trading": {
     "max_position_size": 10000.0,
-    "leverage": 1
+    "leverage": 1,
+    "risk_limit": 0.02
+  },
+  "logging": {
+    "level": "info",
+    "file": null,
+    "max_size": 10000000
   }
 }
 ```
 
-**TOML 支持** (计划中):
+**TOML 支持** (未实现):
 ```toml
 # ⚠️ TOML 支持尚未实现，当前仅支持 JSON
-# 未来版本将支持 TOML 格式
+# load() 方法对 .toml 文件会返回 error.UnsupportedFormat
+# 未来版本可能支持 TOML 格式
 ```
 
 ### 环境变量覆盖
 
 ```bash
-# 覆盖配置文件中的值
+# 覆盖基本配置
+export ZIGQUANT_SERVER_HOST="0.0.0.0"
 export ZIGQUANT_SERVER_PORT=9090
 
-# 覆盖特定交易所的配置（使用索引或名称）
+# 按索引覆盖交易所配置
+export ZIGQUANT_EXCHANGES_0_API_KEY="binance-production-key"
+export ZIGQUANT_EXCHANGES_0_API_SECRET="binance-production-secret"
+export ZIGQUANT_EXCHANGES_1_API_KEY="okx-production-key"
+
+# 按名称覆盖交易所配置（推荐方式）
 export ZIGQUANT_EXCHANGES_BINANCE_API_KEY="binance-production-key"
+export ZIGQUANT_EXCHANGES_BINANCE_API_SECRET="binance-production-secret"
 export ZIGQUANT_EXCHANGES_OKX_API_KEY="okx-production-key"
+export ZIGQUANT_EXCHANGES_OKX_API_SECRET="okx-production-secret"
 
 # 运行程序
 ./zigquant
@@ -113,17 +137,24 @@ export ZIGQUANT_EXCHANGES_OKX_API_KEY="okx-production-key"
 ### 敏感信息保护
 
 ```zig
+const json_str = try std.fs.cwd().readFileAlloc(allocator, "config.json", 1024 * 1024);
+defer allocator.free(json_str);
+
 var parsed = try config.ConfigLoader.loadFromJSON(allocator, json_str, config.AppConfig);
 defer parsed.deinit();
 const cfg = parsed.value;
 
-// 打印配置（敏感信息自动隐藏）
+// 打印单个交易所配置（敏感信息自动隐藏）
 for (cfg.exchanges) |exchange| {
     const sanitized = exchange.sanitize();  // ExchangeConfig.sanitize() 不需要 allocator
     std.debug.print("{}\n", .{sanitized});
 }
-// 输出: ExchangeConfig{ .name = "binance", .api_key = "***REDACTED***", .api_secret = "***REDACTED***" }
-//       ExchangeConfig{ .name = "okx", .api_key = "***REDACTED***", .api_secret = "***REDACTED***" }
+// 输出: ExchangeConfig{ .name = "binance", .api_key = "***REDACTED***", .api_secret = "***REDACTED***", .testnet = false }
+
+// 打印整个应用配置（需要 allocator）
+const sanitized_config = try cfg.sanitize(allocator);
+defer allocator.free(sanitized_config.exchanges);
+std.debug.print("{}\n", .{sanitized_config});
 ```
 
 ### 多交易所使用
@@ -175,6 +206,14 @@ try executeArbitrage(binance_client, okx_client);
 ```zig
 /// 配置加载器
 pub const ConfigLoader = struct {
+    /// 从文件加载配置（根据扩展名自动识别格式）
+    /// 注意：TOML 格式当前未实现，会返回 error.UnsupportedFormat
+    pub fn load(
+        allocator: Allocator,
+        path: []const u8,
+        comptime T: type,
+    ) !T;
+
     /// 从 JSON 字符串加载配置
     /// 返回 Parsed(T) 对象，调用者必须调用 .deinit() 释放内存
     pub fn loadFromJSON(
@@ -193,32 +232,32 @@ pub const ConfigLoader = struct {
 
 /// 应用配置
 pub const AppConfig = struct {
-    server: ServerConfig,
-    exchanges: []ExchangeConfig,  // 支持多个交易所
-    trading: TradingConfig,
-    logging: LoggingConfig,
+    server: ServerConfig = .{},
+    exchanges: []ExchangeConfig = &[_]ExchangeConfig{},
+    trading: TradingConfig = .{},
+    logging: LoggingConfig = .{},
 
-    pub fn validate(self: AppConfig) !void;
+    pub fn validate(self: AppConfig) ConfigError!void;
     pub fn sanitize(self: AppConfig, allocator: Allocator) !AppConfig;
 
     /// 通过名称查找交易所配置
     pub fn getExchange(self: AppConfig, name: []const u8) ?ExchangeConfig;
 
-    // 注意：内存管理由 JSON 解析器处理
+    // 注意：内存管理由 JSON 解析器或调用者处理
     // 使用 loadFromJSON 返回的 Parsed(AppConfig) 对象的 .deinit() 方法释放内存
 };
 
 /// 服务器配置
 pub const ServerConfig = struct {
-    host: []const u8,
-    port: u16,
+    host: []const u8 = "localhost",
+    port: u16 = 8080,
 };
 
 /// 交易所配置
 pub const ExchangeConfig = struct {
     name: []const u8,
-    api_key: []const u8,
-    api_secret: []const u8,
+    api_key: []const u8 = "",
+    api_secret: []const u8 = "",
     testnet: bool = false,
 
     pub fn sanitize(self: ExchangeConfig) ExchangeConfig;
@@ -226,16 +265,30 @@ pub const ExchangeConfig = struct {
 
 /// 交易配置
 pub const TradingConfig = struct {
-    max_position_size: f64,
-    leverage: u8,
-    risk_limit: f64,
+    max_position_size: f64 = 10000.0,
+    leverage: u8 = 1,
+    risk_limit: f64 = 0.02,  // 2% 默认风险限制
 };
 
 /// 日志配置
 pub const LoggingConfig = struct {
-    level: []const u8,
-    file: ?[]const u8,
-    max_size: usize = 10_000_000,
+    level: []const u8 = "info",
+    file: ?[]const u8 = null,
+    max_size: usize = 10_000_000,  // 10MB 默认
+};
+
+/// 配置错误
+pub const ConfigError = error{
+    InvalidPort,
+    NoExchangeConfigured,
+    DuplicateExchangeName,
+    EmptyExchangeName,
+    EmptyAPIKey,
+    EmptyAPISecret,
+    InvalidLeverage,
+    InvalidPositionSize,
+    InvalidLogLevel,
+    InvalidRiskLimit,
 };
 ```
 
@@ -359,4 +412,36 @@ const cfg = try ConfigLoader.load(allocator, "config.json", AppConfig);
 
 ---
 
-*Last updated: 2025-01-22*
+## 📌 重要说明
+
+### 验证规则
+
+配置会在 `loadFromJSON` 中自动验证，以下规则会被检查：
+
+1. **服务器配置**: port 不能为 0
+2. **交易所配置**:
+   - 至少配置一个交易所
+   - 交易所名称不能为空
+   - 交易所名称不能重复
+   - api_key 和 api_secret 不能为空
+3. **交易配置**:
+   - leverage 范围: 1-100
+   - max_position_size 必须 > 0
+   - risk_limit 范围: 0-1.0
+4. **日志配置**: level 必须是有效的日志级别（trace, debug, info, warn, error, fatal）
+
+### 环境变量命名规则
+
+- 基础格式: `ZIGQUANT_{SECTION}_{FIELD}`
+- 嵌套结构: `ZIGQUANT_{SECTION}_{SUBSECTION}_{FIELD}`
+- 数组索引: `ZIGQUANT_{SECTION}_{INDEX}_{FIELD}`
+- 数组名称: `ZIGQUANT_{SECTION}_{NAME}_{FIELD}` (适用于有 name 字段的结构体)
+
+示例:
+- `ZIGQUANT_SERVER_PORT` → `config.server.port`
+- `ZIGQUANT_EXCHANGES_0_API_KEY` → `config.exchanges[0].api_key`
+- `ZIGQUANT_EXCHANGES_BINANCE_API_KEY` → 查找 name="binance" 的交易所并设置其 api_key
+
+---
+
+*Last updated: 2025-12-24*

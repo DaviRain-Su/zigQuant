@@ -2,7 +2,7 @@
 
 > 完整的 API 文档和使用示例
 
-**最后更新**: 2025-01-23
+**最后更新**: 2025-01-24
 
 ---
 
@@ -58,7 +58,8 @@ pub const Logger = struct {
 创建 Logger
 
 ```zig
-var console = ConsoleWriter.init(std.io.getStdOut().writer());
+const stdout_file = std.fs.File.stdout();
+var console = ConsoleWriter(std.fs.File).init(allocator, stdout_file);
 var log = Logger.init(allocator, console.writer(), .info);
 defer log.deinit();
 ```
@@ -98,30 +99,141 @@ try log.fatal("Fatal error", .{ .reason = "crash" });
 
 ---
 
-## ConsoleWriter
+## AnsiColors
 
-控制台输出
+ANSI 颜色代码，用于终端彩色输出
 
 ```zig
-pub const ConsoleWriter = struct {
-    pub fn init(writer: anytype) ConsoleWriter;
-    pub fn deinit(self: *ConsoleWriter) void;
-    pub fn writer(self: *ConsoleWriter) LogWriter;
+pub const AnsiColors = struct {
+    // 重置
+    pub const RESET = "\x1b[0m";
+
+    // 前景色
+    pub const BLACK = "\x1b[30m";
+    pub const RED = "\x1b[31m";
+    pub const GREEN = "\x1b[32m";
+    pub const YELLOW = "\x1b[33m";
+    pub const BLUE = "\x1b[34m";
+    pub const MAGENTA = "\x1b[35m";
+    pub const CYAN = "\x1b[36m";
+    pub const WHITE = "\x1b[37m";
+
+    // 亮色前景色
+    pub const BRIGHT_BLACK = "\x1b[90m";   // 灰色
+    pub const BRIGHT_RED = "\x1b[91m";
+    pub const BRIGHT_GREEN = "\x1b[92m";
+    pub const BRIGHT_YELLOW = "\x1b[93m";
+    pub const BRIGHT_BLUE = "\x1b[94m";
+    pub const BRIGHT_MAGENTA = "\x1b[95m";
+    pub const BRIGHT_CYAN = "\x1b[96m";
+    pub const BRIGHT_WHITE = "\x1b[97m";
+
+    // 样式
+    pub const BOLD = "\x1b[1m";
+    pub const DIM = "\x1b[2m";
 };
 ```
 
-### 示例
+### `forLevel(level) []const u8`
+
+获取日志级别对应的颜色代码
 
 ```zig
-var stderr_buffer: [4096]u8 = undefined;
-var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+const color = AnsiColors.forLevel(.info);  // 返回 GREEN
+const color = AnsiColors.forLevel(.err);   // 返回 RED
+```
 
-var console = ConsoleWriter.init(&stderr_writer.interface);
+### 颜色映射
+
+| 级别 | 颜色 | ANSI 代码 |
+|------|------|-----------|
+| TRACE | 灰色 | `BRIGHT_BLACK` |
+| DEBUG | 青色 | `CYAN` |
+| INFO | 绿色 | `GREEN` |
+| WARN | 黄色 | `YELLOW` |
+| ERROR | 红色 | `RED` |
+| FATAL | 粗体红色 | `BOLD + BRIGHT_RED` |
+
+---
+
+## ConsoleWriter
+
+控制台输出（支持彩色）
+
+**注意**: ConsoleWriter 是泛型函数，需要指定底层 Writer 类型。
+
+```zig
+pub fn ConsoleWriter(comptime WriterType: type) type {
+    return struct {
+        underlying_writer: WriterType,
+        allocator: Allocator,
+        mutex: std.Thread.Mutex,
+        use_colors: bool,  // 默认 true
+
+        pub fn init(allocator: Allocator, underlying: WriterType) Self;
+        pub fn initWithColors(allocator: Allocator, underlying: WriterType, use_colors: bool) Self;
+        pub fn deinit(self: *Self) void;
+        pub fn writer(self: *Self) LogWriter;
+    };
+}
+```
+
+### `init(allocator, underlying) Self`
+
+创建 ConsoleWriter，默认启用彩色输出
+
+```zig
+const stdout_file = std.fs.File.stdout();
+var console = ConsoleWriter(std.fs.File).init(allocator, stdout_file);
 defer console.deinit();
 
 var log = Logger.init(allocator, console.writer(), .info);
-try log.info("Console output", .{});
-// 输出: [info] 1737541845000 Console output
+try log.info("Colored output", .{});  // 绿色输出
+// 输出: [info] 1737541845000 Colored output (整行绿色)
+```
+
+### `initWithColors(allocator, underlying, use_colors) Self`
+
+创建 ConsoleWriter，显式控制是否启用彩色
+
+```zig
+const stderr_file = std.fs.File.stderr();
+
+// 启用彩色
+var console_colored = ConsoleWriter(std.fs.File).initWithColors(allocator, stderr_file, true);
+defer console_colored.deinit();
+
+// 禁用彩色（用于 CI 环境或重定向到文件）
+var console_plain = ConsoleWriter(std.fs.File).initWithColors(allocator, stderr_file, false);
+defer console_plain.deinit();
+
+var log = Logger.init(allocator, console_plain.writer(), .info);
+try log.info("Plain text", .{});  // 无颜色
+// 输出: [info] 1737541845000 Plain text
+```
+
+### 示例：测试中使用 FixedBufferStream
+
+```zig
+test "ConsoleWriter with buffer" {
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+
+    const WriterType = @TypeOf(fbs.writer());
+    var console = ConsoleWriter(WriterType).initWithColors(
+        std.testing.allocator,
+        fbs.writer(),
+        false  // 测试中禁用颜色
+    );
+    defer console.deinit();
+
+    var log = Logger.init(std.testing.allocator, console.writer(), .info);
+    defer log.deinit();
+
+    try log.info("Test", .{});
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "[info]"));
+}
 ```
 
 ---
@@ -154,27 +266,56 @@ try log.debug("File log", .{ .key = "value" });
 
 JSON 格式输出
 
+**注意**: JSONWriter 是泛型函数，需要指定底层 Writer 类型。
+
 ```zig
-pub const JSONWriter = struct {
-    pub fn init(writer: anytype) JSONWriter;
-    pub fn writer(self: *JSONWriter) LogWriter;
-};
+pub fn JSONWriter(comptime WriterType: type) type {
+    return struct {
+        underlying_writer: WriterType,
+        allocator: Allocator,
+        mutex: std.Thread.Mutex,
+
+        pub fn init(allocator: Allocator, underlying: WriterType) Self;
+        pub fn writer(self: *Self) LogWriter;
+    };
+}
 ```
 
-### 示例
+### `init(allocator, underlying) Self`
+
+创建 JSONWriter
 
 ```zig
-var stdout_buffer: [4096]u8 = undefined;
-var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-
-var json = JSONWriter.init(&stdout_writer.interface);
+const stdout_file = std.fs.File.stdout();
+var json = JSONWriter(std.fs.File).init(allocator, stdout_file);
 var log = Logger.init(allocator, json.writer(), .info);
+defer log.deinit();
 
 try log.info("Order created", .{
     .order_id = "ORD123",
     .price = 50000.0,
 });
 // 输出: {"level":"info","msg":"Order created","timestamp":1737541845000,"order_id":"ORD123","price":50000.0}
+```
+
+### 示例：使用 FixedBufferStream
+
+```zig
+test "JSONWriter with buffer" {
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+
+    const WriterType = @TypeOf(fbs.writer());
+    var json = JSONWriter(WriterType).init(std.testing.allocator, fbs.writer());
+    var log = Logger.init(std.testing.allocator, json.writer(), .info);
+    defer log.deinit();
+
+    try log.info("Order created", .{ .order_id = "ORD123", .price = 50000.0 });
+    const output = fbs.getWritten();
+
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "\"level\":\"info\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "\"order_id\":\"ORD123\""));
+}
 ```
 
 ---
@@ -213,23 +354,21 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    // 3. 初始化 Logger
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-
-    var console = ConsoleWriter.init(&stderr_writer.interface);
+    // 3. 初始化 Logger（带彩色）
+    const stderr_file = std.fs.File.stderr();
+    var console = ConsoleWriter(std.fs.File).init(gpa.allocator(), stderr_file);
     logger_instance = Logger.init(gpa.allocator(), console.writer(), .debug);
     defer logger_instance.deinit();
 
     // 4. 设置全局 Logger
     StdLogWriter.setLogger(&logger_instance);
 
-    // 5. 使用 std.log（会路由到我们的 Logger）
-    std.log.info("Server started on port {}", .{8080});
+    // 5. 使用 std.log（会路由到我们的 Logger，带彩色）
+    std.log.info("Server started on port {}", .{8080});  // 绿色
 
     // 6. Scoped logging
     const db_log = std.log.scoped(.database);
-    db_log.info("Connected", .{});
+    db_log.info("Connected", .{});  // 绿色
     // 输出: [info] 1737541845000 Connected scope=database
 }
 ```
@@ -246,8 +385,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Console logger (debug 及以上)
-    var console = ConsoleWriter.init(std.io.getStdOut().writer());
+    // Console logger (debug 及以上，带彩色)
+    const stdout_file = std.fs.File.stdout();
+    var console = ConsoleWriter(std.fs.File).init(allocator, stdout_file);
     defer console.deinit();
     var console_log = Logger.init(allocator, console.writer(), .debug);
     defer console_log.deinit();
@@ -259,9 +399,9 @@ pub fn main() !void {
     defer file_log.deinit();
 
     // 同时写入两个 logger
-    try console_log.debug("Debug info", .{});  // 只在 console
-    try console_log.info("Important", .{});
-    try file_log.info("Important", .{});       // 在 console 和 file
+    try console_log.debug("Debug info", .{});  // 只在 console（青色）
+    try console_log.info("Important", .{});    // console（绿色）
+    try file_log.info("Important", .{});       // file（无颜色）
 }
 ```
 
@@ -316,4 +456,4 @@ pub fn benchmarkOperation(log: *Logger) !void {
 
 ---
 
-*Last updated: 2025-01-23*
+*Last updated: 2025-01-24*

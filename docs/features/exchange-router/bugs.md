@@ -2,17 +2,17 @@
 
 > 已知问题和修复记录
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
 ## 当前状态
 
-**开发阶段**: 📋 设计中
+**开发阶段**: ✅ 核心组件已实现 (Phase A-C 完成)
 
-**已知 Bug 数量**: 0（尚未实施）
+**已知 Bug 数量**: 0
 
-**说明**: Exchange Router 目前处于设计阶段，尚未开始实现。本文档将在实现过程中记录发现的 Bug 和修复情况。
+**说明**: Exchange Router 核心组件 (types, interface, registry, symbol_mapper, connector) 已实现并通过测试。Phase D (HTTP/WebSocket 集成) 正在进行中。
 
 ---
 
@@ -52,9 +52,9 @@
 
 ## 潜在风险和注意事项
 
-### 设计阶段识别的潜在问题
+### 实现过程中识别的潜在问题
 
-虽然尚未开始实现，但设计阶段已识别以下潜在问题点：
+以下是在实现过程中需要特别注意的问题点：
 
 #### 1. 符号映射歧义
 
@@ -66,10 +66,11 @@
 - Binance: "ETHUSDT" (现货), "ETH-PERP" (永续合约)
 - OKX: "ETH-USDT" (现货), "ETH-USDT-SWAP" (永续合约)
 
-**缓解措施**:
-- SymbolMapper 需要清楚区分现货和永续合约
-- 使用显式的市场类型字段（future: spot, perpetual, futures）
-- 文档明确说明每个交易所的符号格式
+**缓解措施** (已实现):
+- ✅ SymbolMapper 已实现 Hyperliquid, Binance, OKX 格式转换
+- ✅ 每个交易所有独立的转换函数
+- ✅ 通过 ExchangeType 枚举区分交易所
+- 🚧 待添加: 市场类型字段 (spot vs perpetual) - 未来扩展
 
 #### 2. 订单状态映射不一致
 
@@ -81,10 +82,10 @@
 - Binance: "NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED"
 - 需要统一映射到 OrderStatus 枚举
 
-**缓解措施**:
-- 明确定义统一的 OrderStatus 枚举
-- 每个 Connector 负责映射到统一格式
-- 测试所有可能的状态转换
+**缓解措施** (已实现):
+- ✅ 已定义统一的 OrderStatus 枚举: pending, open, filled, partially_filled, cancelled, rejected
+- ✅ 每个 OrderStatus 提供 toString/fromString 方法
+- 🚧 待实现: Hyperliquid Connector 中的状态映射逻辑
 
 #### 3. 精度丢失
 
@@ -95,10 +96,11 @@
 - Hyperliquid: szDecimals 定义每个币种的精度
 - 需要确保 Decimal 类型能保持足够精度
 
-**缓解措施**:
-- 使用 Decimal 类型（已在 core/decimal.zig 实现）
-- 避免浮点数运算
-- 在 Connector 中验证精度要求
+**缓解措施** (已实现):
+- ✅ 所有价格和数量字段使用 Decimal 类型
+- ✅ Decimal 提供精确的十进制运算
+- ✅ 避免浮点数运算和精度损失
+- 🚧 待实现: 在 Connector 中验证交易所精度要求
 
 #### 4. 时区和时间戳问题
 
@@ -122,11 +124,13 @@
 **描述**:
 VTable 模式使用 `*anyopaque` 指针，如果底层对象被释放而接口仍在使用，会导致悬空指针。
 
-**缓解措施**:
-- Connector 由 Registry 管理生命周期
-- 明确文档说明所有权和生命周期
-- 使用 defer 确保正确释放
-- 考虑使用 Arc (Atomic Reference Counting) 包装（future）
+**缓解措施** (已实现):
+- ✅ Connector 由 Registry 管理生命周期
+- ✅ HyperliquidConnector.create() 返回堆分配的指针
+- ✅ HyperliquidConnector.destroy() 负责清理资源
+- ✅ Registry.deinit() 自动断开所有连接
+- ✅ 文档明确说明所有权规则
+- 🚧 待考虑: Arc (Atomic Reference Counting) 用于并发场景
 
 #### 6. 并发访问安全
 

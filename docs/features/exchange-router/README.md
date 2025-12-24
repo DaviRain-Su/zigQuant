@@ -2,10 +2,10 @@
 
 > 多交易所抽象层，提供统一的交易所访问接口
 
-**状态**: 📋 设计中
+**状态**: 🚧 部分实现 (核心完成，HTTP集成进行中)
 **版本**: v0.2.0
 **Story**: [Phase 0: Exchange Router 设计](../../../.claude/plans/sorted-crunching-sonnet.md)
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -517,6 +517,54 @@ pub fn getAggregatedOrderbook(
 
 ---
 
+## 📊 实现状态
+
+### ✅ Phase A-C: 核心组件 (已完成)
+
+| 组件 | 状态 | 文件路径 | 说明 |
+|------|------|----------|------|
+| **统一类型** | ✅ 完成 | `/src/exchange/types.zig` | TradingPair, Order, Ticker, Balance, Position等 |
+| **IExchange接口** | ✅ 完成 | `/src/exchange/interface.zig` | VTable模式，12个方法 |
+| **ExchangeRegistry** | ✅ 完成 | `/src/exchange/registry.zig` | 单交易所注册，连接管理 |
+| **SymbolMapper** | ✅ 完成 | `/src/exchange/symbol_mapper.zig` | 支持Hyperliquid/Binance/OKX/Bybit |
+| **HyperliquidConnector** | ✅ 骨架完成 | `/src/exchange/hyperliquid/connector.zig` | VTable实现，部分方法可用 |
+
+### 🚧 Phase D: HTTP/WebSocket 集成 (进行中)
+
+| 组件 | 状态 | 文件路径 | 说明 |
+|------|------|----------|------|
+| **HttpClient** | ✅ 基础完成 | `/src/exchange/hyperliquid/http.zig` | HTTP客户端，支持testnet/mainnet |
+| **InfoAPI** | ✅ 结构完成 | `/src/exchange/hyperliquid/info_api.zig` | getAllMids, getL2Book等 |
+| **ExchangeAPI** | 🚧 部分实现 | `/src/exchange/hyperliquid/exchange_api.zig` | placeOrder等(需签名) |
+| **Auth/Signer** | ✅ 完成 | `/src/exchange/hyperliquid/auth.zig` | Ed25519签名 |
+| **RateLimiter** | ✅ 完成 | `/src/exchange/hyperliquid/rate_limiter.zig` | 20 req/s限制 |
+| **WebSocket** | ✅ 基础完成 | `/src/exchange/hyperliquid/websocket.zig` | WebSocket客户端基础 |
+| **MessageHandler** | ✅ 完成 | `/src/exchange/hyperliquid/message_handler.zig` | WebSocket消息处理 |
+
+### 🔄 已实现的Connector方法
+
+| 方法 | 状态 | 说明 |
+|------|------|------|
+| `getName()` | ✅ 完成 | 返回 "hyperliquid" |
+| `connect()` | ✅ 完成 | 连接检查 |
+| `disconnect()` | ✅ 完成 | 清理资源 |
+| `isConnected()` | ✅ 完成 | 连接状态 |
+| `getTicker()` | ✅ 完成 | 调用InfoAPI.getAllMids() |
+| `getOrderbook()` | ✅ 完成 | 调用InfoAPI.getL2Book() |
+| `createOrder()` | 🚧 待签名 | 结构完成，需实现签名逻辑 |
+| `cancelOrder()` | ❌ 未实现 | 返回NotImplemented |
+| `cancelAllOrders()` | ❌ 未实现 | 返回NotImplemented |
+| `getOrder()` | ❌ 未实现 | 返回NotImplemented |
+| `getBalance()` | ❌ 未实现 | 返回NotImplemented |
+| `getPositions()` | ❌ 未实现 | 返回NotImplemented |
+
+### ⏳ Phase E-F: 待开始
+
+- **Phase E**: Trading Layer集成 (OrderManager, PositionTracker)
+- **Phase F**: CLI集成
+
+---
+
 ## 📚 相关文档
 
 - [实现细节](./implementation.md) - 详细的实现说明
@@ -548,4 +596,49 @@ pub fn getAggregatedOrderbook(
 
 ---
 
-*本文档描述的是 Exchange Router 的设计和使用方法。MVP (v0.2) 阶段只支持单个交易所（Hyperliquid），但架构已为多交易所扩展做好准备。*
+---
+
+## 🔍 架构设计验证
+
+### 文档与实现一致性检查 ✅
+
+**核心接口 (IExchange)**:
+- ✅ 文档描述的12个方法与实际实现完全一致
+- ✅ VTable模式按文档设计实现
+- ✅ 方法签名与文档匹配
+
+**统一类型 (types.zig)**:
+- ✅ 所有文档中描述的类型均已实现
+- ✅ 辅助方法 (validate, eql, toString等) 全部实现
+- ✅ 13+单元测试覆盖核心功能
+
+**符号映射 (SymbolMapper)**:
+- ✅ toHyperliquid/fromHyperliquid 已实现
+- ✅ toBinance/fromBinance 已实现 (未来扩展)
+- ✅ toOKX/fromOKX 已实现 (未来扩展)
+- ✅ 通用转换接口 toExchange/fromExchange 已实现
+
+**注册表 (ExchangeRegistry)**:
+- ✅ 所有文档方法已实现 (setExchange, getExchange, connectAll等)
+- ✅ 单交易所MVP架构按计划实现
+- ✅ 预留多交易所扩展接口
+
+### 与设计计划的对比
+
+**Phase A-C (已完成)**:
+- 与 `/home/davirain/.claude/plans/sorted-crunching-sonnet.md` 中的计划完全一致
+- 所有验收标准已满足
+
+**Phase D (进行中)**:
+- getTicker/getOrderbook 已实现 (超过原计划)
+- 其他方法结构完整，待签名/API集成
+
+**已识别差异**:
+1. ✅ **文档已更新**: README.md中添加了详细的实现状态表
+2. ✅ **实现超前**: getTicker和getOrderbook已完成实现，原计划是stub
+3. ⚠️ **待完成**: createOrder需要完整的签名逻辑集成
+4. ⚠️ **待完成**: 账户操作方法需要实现InfoAPI调用
+
+---
+
+*本文档描述的是 Exchange Router 的设计和使用方法。MVP (v0.2) 阶段只支持单个交易所（Hyperliquid），但架构已为多交易所扩展做好准备。核心组件 (Phase A-C) 已完成实现并通过测试，HTTP集成 (Phase D) 正在进行中。*

@@ -2,7 +2,8 @@
 
 > 深入了解 VTable 模式、符号映射、Connector 实现等内部细节
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
+**实现状态**: 🚧 Phase A-C 完成，Phase D 进行中
 
 ---
 
@@ -28,11 +29,13 @@ src/exchange/
 
 ---
 
-## Phase A: 核心类型系统
+## Phase A: 核心类型系统 ✅ 已完成
 
 ### 统一数据类型 (types.zig)
 
 所有交易所必须将其原生格式转换为这些统一类型。
+
+**实现文件**: `/home/davirain/dev/zigQuant/src/exchange/types.zig`
 
 #### TradingPair - 交易对
 
@@ -154,11 +157,13 @@ pub const Order = struct {
 
 ---
 
-## Phase B: 接口抽象层
+## Phase B: 接口抽象层 ✅ 已完成
 
 ### VTable 模式实现 (interface.zig)
 
 VTable 是 Zig 中实现多态的标准模式，类似于 C++ 的虚函数表。
+
+**实现文件**: `/home/davirain/dev/zigQuant/src/exchange/interface.zig`
 
 #### IExchange 接口定义
 
@@ -223,19 +228,26 @@ pub const IExchange = struct {
 
 ---
 
-## Phase C: Hyperliquid Connector 实现
+## Phase C: Hyperliquid Connector 实现 ✅ 骨架完成, 🚧 方法实现中
 
 ### Connector 结构 (connector.zig)
 
+**实现文件**: `/home/davirain/dev/zigQuant/src/exchange/hyperliquid/connector.zig`
+
+**实际实现**:
 ```zig
 pub const HyperliquidConnector = struct {
     allocator: std.mem.Allocator,
     config: ExchangeConfig,
     logger: Logger,
     connected: bool,
-    // TODO Phase D: Add HTTP and WebSocket clients
-    // http: HyperliquidClient,
-    // ws: ?WebSocketClient,
+
+    // Phase D: HTTP 客户端和 API 模块 (✅ 已实现)
+    http_client: HttpClient,
+    rate_limiter: RateLimiter,
+    info_api: InfoAPI,
+    exchange_api: ExchangeAPI,
+    signer: ?Signer,  // 可选: 仅交易需要 (✅ 基础实现)
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -302,33 +314,58 @@ pub const HyperliquidConnector = struct {
         self.logger.info("Connected to Hyperliquid successfully", .{});
     }
 
+    // ✅ 已实现方法示例
     fn getTicker(ptr: *anyopaque, pair: TradingPair) !Ticker {
         const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
         // 1. 转换符号: ETH-USDC → "ETH"
         const symbol = try symbol_mapper.toHyperliquid(pair);
 
-        // TODO Phase D: 调用 Info API
-        // const mids = try InfoAPI.getAllMids(&self.http);
-        // defer mids.deinit();
-        //
-        // const mid_price = mids.get(symbol) orelse return error.SymbolNotFound;
-        //
-        // return Ticker{
-        //     .pair = pair,
-        //     .bid = mid_price,
-        //     .ask = mid_price,
-        //     .last = mid_price,
-        //     .volume_24h = Decimal.ZERO,
-        //     .timestamp = Timestamp.now(),
-        // };
+        // 2. 速率限制
+        self.rate_limiter.wait();
 
+        // 3. 调用 Info API (✅ 已实现)
+        var mids = try self.info_api.getAllMids();
+        defer self.info_api.freeAllMids(&mids);
+
+        const mid_price_str = mids.get(symbol) orelse return error.SymbolNotFound;
+        const mid_price = try hl_types.parsePrice(mid_price_str);
+
+        // 4. 返回统一格式
+        return Ticker{
+            .pair = pair,
+            .bid = mid_price,
+            .ask = mid_price,
+            .last = mid_price,
+            .volume_24h = Decimal.ZERO,
+            .timestamp = Timestamp.now(),
+        };
+    }
+
+    // 🚧 部分实现方法示例
+    fn createOrder(ptr: *anyopaque, request: OrderRequest) !Order {
+        const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
+
+        // 结构已完成，但需要签名逻辑
+        try request.validate();
+        const symbol = try symbol_mapper.toHyperliquid(request.pair);
+
+        // TODO: 完整签名集成
         return error.NotImplemented;
     }
 
-    // ... 其他方法实现
+    // ❌ 未实现方法
+    fn getBalance(ptr: *anyopaque) ![]Balance {
+        // TODO Phase D.2: 调用 InfoAPI.getUserState()
+        return error.NotImplemented;
+    }
 };
 ```
+
+**方法实现状态**:
+- ✅ **已实现**: getName, connect, disconnect, isConnected, getTicker, getOrderbook
+- 🚧 **部分实现**: createOrder (结构完整，需签名)
+- ❌ **未实现**: cancelOrder, cancelAllOrders, getOrder, getBalance, getPositions
 
 **关键实现细节**:
 
@@ -341,43 +378,70 @@ pub const HyperliquidConnector = struct {
 
 ### 符号映射器 (symbol_mapper.zig)
 
+**实现文件**: `/home/davirain/dev/zigQuant/src/exchange/symbol_mapper.zig`
+
 ```zig
-pub const SymbolMapper = struct {
-    /// 转换为 Hyperliquid 格式: ETH-USDC → "ETH"
-    pub fn toHyperliquid(pair: TradingPair) ![]const u8 {
-        // Hyperliquid 永续合约只使用 base 币种
-        // 所有合约都是 USDC 结算
-        if (!std.mem.eql(u8, pair.quote, "USDC")) {
-            return error.InvalidQuoteAsset;
+/// 转换为 Hyperliquid 格式: ETH-USDC → "ETH"
+pub fn toHyperliquid(pair: TradingPair) ![]const u8 {
+    // Hyperliquid 永续合约只使用 base 币种
+    // 所有合约都是 USDC 结算
+    if (!std.mem.eql(u8, pair.quote, "USDC")) {
+        return error.InvalidQuoteAsset;
+    }
+
+    return pair.base;
+}
+
+/// 从 Hyperliquid 格式转换: "ETH" → ETH-USDC
+pub fn fromHyperliquid(symbol: []const u8) TradingPair {
+    return .{
+        .base = symbol,
+        .quote = "USDC",
+    };
+}
+
+/// 转换为 Binance 格式: ETH-USDT → "ETHUSDT"
+pub fn toBinance(pair: TradingPair, allocator: std.mem.Allocator) ![]const u8 {
+    return try std.fmt.allocPrint(allocator, "{s}{s}", .{ pair.base, pair.quote });
+}
+
+/// 从 Binance 格式转换: "ETHUSDT" → ETH-USDT
+pub fn fromBinance(symbol: []const u8) !TradingPair {
+    // 尝试常见的计价货币
+    const quote_assets = [_][]const u8{ "USDT", "USDC", "BUSD", "BTC", "ETH", "BNB" };
+
+    for (quote_assets) |quote| {
+        if (std.mem.endsWith(u8, symbol, quote)) {
+            const base_end = symbol.len - quote.len;
+            if (base_end > 0) {
+                return .{
+                    .base = symbol[0..base_end],
+                    .quote = quote,
+                };
+            }
         }
-
-        return pair.base;
     }
 
-    /// 从 Hyperliquid 格式转换: "ETH" → ETH-USDC
-    pub fn fromHyperliquid(symbol: []const u8) TradingPair {
-        return TradingPair{
-            .base = symbol,
-            .quote = "USDC",
-        };
-    }
-};
-```
+    return error.UnknownQuoteAsset;
+}
 
-**复杂度**: O(1)
-**说明**: Hyperliquid 的符号映射非常简单，未来可扩展为 HashMap 缓存
-
-**未来扩展** (Binance):
-```zig
-pub fn toBinance(self: SymbolMapper, pair: TradingPair) ![]const u8 {
-    // ETH-USDT → "ETHUSDT"
-    return try std.fmt.allocPrint(
-        self.allocator,
-        "{s}{s}",
-        .{ pair.base, pair.quote }
-    );
+/// 通用转换函数
+pub fn toExchange(
+    pair: TradingPair,
+    exchange: ExchangeType,
+    allocator: std.mem.Allocator,
+) ![]const u8 {
+    return switch (exchange) {
+        .hyperliquid => toHyperliquid(pair),
+        .binance => toBinance(pair, allocator),
+        .okx => toOKX(pair, allocator),
+        .bybit => toBinance(pair, allocator),  // Bybit 使用与 Binance 相同格式
+    };
 }
 ```
+
+**复杂度**: O(1) (Hyperliquid), O(n) (Binance/OKX，n=常见计价货币数量)
+**说明**: 已实现多个交易所的符号映射，但当前只使用 Hyperliquid
 
 ---
 
@@ -500,9 +564,11 @@ pub fn toBinance(self: SymbolMapper, pair: TradingPair) ![]const u8 {
 
 ---
 
-## Phase D: Registry 实现
+## Phase D: Registry 实现 ✅ 已完成
 
 ### ExchangeRegistry (registry.zig)
+
+**实现文件**: `/home/davirain/dev/zigQuant/src/exchange/registry.zig`
 
 ```zig
 pub const ExchangeRegistry = struct {
@@ -510,6 +576,7 @@ pub const ExchangeRegistry = struct {
     exchange: ?IExchange,        // MVP: 单交易所
     config: ?ExchangeConfig,
     logger: Logger,
+    connected: bool,
 
     pub fn init(allocator: std.mem.Allocator, logger: Logger) ExchangeRegistry {
         return .{

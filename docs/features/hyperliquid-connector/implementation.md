@@ -1,8 +1,8 @@
 # Hyperliquid 连接器 - 实现细节
 
-> 深入了解 HTTP 客户端、WebSocket 客户端、Ed25519 签名等内部实现
+> 深入了解 HTTP 客户端、WebSocket 客户端、EIP-712 签名等内部实现
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -10,153 +10,277 @@
 
 ```
 src/exchange/hyperliquid/
+├── connector.zig         # IExchange 接口实现
 ├── http.zig              # HTTP 客户端核心
-├── auth.zig              # Ed25519 签名认证
-├── info_api.zig          # Info API 端点
-├── exchange_api.zig      # Exchange API 端点
-├── types.zig             # 数据类型定义
-├── rate_limit.zig        # 速率限制器
+├── info_api.zig          # Info API 端点封装
+├── exchange_api.zig      # Exchange API 端点封装
+├── auth.zig              # EIP-712 签名认证（基于 zigeth）
+├── types.zig             # Hyperliquid 数据类型定义
+├── rate_limiter.zig      # 令牌桶速率限制器
 ├── websocket.zig         # WebSocket 客户端核心
 ├── ws_types.zig          # WebSocket 消息类型
-├── subscription.zig      # 订阅管理器
-├── message_handler.zig   # 消息处理器
-└── http_test.zig         # 测试
+├── subscription.zig      # 订阅管理器（线程安全）
+└── message_handler.zig   # 消息解析器
 ```
 
 ---
+
+## Connector 实现 (IExchange 接口)
+
+### 数据结构
+
+```zig
+pub const HyperliquidConnector = struct {
+    allocator: std.mem.Allocator,
+    config: ExchangeConfig,
+    logger: Logger,
+    connected: bool,
+
+    // Phase D: HTTP 客户端和 API 模块
+    http_client: HttpClient,
+    rate_limiter: RateLimiter,
+    info_api: InfoAPI,
+    exchange_api: ExchangeAPI,
+    signer: ?Signer,  // 可选：仅交易时需要
+
+    pub fn create(
+        allocator: std.mem.Allocator,
+        config: ExchangeConfig,
+        logger: Logger,
+    ) !*HyperliquidConnector {
+        const self = try allocator.create(HyperliquidConnector);
+        errdefer allocator.destroy(self);
+
+        // 初始化结构体字段（http_client 优先，然后 API 获取其指针）
+        self.* = .{
+            .allocator = allocator,
+            .config = config,
+            .logger = logger,
+            .connected = false,
+            .http_client = HttpClient.init(allocator, config.testnet, logger),
+            .rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter(),
+            .info_api = undefined,
+            .exchange_api = undefined,
+            .signer = null,
+        };
+
+        // 使用稳定指针初始化 API
+        self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
+        self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, null, logger);
+
+        return self;
+    }
+
+    pub fn destroy(self: *HyperliquidConnector) void {
+        if (self.connected) {
+            disconnect(self);
+        }
+        self.http_client.deinit();
+        self.allocator.destroy(self);
+    }
+};
+```
 
 ## HTTP 客户端实现
 
 ### 数据结构
 
 ```zig
-pub const HyperliquidClient = struct {
+pub const HttpClient = struct {
     allocator: std.mem.Allocator,
-    config: HyperliquidConfig,
+    base_url: []const u8,
     http_client: std.http.Client,
-    auth: Auth,
-    rate_limiter: RateLimiter,
     logger: Logger,
 
     pub fn init(
         allocator: std.mem.Allocator,
-        config: HyperliquidConfig,
+        testnet: bool,
         logger: Logger,
-    ) !HyperliquidClient {
+    ) HttpClient {
+        const base_url = if (testnet)
+            types.API_BASE_URL_TESTNET
+        else
+            types.API_BASE_URL_MAINNET;
+
         return .{
             .allocator = allocator,
-            .config = config,
+            .base_url = base_url,
             .http_client = std.http.Client{ .allocator = allocator },
-            .auth = try Auth.init(allocator, config.secret_key),
-            .rate_limiter = RateLimiter.init(),
             .logger = logger,
         };
     }
 
-    pub fn deinit(self: *HyperliquidClient) void {
+    pub fn deinit(self: *HttpClient) void {
         self.http_client.deinit();
-        self.auth.deinit();
     }
 };
 ```
 
 ### 请求处理流程
 
-1. **速率限制检查**: 使用 `RateLimiter` 确保不超过 20 req/s
-2. **构造请求**: 根据端点构造 HTTP 请求（GET/POST）
-3. **签名（Exchange API）**: 使用 Ed25519 签名请求体
-4. **发送请求**: 使用 `std.http.Client` 发送
-5. **解析响应**: JSON 反序列化
-6. **错误处理**: 分类错误并决定是否重试
+1. **速率限制检查**: 在 Connector 层使用 `RateLimiter.wait()` 确保不超过 20 req/s
+2. **构造请求**: Info API 和 Exchange API 模块构造 JSON 请求体
+3. **签名（Exchange API）**: Exchange API 使用 `Signer` 进行 EIP-712 签名
+4. **发送请求**: `HttpClient.post()` 使用 `std.http.Client.fetch()` 发送
+5. **解析响应**: Info API 和 Exchange API 解析 JSON
+6. **错误处理**: 网络错误返回 `NetworkError`
 
-### 重试机制
+### POST 请求实现
 
 ```zig
-fn retryRequest(
-    self: *HyperliquidClient,
-    request_fn: anytype,
-) !std.json.Value {
-    var retries: u8 = 0;
-    while (retries < self.config.max_retries) : (retries += 1) {
-        const result = request_fn() catch |err| {
-            if (retries == self.config.max_retries - 1) {
-                return err;
-            }
-            self.logger.warn("Request failed, retrying... ({}/{})", .{
-                retries + 1, self.config.max_retries,
-            });
+pub fn post(
+    self: *HttpClient,
+    endpoint: []const u8,
+    request_body: []const u8,
+) ![]const u8 {
+    // 创建 arena allocator 用于临时数据
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
 
-            // 指数退避
-            const sleep_time = std.time.ns_per_s * @as(u64, @intCast(retries + 1));
-            std.time.sleep(sleep_time);
-            continue;
-        };
-        return result;
+    // 构建完整 URL
+    const url = try std.fmt.allocPrint(
+        arena_alloc,
+        "{s}{s}",
+        .{ self.base_url, endpoint },
+    );
+
+    self.logger.debug("POST {s}", .{url}) catch {};
+
+    // 准备头部
+    var header_list = try std.ArrayList(std.http.Header).initCapacity(arena_alloc, 2);
+    try header_list.append(arena_alloc, .{ .name = "Content-Type", .value = "application/json" });
+
+    // 创建响应写入器
+    var body_writer = std.io.Writer.Allocating.init(arena_alloc);
+    defer body_writer.deinit();
+
+    // 发送 HTTP 请求
+    const result = self.http_client.fetch(.{
+        .location = .{ .url = url },
+        .method = .POST,
+        .payload = request_body,
+        .extra_headers = header_list.items,
+        .response_writer = &body_writer.writer,
+        .keep_alive = true,
+    }) catch return NetworkError.ConnectionFailed;
+
+    // 检查状态码
+    const status = @intFromEnum(result.status);
+    if (status < 200 or status >= 300) {
+        self.logger.err("HTTP error: {d}", .{status}) catch {};
+        return NetworkError.HttpError;
     }
-    unreachable;
+
+    // 复制响应到持久内存
+    const written = body_writer.written();
+    const response_body = try self.allocator.alloc(u8, written.len);
+    @memcpy(response_body, written);
+
+    return response_body;
 }
 ```
 
-**复杂度**: O(n)，其中 n = max_retries
-**说明**: 使用指数退避策略，每次重试等待时间递增
+**复杂度**: O(n)，其中 n = 响应大小
+**说明**: 使用 arena allocator 管理临时分配，返回的响应需要调用者释放
 
 ---
 
-## Ed25519 认证实现
+## EIP-712 认证实现
+
+Hyperliquid 使用 **EIP-712** 签名（而非 Ed25519），基于以太坊的 secp256k1 曲线。
 
 ### 签名流程
 
 ```zig
-pub fn signL1Action(
-    self: *Auth,
-    action: []const u8,  // action 的 JSON/msgpack
-    nonce: i64,
-) !Signature {
-    if (self.keypair == null) {
-        return error.NoSecretKey;
+pub const Signer = struct {
+    allocator: Allocator,
+    wallet: zigeth.signer.Wallet,  // Ethereum 钱包 (secp256k1)
+    address: []const u8,            // 缓存的以太坊地址 (0x...)
+
+    pub fn init(
+        allocator: Allocator,
+        private_key: [32]u8,
+    ) !Signer {
+        // 转换私钥为十六进制字符串
+        const pk_hex = try std.fmt.allocPrint(allocator, "0x{s}", .{
+            std.fmt.bytesToHex(&private_key, .lower),
+        });
+        defer allocator.free(pk_hex);
+
+        // 从私钥创建钱包
+        var wallet = try zigeth.signer.Wallet.fromPrivateKeyHex(allocator, pk_hex);
+
+        // 获取以太坊地址
+        const addr = try wallet.getAddress();
+        const address = try addr.toHex(allocator);
+
+        return .{
+            .allocator = allocator,
+            .wallet = wallet,
+            .address = address,
+        };
     }
 
-    // 1. 构造签名消息: action + nonce
-    var msg_buffer: [4096]u8 = undefined;
-    const msg = try std.fmt.bufPrint(&msg_buffer, "{s}{d}", .{
-        action, nonce,
-    });
+    pub fn signAction(
+        self: *Signer,
+        action_data: []const u8,
+    ) !Signature {
+        // 1. Hash the action data (message hash)
+        const message_hash = keccak256(action_data);
 
-    // 2. Ed25519 签名
-    const signature = try self.keypair.?.sign(msg, null);
+        // 2. 计算 domain separator hash
+        const domain_hash = try encodeDomainSeparator(
+            self.allocator,
+            HYPERLIQUID_EXCHANGE_DOMAIN,
+        );
 
-    // 3. 转换为 (r, s, v) 格式
-    return Signature{
-        .r = signature.toBytes()[0..32].*,
-        .s = signature.toBytes()[32..64].*,
-        .v = 27,  // 恢复 ID
-    };
-}
+        // 3. 使用 EIP-712 签名（zigeth 处理最终编码和签名）
+        const sig = try self.wallet.signTypedData(domain_hash, message_hash);
+
+        // 4. 转换签名组件为十六进制字符串（带 0x 前缀）
+        const r_hex = try std.fmt.allocPrint(self.allocator, "0x{s}", .{
+            std.fmt.bytesToHex(&sig.r, .lower),
+        });
+        const s_hex = try std.fmt.allocPrint(self.allocator, "0x{s}", .{
+            std.fmt.bytesToHex(&sig.s, .lower),
+        });
+
+        return Signature{
+            .r = r_hex,
+            .s = s_hex,
+            .v = @truncate(sig.v),  // 转换 u64 为 u8
+        };
+    }
+};
 ```
 
-### Nonce 生成策略
+### EIP-712 Domain Separator
 
 ```zig
-pub fn generateNonce() i64 {
-    const now = std.time.milliTimestamp();
+pub const HYPERLIQUID_EXCHANGE_DOMAIN = EIP712Domain{
+    .name = "Exchange",
+    .version = "1",
+    .chainId = 1337,
+    .verifyingContract = "0x0000000000000000000000000000000000000000",
+};
 
-    // 确保同一毫秒内的多个请求有唯一 nonce
-    const static = struct {
-        var last_nonce: i64 = 0;
-    };
+fn encodeDomainSeparator(allocator: Allocator, domain: EIP712Domain) ![32]u8 {
+    // EIP712Domain type hash
+    const type_string = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)";
+    const type_hash = keccak256(type_string);
 
-    if (now <= static.last_nonce) {
-        static.last_nonce += 1;
-        return static.last_nonce;
-    }
+    // 编码 domain 字段
+    const name_hash = keccak256(domain.name);
+    const version_hash = keccak256(domain.version);
 
-    static.last_nonce = now;
-    return now;
+    // ... (拼接并 hash)
+    return keccak256(data);
 }
 ```
 
 **复杂度**: O(1)
-**说明**: 使用毫秒时间戳确保 nonce 递增，同时处理同一毫秒内的多个请求
+**说明**: 使用 Keccak256 hash 和 secp256k1 签名，符合 Ethereum EIP-712 标准
 
 ---
 
@@ -393,36 +517,73 @@ pub const MessageHandler = struct {
 
 ## 速率限制实现
 
-### 速率限制器
+### 令牌桶算法
 
 ```zig
 pub const RateLimiter = struct {
-    last_request_time: i64,
-    min_interval_ms: u64,
+    tokens: f64,
+    max_tokens: f64,
+    refill_rate: f64,  // tokens per second
+    last_refill: i128,  // timestamp in nanoseconds
+    mutex: std.Thread.Mutex,
 
-    pub fn init() RateLimiter {
+    pub fn init(rate: f64, burst: f64) RateLimiter {
+        const max_tokens = if (burst > 0) burst else rate;
         return .{
-            .last_request_time = 0,
-            .min_interval_ms = 50, // Hyperliquid: 20 req/s
+            .tokens = max_tokens,
+            .max_tokens = max_tokens,
+            .refill_rate = rate,
+            .last_refill = std.time.nanoTimestamp(),
+            .mutex = std.Thread.Mutex{},
         };
     }
 
     pub fn wait(self: *RateLimiter) void {
-        const now = std.time.milliTimestamp();
-        const elapsed = now - self.last_request_time;
+        self.mutex.lock();
+        defer self.mutex.unlock();
 
-        if (elapsed < self.min_interval_ms) {
-            const sleep_time = self.min_interval_ms - @as(u64, @intCast(elapsed));
-            std.time.sleep(sleep_time * std.time.ns_per_ms);
+        while (true) {
+            self.refill();
+
+            if (self.tokens >= 1.0) {
+                self.tokens -= 1.0;
+                return;
+            }
+
+            // 计算等待时间
+            const tokens_needed = 1.0 - self.tokens;
+            const wait_seconds = tokens_needed / self.refill_rate;
+            const wait_ns = @as(u64, @intFromFloat(wait_seconds * std.time.ns_per_s));
+
+            // 释放锁期间睡眠
+            self.mutex.unlock();
+            std.Thread.sleep(wait_ns);
+            self.mutex.lock();
         }
+    }
 
-        self.last_request_time = std.time.milliTimestamp();
+    fn refill(self: *RateLimiter) void {
+        const now = std.time.nanoTimestamp();
+        const elapsed_ns = now - self.last_refill;
+        const elapsed_seconds = @as(f64, @floatFromInt(elapsed_ns)) / std.time.ns_per_s;
+
+        const tokens_to_add = elapsed_seconds * self.refill_rate;
+        self.tokens = @min(self.tokens + tokens_to_add, self.max_tokens);
+        self.last_refill = now;
     }
 };
+
+/// Hyperliquid 专用速率限制器（20 req/s）
+pub fn createHyperliquidRateLimiter() RateLimiter {
+    return RateLimiter.init(20.0, 20.0);
+}
 ```
 
 **复杂度**: O(1)
-**说明**: 使用简单的固定间隔策略，确保最小请求间隔 50ms（20 req/s）
+**说明**:
+- 使用令牌桶算法，支持突发流量
+- 线程安全（使用互斥锁）
+- 自动按时间补充令牌
 
 ---
 
@@ -543,4 +704,37 @@ pub fn add(self: *SubscriptionManager, sub: Subscription) !void {
 
 ---
 
-*Last updated: 2025-12-23*
+## 集成示例
+
+### 完整的市场数据获取流程
+
+```zig
+// 1. 创建连接器
+const connector = try HyperliquidConnector.create(allocator, config, logger);
+defer connector.destroy();
+
+// 2. 获取 IExchange 接口
+const exchange = connector.interface();
+
+// 3. 连接
+try exchange.connect();
+
+// 4. 速率限制自动应用
+connector.rate_limiter.wait();  // 自动在内部调用
+
+// 5. 获取 ticker（通过 IExchange）
+const pair = TradingPair{ .base = "ETH", .quote = "USDC" };
+const ticker = try exchange.getTicker(pair);
+
+// 内部流程：
+// - getTicker() 调用 symbol_mapper.toHyperliquid() 转换符号
+// - 调用 rate_limiter.wait() 限速
+// - 调用 info_api.getAllMids()
+// - getAllMids() 调用 http_client.postInfo()
+// - http_client 使用 arena allocator 处理临时分配
+// - 解析 JSON 并返回结果
+```
+
+---
+
+*Last updated: 2025-12-24*

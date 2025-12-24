@@ -2,10 +2,10 @@
 
 > ZigQuant 与 Hyperliquid DEX 的核心连接模块，提供完整的 REST API 和 WebSocket 支持
 
-**状态**: 🚧 开发中
+**状态**: ✅ 部分实现 (Info API + WebSocket 完成，Exchange API 签名待完善)
 **版本**: v0.2.0
 **Story**: [006-hyperliquid-http](../../../stories/v0.2-mvp/006-hyperliquid-http.md) | [007-hyperliquid-ws](../../../stories/v0.2-mvp/007-hyperliquid-ws.md)
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -32,50 +32,73 @@ Hyperliquid 连接器是 ZigQuant 与 Hyperliquid DEX 交互的核心模块。Hy
 ### 核心特性
 
 - ✅ **Info API**: 获取市场数据和账户信息（无需认证）
-- ✅ **Exchange API**: 执行交易操作（Ed25519 签名认证）
-- ✅ **WebSocket 订阅**: 19 种订阅频道（L2 订单簿、交易、用户事件等）
+  - `getAllMids()`: 获取所有币种中间价
+  - `getL2Book()`: 获取 L2 订单簿快照
+  - `getMeta()`: 获取资产元数据
+  - `getUserState()`: 获取用户账户状态
+- 🚧 **Exchange API**: 执行交易操作（EIP-712 签名认证）
+  - ✅ 签名框架实现（基于 zigeth 库）
+  - ⏳ 订单提交待完善
+  - ⏳ 订单撤销待完善
+- ✅ **WebSocket 订阅**: 8 种核心订阅频道
+  - `allMids`, `l2Book`, `trades`, `user`
+  - `orderUpdates`, `userFills`, `userFundings`
+  - `userNonFundingLedgerUpdates`
 - ✅ **自动重连**: 断线自动重连，重连后自动重新订阅
-- ✅ **错误处理**: 完善的错误分类和重试机制
-- ✅ **速率限制**: 客户端速率限制器（20 req/s）
+- ✅ **错误处理**: 完善的网络错误处理
+- ✅ **速率限制**: 令牌桶算法速率限制器（20 req/s）
 - ✅ **测试网支持**: 完整的测试网环境支持
 
 ---
 
 ## 🚀 快速开始
 
-### 初始化 HTTP 客户端
+### 通过 IExchange 接口使用
 
 ```zig
 const std = @import("std");
-const HyperliquidClient = @import("exchange/hyperliquid/http.zig").HyperliquidClient;
-const InfoAPI = @import("exchange/hyperliquid/info_api.zig");
+const zigQuant = @import("zigQuant");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // 配置客户端（使用测试网）
-    const config = HyperliquidClient.HyperliquidConfig{
-        .base_url = HyperliquidClient.HyperliquidConfig.DEFAULT_TESTNET_URL,
-        .api_key = null,
-        .secret_key = std.os.getenv("HYPERLIQUID_SECRET_KEY"),
+    // 创建日志器
+    var logger = createLogger(allocator);
+    defer logger.deinit();
+
+    // 配置连接器（使用测试网）
+    const config = zigQuant.ExchangeConfig{
+        .name = "hyperliquid",
         .testnet = true,
-        .timeout_ms = 10000,
-        .max_retries = 3,
     };
 
-    var client = try HyperliquidClient.init(allocator, config, logger);
-    defer client.deinit();
+    // 创建 Hyperliquid 连接器
+    const connector = try zigQuant.HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
 
-    // 获取 ETH 订单簿
-    const orderbook = try InfoAPI.getL2Book(&client, "ETH");
+    // 获取 IExchange 接口
+    const exchange = connector.interface();
+
+    // 连接到交易所
+    try exchange.connect();
+    defer exchange.disconnect();
+
+    // 获取 ETH-USDC ticker
+    const pair = zigQuant.TradingPair{ .base = "ETH", .quote = "USDC" };
+    const ticker = try exchange.getTicker(pair);
+
+    std.debug.print("ETH Mid Price: {}\n", .{ticker.last.toFloat()});
+
+    // 获取订单簿
+    const orderbook = try exchange.getOrderbook(pair, 5);
     defer allocator.free(orderbook.bids);
     defer allocator.free(orderbook.asks);
 
     std.debug.print("Best Bid: {} @ {}\n", .{
-        orderbook.bids[0].sz.toFloat(),
-        orderbook.bids[0].px.toFloat(),
+        orderbook.bids[0].quantity.toFloat(),
+        orderbook.bids[0].price.toFloat(),
     });
 }
 ```
@@ -84,15 +107,21 @@ pub fn main() !void {
 
 ```zig
 const HyperliquidWS = @import("exchange/hyperliquid/websocket.zig").HyperliquidWS;
+const ws_types = @import("exchange/hyperliquid/ws_types.zig");
 
-const ws_config = HyperliquidWS.HyperliquidWSConfig{
-    .ws_url = HyperliquidWS.HyperliquidWSConfig.DEFAULT_TESTNET_WS_URL,
-    .reconnect_interval_ms = 1000,
-    .max_reconnect_attempts = 5,
+// WebSocket 配置
+const ws_config = HyperliquidWS.Config{
+    .ws_url = "wss://api.hyperliquid-testnet.xyz/ws",
+    .host = "api.hyperliquid-testnet.xyz",
+    .port = 443,
+    .path = "/ws",
+    .use_tls = true,
+    .reconnect_interval_ms = 5000,
+    .max_reconnect_attempts = 10,
     .ping_interval_ms = 30000,
 };
 
-var ws = try HyperliquidWS.init(allocator, ws_config, logger);
+var ws = HyperliquidWS.init(allocator, ws_config, logger);
 defer ws.deinit();
 
 // 设置消息回调
@@ -101,16 +130,24 @@ ws.on_message = handleMessage;
 // 连接
 try ws.connect();
 
-// 订阅 ETH 订单簿
+// 订阅 ETH L2 订单簿
 try ws.subscribe(.{
     .channel = .l2Book,
     .coin = "ETH",
 });
 
-fn handleMessage(msg: Message) void {
+// 订阅所有中间价
+try ws.subscribe(.{
+    .channel = .allMids,
+});
+
+fn handleMessage(msg: ws_types.Message) void {
     switch (msg) {
-        .l2_book => |book| {
-            std.debug.print("Order Book Update: {s}\n", .{book.coin});
+        .l2Book => |book| {
+            std.debug.print("L2 Book Update\n", .{});
+        },
+        .allMids => |mids| {
+            std.debug.print("All Mids Update: {} coins\n", .{mids.mids.len});
         },
         else => {},
     }
@@ -131,36 +168,57 @@ fn handleMessage(msg: Message) void {
 
 ## 🔧 核心 API
 
+### Connector (IExchange 实现)
+
+```zig
+pub const HyperliquidConnector = struct {
+    allocator: std.mem.Allocator,
+    config: ExchangeConfig,
+    logger: Logger,
+    connected: bool,
+
+    // HTTP 客户端和 API 模块
+    http_client: HttpClient,
+    rate_limiter: RateLimiter,
+    info_api: InfoAPI,
+    exchange_api: ExchangeAPI,
+    signer: ?Signer,
+
+    /// 创建新的 Hyperliquid 连接器
+    pub fn create(
+        allocator: std.mem.Allocator,
+        config: ExchangeConfig,
+        logger: Logger,
+    ) !*HyperliquidConnector;
+
+    /// 销毁连接器
+    pub fn destroy(self: *HyperliquidConnector) void;
+
+    /// 获取 IExchange 接口
+    pub fn interface(self: *HyperliquidConnector) IExchange;
+};
+```
+
 ### HTTP 客户端
 
 ```zig
-pub const HyperliquidClient = struct {
+pub const HttpClient = struct {
     allocator: std.mem.Allocator,
-    config: HyperliquidConfig,
+    base_url: []const u8,
     http_client: std.http.Client,
-    auth: Auth,
-    rate_limiter: RateLimiter,
     logger: Logger,
 
     pub fn init(
         allocator: std.mem.Allocator,
-        config: HyperliquidConfig,
+        testnet: bool,
         logger: Logger,
-    ) !HyperliquidClient;
+    ) HttpClient;
 
-    pub fn deinit(self: *HyperliquidClient) void;
+    pub fn deinit(self: *HttpClient) void;
 
-    pub fn get(
-        self: *HyperliquidClient,
-        endpoint: []const u8,
-        params: ?std.json.Value,
-    ) !std.json.Value;
-
-    pub fn post(
-        self: *HyperliquidClient,
-        endpoint: []const u8,
-        body: std.json.Value,
-    ) !std.json.Value;
+    pub fn postInfo(self: *HttpClient, request_body: []const u8) ![]const u8;
+    pub fn postExchange(self: *HttpClient, request_body: []const u8) ![]const u8;
+    pub fn post(self: *HttpClient, endpoint: []const u8, request_body: []const u8) ![]const u8;
 };
 ```
 
@@ -169,23 +227,34 @@ pub const HyperliquidClient = struct {
 ```zig
 pub const HyperliquidWS = struct {
     allocator: std.mem.Allocator,
-    config: HyperliquidWSConfig,
-    client: ws.Client,
+    config: Config,
+    client: ?websocket.Client,
     subscription_manager: SubscriptionManager,
     message_handler: MessageHandler,
     logger: Logger,
 
+    // 连接状态（原子操作）
+    connected: std.atomic.Value(bool),
+    should_reconnect: std.atomic.Value(bool),
+
+    // 线程相关分配器
+    thread_arena: ?std.heap.ArenaAllocator,
+
+    // 消息回调
+    on_message: ?*const fn (Message) void,
+
     pub fn init(
         allocator: std.mem.Allocator,
-        config: HyperliquidWSConfig,
+        config: Config,
         logger: Logger,
-    ) !HyperliquidWS;
+    ) HyperliquidWS;
 
     pub fn deinit(self: *HyperliquidWS) void;
     pub fn connect(self: *HyperliquidWS) !void;
     pub fn disconnect(self: *HyperliquidWS) void;
     pub fn subscribe(self: *HyperliquidWS, subscription: Subscription) !void;
     pub fn unsubscribe(self: *HyperliquidWS, subscription: Subscription) !void;
+    pub fn isConnected(self: *HyperliquidWS) bool;
 };
 ```
 
@@ -197,31 +266,29 @@ pub const HyperliquidWS = struct {
 
 ```zig
 // 1. 始终在测试网验证
-const config = HyperliquidClient.HyperliquidConfig{
-    .base_url = HyperliquidClient.HyperliquidConfig.DEFAULT_TESTNET_URL,
+const config = zigQuant.ExchangeConfig{
+    .name = "hyperliquid",
     .testnet = true,
-    // ...
 };
 
-// 2. 从环境变量读取私钥
-const secret_key = std.os.getenv("HYPERLIQUID_SECRET_KEY") orelse {
-    return error.NoSecretKey;
-};
+// 2. 使用 IExchange 接口访问
+const connector = try HyperliquidConnector.create(allocator, config, logger);
+defer connector.destroy();
+const exchange = connector.interface();
 
-// 3. 使用速率限制器
-var rate_limiter = RateLimiter.init();
-while (true) {
-    rate_limiter.wait();
-    try client.post("/info", body);
-}
+// 3. 正确处理资源释放
+const ticker = try exchange.getTicker(pair);
+// ticker 中的 Decimal 类型无需手动释放
 
-// 4. 处理 WebSocket 断线
-ws.on_disconnect = handleDisconnect;
+const orderbook = try exchange.getOrderbook(pair, 10);
+defer allocator.free(orderbook.bids);  // 必须释放
+defer allocator.free(orderbook.asks);   // 必须释放
 
-fn handleDisconnect() void {
-    logger.warn("WebSocket disconnected, auto-reconnecting...", .{});
-    // HyperliquidWS 会自动重连并重新订阅
-}
+// 4. WebSocket 自动重连已内置
+var ws = HyperliquidWS.init(allocator, ws_config, logger);
+ws.on_message = handleMessage;
+try ws.connect();
+// 断线后会自动重连并重新订阅，无需手动处理
 ```
 
 ### ❌ DON'T
@@ -291,4 +358,23 @@ fn handleDisconnect() void {
 
 ---
 
-*Last updated: 2025-12-23*
+## 📂 模块架构
+
+```
+src/exchange/hyperliquid/
+├── connector.zig         # IExchange 接口实现
+├── http.zig              # HTTP 客户端（Info + Exchange）
+├── info_api.zig          # Info API 端点封装
+├── exchange_api.zig      # Exchange API 端点封装
+├── auth.zig              # EIP-712 签名认证
+├── types.zig             # Hyperliquid 数据类型
+├── rate_limiter.zig      # 令牌桶速率限制器
+├── websocket.zig         # WebSocket 客户端
+├── ws_types.zig          # WebSocket 消息类型
+├── subscription.zig      # 订阅管理器
+└── message_handler.zig   # 消息解析器
+```
+
+---
+
+*Last updated: 2025-12-24*

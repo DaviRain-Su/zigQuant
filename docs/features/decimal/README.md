@@ -5,7 +5,7 @@
 **状态**: ✅ 已完成
 **版本**: v0.1.0
 **Story**: [001-decimal-type](../../../stories/v0.1-foundation/001-decimal-type.md)
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -56,7 +56,8 @@ pub fn main() !void {
     const cost = price.mul(amount);  // 432.505
 
     // 输出
-    std.debug.print("Cost: {d}\n", .{cost.toFloat()});
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("Cost: {d}\n", .{cost.toFloat()});
 }
 ```
 
@@ -64,21 +65,30 @@ pub fn main() !void {
 
 ```zig
 // 计算交易成本（包含手续费）
-const price = try Decimal.fromString("43250.50");
-const amount = try Decimal.fromString("0.01");
-const fee_rate = try Decimal.fromString("0.001");  // 0.1%
+const std = @import("std");
+const Decimal = @import("core/decimal.zig").Decimal;
 
-const cost = price.mul(amount);           // 432.505
-const fee = cost.mul(fee_rate);           // 0.432505
-const total = cost.add(fee);              // 432.937505
+pub fn calculateTradingCost() !void {
+    const price = try Decimal.fromString("43250.50");
+    const amount = try Decimal.fromString("0.01");
+    const fee_rate = try Decimal.fromString("0.001");  // 0.1%
 
-// 格式化输出
-const allocator = std.heap.page_allocator;
-const total_str = try total.toString(allocator);
-defer allocator.free(total_str);
+    const cost = price.mul(amount);           // 432.505
+    const fee = cost.mul(fee_rate);           // 0.432505
+    const total = cost.add(fee);              // 432.937505
 
-std.debug.print("Total: ${s}\n", .{total_str});
-// 输出: Total: $432.937505
+    // 格式化输出
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const total_str = try total.toString(allocator);
+    defer allocator.free(total_str);
+
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("Total: ${s}\n", .{total_str});
+    // 输出: Total: $432.937505
+}
 ```
 
 ---
@@ -183,11 +193,11 @@ const f = a.toFloat() / b.toFloat();  // 低效
 
 ## 📊 性能指标
 
-- **测试用例**: 16/16 全部通过
-- **测试覆盖率**: 97%
-- **运算性能**: > 1M ops/sec
-- **内存占用**: 16 bytes (i128)
-- **精度范围**: 18 位小数
+- **测试用例**: 12 tests (all passing)
+- **代码覆盖率**: High coverage of core functionality
+- **运算性能**: Integer-based arithmetic (very fast)
+- **内存占用**: 16 bytes (i128) + 1 byte (u8 scale)
+- **精度范围**: 18 位小数 (10^-18)
 
 ---
 

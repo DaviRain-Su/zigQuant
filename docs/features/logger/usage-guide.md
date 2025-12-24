@@ -5,18 +5,18 @@
 ### 错误示例 ❌
 
 ```zig
-// 这在 Zig 0.15 中不存在！
+// 这在 Zig 0.15.2 中不存在！
 var console = logger.ConsoleWriter.init(std.io.getStdErr().writer().any());
 var json = logger.JSONWriter.init(std.io.getStdOut().writer().any());
 ```
 
-**问题**: `std.io.getStdOut()` 和 `std.io.getStdErr()` 在 Zig 0.15 中不存在。
+**问题**: `std.io.getStdOut()` 和 `std.io.getStdErr()` 在 Zig 0.15.2 中不存在。
 
 ---
 
 ### 正确示例 ✅
 
-#### 1. Console Writer (输出到 stderr)
+#### 1. Console Writer (输出到 stderr，带彩色 - 默认)
 
 ```zig
 const std = @import("std");
@@ -26,22 +26,57 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    // 创建 stderr 缓冲 writer
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-
-    // 初始化 ConsoleWriter
-    var console = logger.ConsoleWriter.init(&stderr_writer.interface);
+    // 初始化 ConsoleWriter（泛型，默认启用彩色）
+    const stderr_file = std.fs.File.stderr();
+    var console = logger.ConsoleWriter(std.fs.File).init(gpa.allocator(), stderr_file);
     defer console.deinit();
 
     // 创建 Logger
     var log = logger.Logger.init(gpa.allocator(), console.writer(), .info);
     defer log.deinit();
 
-    // 使用
-    try log.info("Application started", .{});
-    try log.warn("Warning", .{ .code = 123 });
+    // 使用（彩色输出）
+    try log.trace("Trace message", .{});       // 灰色
+    try log.debug("Debug message", .{});       // 青色
+    try log.info("Application started", .{});  // 绿色
+    try log.warn("Warning", .{ .code = 123 }); // 黄色
+    try log.err("Error occurred", .{});        // 红色
+    try log.fatal("Fatal error", .{});         // 粗体红色
 }
+```
+
+#### 1b. Console Writer (禁用彩色)
+
+```zig
+// 在 CI 环境或输出到文件时禁用颜色
+const stderr_file = std.fs.File.stderr();
+var console = logger.ConsoleWriter(std.fs.File).initWithColors(
+    gpa.allocator(),
+    stderr_file,
+    false  // 禁用颜色
+);
+defer console.deinit();
+
+var log = logger.Logger.init(gpa.allocator(), console.writer(), .info);
+defer log.deinit();
+
+try log.info("No colors", .{});  // 纯文本
+```
+
+#### 1c. Console Writer (条件启用彩色)
+
+```zig
+// 根据环境变量或是否为 TTY 决定是否启用彩色
+const is_tty = std.io.tty.detectConfig(std.fs.File.stderr());
+const use_colors = is_tty != .no_color;
+
+const stderr_file = std.fs.File.stderr();
+var console = logger.ConsoleWriter(std.fs.File).initWithColors(
+    gpa.allocator(),
+    stderr_file,
+    use_colors
+);
+defer console.deinit();
 ```
 
 #### 2. JSON Writer (输出到 stdout)
@@ -51,12 +86,9 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    // 创建 stdout 缓冲 writer
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-
-    // 初始化 JSONWriter
-    var json = logger.JSONWriter.init(&stdout_writer.interface);
+    // 初始化 JSONWriter（泛型）
+    const stdout_file = std.fs.File.stdout();
+    var json = logger.JSONWriter(std.fs.File).init(gpa.allocator(), stdout_file);
 
     // 创建 Logger
     var log = logger.Logger.init(gpa.allocator(), json.writer(), .info);
@@ -70,7 +102,7 @@ pub fn main() !void {
 }
 ```
 
-#### 3. StdLogWriter 桥接
+#### 3. StdLogWriter 桥接（带彩色）
 
 ```zig
 var logger_instance: logger.Logger = undefined;
@@ -83,22 +115,20 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    // 创建 stderr writer
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-
-    var console = logger.ConsoleWriter.init(&stderr_writer.interface);
+    // 创建带彩色的 Console Writer
+    const stderr_file = std.fs.File.stderr();
+    var console = logger.ConsoleWriter(std.fs.File).init(gpa.allocator(), stderr_file);
     logger_instance = logger.Logger.init(gpa.allocator(), console.writer(), .debug);
     defer logger_instance.deinit();
 
     // 设置全局 logger
     logger.StdLogWriter.setLogger(&logger_instance);
 
-    // 使用 std.log（会路由到我们的 Logger）
-    std.log.info("Server started", .{});
+    // 使用 std.log（会路由到我们的 Logger，带彩色）
+    std.log.info("Server started", .{});  // 绿色
 
     const db_log = std.log.scoped(.database);
-    db_log.info("Connected", .{});
+    db_log.info("Connected", .{});  // 绿色，包含 scope=database
 }
 ```
 
@@ -118,62 +148,66 @@ const stdout = std.io.getStdOut();
 const stderr = std.io.getStdErr();
 ```
 
-### 2. **创建缓冲 Writer**
+### 2. **使用泛型 Writer**
 
 ```zig
-// ✅ 正确 - 需要提供缓冲区
-var buffer: [4096]u8 = undefined;
-var writer = std.fs.File.stderr().writer(&buffer);
+// ✅ 正确 - ConsoleWriter 和 JSONWriter 是泛型函数
+const stderr_file = std.fs.File.stderr();
+var console = logger.ConsoleWriter(std.fs.File).init(allocator, stderr_file);
 
-// 然后传递 &writer.interface
-var console = logger.ConsoleWriter.init(&writer.interface);
+const stdout_file = std.fs.File.stdout();
+var json = logger.JSONWriter(std.fs.File).init(allocator, stdout_file);
 ```
 
-### 3. **缓冲区大小建议**
-
-- **Console/文本日志**: 4096 字节 (4KB)
-- **JSON 日志**: 4096-8192 字节
-- **高频日志**: 8192-16384 字节
+### 3. **控制彩色输出**
 
 ```zig
-// 根据使用场景选择缓冲区大小
-var small_buffer: [4096]u8 = undefined;    // 一般用途
-var large_buffer: [16384]u8 = undefined;   // 高频日志
+const stderr_file = std.fs.File.stderr();
+
+// ✅ 默认启用彩色
+var console = logger.ConsoleWriter(std.fs.File).init(allocator, stderr_file);
+
+// ✅ 显式控制彩色
+var console_colored = logger.ConsoleWriter(std.fs.File).initWithColors(allocator, stderr_file, true);
+var console_plain = logger.ConsoleWriter(std.fs.File).initWithColors(allocator, stderr_file, false);
 ```
 
----
+**彩色方案**:
+- **TRACE**: 灰色 (`BRIGHT_BLACK`) - 用于最详细的跟踪信息
+- **DEBUG**: 青色 (`CYAN`) - 用于调试信息
+- **INFO**: 绿色 (`GREEN`) - 用于一般信息
+- **WARN**: 黄色 (`YELLOW`) - 用于警告
+- **ERROR**: 红色 (`RED`) - 用于错误
+- **FATAL**: 粗体红色 (`BOLD + BRIGHT_RED`) - 用于致命错误
 
-## 🔍 为什么需要缓冲？
-
-1. **性能优化**: 减少系统调用次数
-2. **批量写入**: 多条日志可以一次性刷新
-3. **Zig API 要求**: File.writer() 需要缓冲区参数
+**注意**: 整个日志行都会应用颜色（包括时间戳、消息和字段），不仅仅是级别标签。
 
 ---
 
 ## ✅ 测试代码
 
-测试代码使用 `fixedBufferStream` 可以继续使用 `.any()`：
+测试代码使用 `fixedBufferStream`：
 
 ```zig
 test "Logger basic" {
     var buf: [1024]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
-    // 测试中使用 .any() 是可以的
-    var console = ConsoleWriter.init(fbs.writer().any());
+    // 测试中使用泛型 ConsoleWriter
+    const WriterType = @TypeOf(fbs.writer());
+    const ConsoleWriterType = ConsoleWriter(WriterType);
+    var console = ConsoleWriterType.initWithColors(std.testing.allocator, fbs.writer(), false);
     defer console.deinit();
 
     var log = Logger.init(std.testing.allocator, console.writer(), .info);
     defer log.deinit();
 
     try log.info("Test message", .{});
+
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.containsAtLeast(u8, output, 1, "[info]"));
 }
 ```
-
-**注意**: 测试和实际使用的 writer 初始化方式不同：
-- **测试**: `fbs.writer().any()` ✅
-- **实际**: `&stderr_writer.interface` ✅
 
 ---
 
@@ -186,4 +220,4 @@ test "Logger basic" {
 
 ---
 
-*Last updated: 2025-01-23*
+*Last updated: 2025-01-24*

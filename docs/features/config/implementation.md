@@ -2,7 +2,7 @@
 
 > 内部实现说明和设计决策
 
-**最后更新**: 2025-01-22
+**最后更新**: 2025-12-24
 
 ---
 
@@ -146,12 +146,14 @@ for (config.exchanges) |*exchange| {
 
 ### 3. 敏感信息隐藏
 
+#### ExchangeConfig.sanitize()
+
 ```zig
 pub fn sanitize(self: ExchangeConfig) ExchangeConfig {
     return .{
         .name = self.name,
-        .api_key = "***REDACTED***",
-        .api_secret = "***REDACTED***",
+        .api_key = if (self.api_key.len > 0) "***REDACTED***" else "",
+        .api_secret = if (self.api_secret.len > 0) "***REDACTED***" else "",
         .testnet = self.testnet,
     };
 }
@@ -159,8 +161,32 @@ pub fn sanitize(self: ExchangeConfig) ExchangeConfig {
 
 **设计决策**:
 - 返回新实例，不修改原配置
-- 只隐藏敏感字段
+- 仅当密钥非空时才显示 REDACTED（避免误导）
+- 不需要 allocator（返回编译时字符串）
 - 用于日志和调试输出
+
+#### AppConfig.sanitize()
+
+```zig
+pub fn sanitize(self: AppConfig, allocator: Allocator) !AppConfig {
+    var sanitized_exchanges = try allocator.alloc(ExchangeConfig, self.exchanges.len);
+    for (self.exchanges, 0..) |exchange, i| {
+        sanitized_exchanges[i] = exchange.sanitize();
+    }
+
+    return .{
+        .server = self.server,
+        .exchanges = sanitized_exchanges,
+        .trading = self.trading,
+        .logging = self.logging,
+    };
+}
+```
+
+**设计决策**:
+- 需要 allocator 分配新的 exchanges 数组
+- 调用者负责释放 exchanges 字段
+- 其他字段不含敏感信息，直接拷贝
 
 ---
 
@@ -211,24 +237,78 @@ pub const AppConfig = struct {
 
 ## JSON 解析
 
-实际实现中，JSON 解析直接在 `loadFromJSON` 中进行：
+### load() 方法
 
 ```zig
-var parsed = try std.json.parseFromSlice(
-    T,
-    allocator,
-    json_str,
-    .{ .allocate = .alloc_always },
-);
+pub fn load(
+    allocator: Allocator,
+    path: []const u8,
+    comptime T: type,
+) !T {
+    // 读取文件内容
+    const file_content = try std.fs.cwd().readFileAlloc(
+        allocator,
+        path,
+        1024 * 1024, // 1MB max
+    );
+    defer allocator.free(file_content);
+
+    // 根据扩展名判断格式
+    if (std.mem.endsWith(u8, path, ".json")) {
+        return try loadFromJSON(allocator, file_content, T);
+    } else if (std.mem.endsWith(u8, path, ".toml")) {
+        // TOML support can be added later
+        return error.UnsupportedFormat;
+    } else {
+        return error.UnknownFormat;
+    }
+}
 ```
 
-**注意**: 返回 `std.json.Parsed(T)` 对象，需要调用者手动 deinit
+**问题**: 此方法返回 `T` 而不是 `std.json.Parsed(T)`，但内部调用 `loadFromJSON` 返回 `Parsed(T)`。这导致类型不匹配。
+
+**建议**: 直接使用 `loadFromJSON` 或修改 `load` 返回类型为 `std.json.Parsed(T)`
+
+### loadFromJSON() 方法
+
+```zig
+pub fn loadFromJSON(
+    allocator: Allocator,
+    json_str: []const u8,
+    comptime T: type,
+) !std.json.Parsed(T) {
+    var parsed = try std.json.parseFromSlice(
+        T,
+        allocator,
+        json_str,
+        .{ .allocate = .alloc_always },
+    );
+    errdefer parsed.deinit();
+
+    // 应用环境变量覆盖
+    try applyEnvOverrides(&parsed.value, "ZIGQUANT", allocator);
+
+    // 验证配置
+    if (@hasDecl(T, "validate")) {
+        try parsed.value.validate();
+    }
+
+    return parsed;
+}
+```
+
+**实现细节**:
+- 使用 `std.json.parseFromSlice` 解析 JSON
+- `.allocate = .alloc_always` 确保所有字符串都被分配
+- 返回 `Parsed(T)` 对象，调用者必须调用 `.deinit()` 释放内存
+- 使用 `errdefer` 确保出错时自动清理
+- 编译时检查 `T` 是否有 `validate` 方法
 
 ---
 
 ## TOML 支持（未实现）
 
-TOML 格式当前未实现，load() 方法会返回错误：
+TOML 格式当前未实现，`load()` 方法会返回错误：
 
 ```zig
 } else if (std.mem.endsWith(u8, path, ".toml")) {
@@ -237,7 +317,9 @@ TOML 格式当前未实现，load() 方法会返回错误：
 }
 ```
 
-未来可以通过集成 TOML 库来实现此功能。
+**原因**: Zig 标准库不包含 TOML 解析器
+
+**未来实现**: 可以集成第三方 TOML 库（如 zig-toml）
 
 ---
 
@@ -336,4 +418,49 @@ return parsed.value;  // 会导致 use-after-free
 
 ---
 
-*Last updated: 2025-01-22*
+## 环境变量解析器
+
+### parseValue() 函数
+
+```zig
+fn parseValue(comptime T: type, value: []const u8, allocator: Allocator) !T {
+    const type_info = @typeInfo(T);
+
+    return switch (type_info) {
+        .int => try std.fmt.parseInt(T, value, 10),
+        .float => try std.fmt.parseFloat(T, value),
+        .bool => std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1"),
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .slice and ptr_info.child == u8) {
+                // 字符串类型，复制值
+                return try allocator.dupe(u8, value);
+            }
+            @compileError("Unsupported pointer type");
+        },
+        .optional => |opt_info| {
+            if (value.len == 0) {
+                return null;
+            }
+            return try parseValue(opt_info.child, value, allocator);
+        },
+        else => @compileError("Unsupported type for env override: " ++ @typeName(T)),
+    };
+}
+```
+
+**支持的类型**:
+- 整数类型（u8, u16, i32 等）
+- 浮点类型（f32, f64）
+- 布尔类型（"true"/"1" 为 true，其他为 false）
+- 字符串切片（[]const u8）
+- 可选类型（?T，空字符串解析为 null）
+
+**不支持的类型**:
+- 结构体（通过递归 applyEnvOverrides 处理）
+- 数组（通过切片处理）
+- 联合类型
+- 枚举（可以未来添加）
+
+---
+
+*Last updated: 2025-12-24*

@@ -2,7 +2,7 @@
 
 > 完整的 API 文档
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -70,11 +70,21 @@ pub fn fromString(s: []const u8) !Decimal
 **返回**: `!Decimal`
 
 **错误**:
-- `error.InvalidFormat`: 格式错误
+- `error.EmptyString`: 空字符串
+- `error.InvalidFormat`: 格式错误（如仅有符号、小数点后无数字）
+- `error.InvalidCharacter`: 包含非数字字符
+- `error.MultipleDecimalPoints`: 多个小数点
+
+**支持的格式**:
+- "123" (整数)
+- "123.456" (小数)
+- "-123.456" (负数)
+- "+123.456" (带正号)
 
 **示例**:
 ```zig
 const d = try Decimal.fromString("123.456");
+const negative = try Decimal.fromString("-0.5");
 ```
 
 ---
@@ -268,10 +278,25 @@ pub fn main() !void {
     const product = a.mul(b);
     const quotient = try a.div(b);
 
-    // 输出
+    // 比较
+    if (a.cmp(b) == .gt) {
+        const stdout = std.io.getStdOut().writer();
+        try stdout.print("a is greater than b\n", .{});
+    }
+
+    // 工具函数
+    const abs_value = a.abs();
+    const negated = a.negate();
+    if (a.isPositive()) {
+        const stdout = std.io.getStdOut().writer();
+        try stdout.print("a is positive\n", .{});
+    }
+
+    // 格式化输出
     const sum_str = try sum.toString(allocator);
     defer allocator.free(sum_str);
 
-    std.debug.print("Sum: {s}\n", .{sum_str});
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("Sum: {s}\n", .{sum_str});
 }
 ```

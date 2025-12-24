@@ -3,9 +3,9 @@
 > 高性能、可扩展的结构化日志
 
 **状态**: ✅ 已完成
-**版本**: v0.1.0
+**版本**: v0.1.1
 **Story**: [004-logger](../../../stories/v0.1-foundation/004-logger.md)
-**最后更新**: 2025-01-23
+**最后更新**: 2025-01-24
 
 ---
 
@@ -25,6 +25,7 @@ Logger 模块提供高性能的结构化日志系统，支持多种输出格式�
 ### 核心特性
 
 - ✅ **6 个日志级别**: trace, debug, info, warn, error, fatal
+- ✅ **彩色日志输出**: ANSI 颜色代码，可自定义每个级别的颜色
 - ✅ **结构化日志**: 支持键值对字段
 - ✅ **多种 Writer**: Console, File, JSON
 - ✅ **std.log 桥接**: StdLogWriter 集成标准库日志
@@ -36,34 +37,52 @@ Logger 模块提供高性能的结构化日志系统，支持多种输出格式�
 
 ## 🚀 快速开始
 
-### 基本使用
+### 基本使用（带彩色输出）
 
 ```zig
 const std = @import("std");
 const logger = @import("core/logger.zig");
 
 pub fn main() !void {
-    // 创建 stderr writer
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    // 创建 Console Writer
-    var console = logger.ConsoleWriter.init(&stderr_writer.interface);
+    // 创建 Console Writer（带彩色，默认启用）
+    const stdout_file = std.fs.File.stdout();
+    var console = logger.ConsoleWriter(std.fs.File).init(gpa.allocator(), stdout_file);
     defer console.deinit();
 
     // 创建 Logger
     var log = logger.Logger.init(
-        std.heap.page_allocator,
+        gpa.allocator(),
         console.writer(),
         .info,  // 最低日志级别
     );
     defer log.deinit();
 
-    // 记录日志
-    try log.info("Application started", .{});
-    try log.warn("Warning message", .{ .code = 123, .retry = true });
-    try log.err("Error occurred", .{ .error_code = "ERR001" });
+    // 记录日志（带彩色输出）
+    try log.info("Application started", .{});        // 绿色
+    try log.warn("Warning message", .{ .code = 123 });  // 黄色
+    try log.err("Error occurred", .{ .error_code = "ERR001" });  // 红色
 }
+```
+
+### 禁用彩色输出
+
+```zig
+// 在 CI 环境或重定向到文件时禁用颜色
+const stderr_file = std.fs.File.stderr();
+var console = logger.ConsoleWriter(std.fs.File).initWithColors(
+    gpa.allocator(),
+    stderr_file,
+    false  // 禁用颜色
+);
+defer console.deinit();
+
+var log = logger.Logger.init(gpa.allocator(), console.writer(), .info);
+defer log.deinit();
+
+try log.info("Plain text log", .{});  // 无颜色
 ```
 
 ### 文件日志
@@ -86,11 +105,10 @@ try log.debug("Debug info", .{ .user_id = 12345 });
 
 ```zig
 // JSON 格式输出到 stdout
-var stdout_buffer: [4096]u8 = undefined;
-var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-
-var json_writer = logger.JSONWriter.init(&stdout_writer.interface);
+const stdout_file = std.fs.File.stdout();
+var json_writer = logger.JSONWriter(std.fs.File).init(allocator, stdout_file);
 var log = logger.Logger.init(allocator, json_writer.writer(), .info);
+defer log.deinit();
 
 try log.info("Order created", .{
     .order_id = "ORD123",
@@ -101,7 +119,7 @@ try log.info("Order created", .{
 // 输出: {"level":"info","msg":"Order created","timestamp":1737541845000,"order_id":"ORD123","symbol":"BTC/USDT","price":50000.0,"quantity":1.5}
 ```
 
-### std.log 桥接
+### std.log 桥接（带彩色）
 
 ```zig
 // 使用 StdLogWriter 桥接标准库日志
@@ -112,23 +130,24 @@ pub const std_options = .{
 };
 
 pub fn main() !void {
-    // 创建 stderr writer
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    var console = logger.ConsoleWriter.init(&stderr_writer.interface);
-    logger_instance = logger.Logger.init(allocator, console.writer(), .debug);
+    // 创建带彩色的 Console Writer
+    const stderr_file = std.fs.File.stderr();
+    var console = logger.ConsoleWriter(std.fs.File).init(gpa.allocator(), stderr_file);
+    logger_instance = logger.Logger.init(gpa.allocator(), console.writer(), .debug);
     defer logger_instance.deinit();
 
     // 设置全局 logger
     logger.StdLogWriter.setLogger(&logger_instance);
 
-    // 使用标准库日志（会路由到我们的 Logger）
-    std.log.info("Server started on port {}", .{8080});
+    // 使用标准库日志（会路由到我们的 Logger，带彩色）
+    std.log.info("Server started on port {}", .{8080});  // 绿色
 
     // Scoped logging
     const db_log = std.log.scoped(.database);
-    db_log.info("Connected", .{});  // 输出包含 scope=database
+    db_log.info("Connected", .{});  // 绿色，输出包含 scope=database
 }
 ```
 
@@ -217,11 +236,29 @@ pub const Logger = struct {
     pub fn fatal(self: *Logger, msg: []const u8, fields: anytype) !void;
 };
 
-/// Console Writer
-pub const ConsoleWriter = struct {
-    pub fn init(underlying: anytype) ConsoleWriter;
-    pub fn deinit(self: *ConsoleWriter) void;
-    pub fn writer(self: *ConsoleWriter) LogWriter;
+/// Console Writer (泛型，支持彩色)
+pub fn ConsoleWriter(comptime WriterType: type) type {
+    return struct {
+        pub fn init(allocator: Allocator, underlying: WriterType) Self;
+        pub fn initWithColors(allocator: Allocator, underlying: WriterType, use_colors: bool) Self;
+        pub fn deinit(self: *Self) void;
+        pub fn writer(self: *Self) LogWriter;
+    };
+}
+
+/// ANSI 颜色代码
+pub const AnsiColors = struct {
+    pub const RESET = "\x1b[0m";
+    pub const RED = "\x1b[31m";
+    pub const GREEN = "\x1b[32m";
+    pub const YELLOW = "\x1b[33m";
+    pub const CYAN = "\x1b[36m";
+    pub const BRIGHT_BLACK = "\x1b[90m";  // 灰色
+    pub const BRIGHT_RED = "\x1b[91m";
+    pub const BOLD = "\x1b[1m";
+
+    /// 获取日志级别对应的颜色
+    pub fn forLevel(level: Level) []const u8;
 };
 
 /// File Writer
@@ -231,10 +268,12 @@ pub const FileWriter = struct {
     pub fn writer(self: *FileWriter) LogWriter;
 };
 
-/// JSON Writer
-pub const JSONWriter = struct {
-    pub fn init(underlying: anytype) JSONWriter;
-    pub fn writer(self: *JSONWriter) LogWriter;
+/// JSON Writer (泛型)
+pub fn JSONWriter(comptime WriterType: type) type {
+    return struct {
+        pub fn init(allocator: Allocator, underlying: WriterType) Self;
+        pub fn writer(self: *Self) LogWriter;
+    };
 };
 
 /// StdLogWriter - std.log 桥接
@@ -343,4 +382,23 @@ var log = logger.Logger.init(allocator, writer, .trace);  // ❌ 生产环境会
 
 ---
 
-*Last updated: 2025-01-23*
+---
+
+## 🎨 彩色日志说明
+
+Logger 支持 ANSI 颜色代码，每个日志级别使用不同颜色：
+
+| 级别 | 颜色 | ANSI 代码 |
+|------|------|-----------|
+| TRACE | 灰色 | `BRIGHT_BLACK` |
+| DEBUG | 青色 | `CYAN` |
+| INFO | 绿色 | `GREEN` |
+| WARN | 黄色 | `YELLOW` |
+| ERROR | 红色 | `RED` |
+| FATAL | 粗体红色 | `BOLD + BRIGHT_RED` |
+
+**注意**: 彩色输出默认启用，可以使用 `initWithColors(allocator, writer, false)` 禁用。
+
+---
+
+*Last updated: 2025-01-24*

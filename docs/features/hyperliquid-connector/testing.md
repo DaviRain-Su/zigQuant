@@ -2,7 +2,7 @@
 
 > 测试覆盖和使用指南
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -22,100 +22,128 @@
 
 ## 单元测试
 
-### Ed25519 签名测试
+### EIP-712 签名测试
 
 ```zig
 const std = @import("std");
 const testing = std.testing;
-const Auth = @import("auth.zig").Auth;
+const auth = @import("auth.zig");
 
-test "Auth: Ed25519 signature generation" {
-    const secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    var auth = try Auth.init(testing.allocator, secret_key);
-    defer auth.deinit();
+test "Signer: initialization" {
+    const allocator = std.testing.allocator;
 
-    const nonce: i64 = 1640000000000;
-    const action = "{\"type\":\"order\"}";
+    const private_key = [_]u8{0x42} ** 32;
+    var signer = try auth.Signer.init(allocator, private_key);
+    defer signer.deinit();
 
-    const signature = try auth.signL1Action(action, nonce);
-
-    // 验证签名长度
-    try testing.expect(signature.r.len == 32);
-    try testing.expect(signature.s.len == 32);
+    try std.testing.expect(signer.address.len > 0);
+    try std.testing.expect(std.mem.startsWith(u8, signer.address, "0x"));
 }
 
-test "Auth: generate nonce" {
-    const nonce1 = Auth.generateNonce();
-    std.time.sleep(1 * std.time.ns_per_ms);
-    const nonce2 = Auth.generateNonce();
+test "Signer: sign action" {
+    const allocator = std.testing.allocator;
 
-    // Nonce 应该递增
-    try testing.expect(nonce2 > nonce1);
+    // 测试私钥
+    const private_key = [_]u8{0x42} ** 32;
+    var signer = try auth.Signer.init(allocator, private_key);
+    defer signer.deinit();
+
+    // 测试 action data（模拟订单 JSON）
+    const action_data = "{\"type\":\"order\",\"orders\":[{\"a\":0,\"b\":true,\"p\":\"1800.0\",\"s\":\"0.1\"}]}";
+
+    // 签名 action
+    const signature = try signer.signAction(action_data);
+    defer allocator.free(signature.r);
+    defer allocator.free(signature.s);
+
+    // 验证签名格式
+    try std.testing.expect(std.mem.startsWith(u8, signature.r, "0x"));
+    try std.testing.expect(std.mem.startsWith(u8, signature.s, "0x"));
+    try std.testing.expect(signature.r.len == 66); // 0x + 64 hex chars
+    try std.testing.expect(signature.s.len == 66);
+    try std.testing.expect(signature.v == 27 or signature.v == 28);
 }
 ```
 
 ---
+
+### Connector 测试
+
+```zig
+test "HyperliquidConnector: create and destroy" {
+    const allocator = std.testing.allocator;
+
+    // 创建测试 logger
+    var logger = createTestLogger(allocator);
+    defer logger.deinit();
+
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    try std.testing.expect(!connector.connected);
+}
+
+test "HyperliquidConnector: interface" {
+    const allocator = std.testing.allocator;
+    var logger = createTestLogger(allocator);
+    defer logger.deinit();
+
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    try std.testing.expectEqualStrings("hyperliquid", exchange.getName());
+}
+```
 
 ### HTTP 客户端测试
 
 ```zig
-test "HyperliquidClient: initialization" {
-    const config = HyperliquidClient.HyperliquidConfig{
-        .base_url = "https://api.hyperliquid-testnet.xyz",
-        .api_key = null,
-        .secret_key = null,
-        .testnet = true,
-        .timeout_ms = 5000,
-        .max_retries = 3,
-    };
+test "HttpClient: initialization" {
+    var logger = createTestLogger(std.testing.allocator);
+    defer logger.deinit();
 
-    var client = try HyperliquidClient.init(testing.allocator, config, logger);
+    var client = HttpClient.init(std.testing.allocator, true, logger);
     defer client.deinit();
 
-    try testing.expect(client.config.testnet);
-    try testing.expectEqualStrings(
-        "https://api.hyperliquid-testnet.xyz",
-        client.config.base_url,
-    );
+    try std.testing.expectEqualStrings(types.API_BASE_URL_TESTNET, client.base_url);
 }
 ```
 
 ---
 
-### 订单簿解析测试
+### 速率限制器测试
 
 ```zig
-test "InfoAPI: parse order book" {
-    const json_response =
-        \\{
-        \\  "coin": "ETH",
-        \\  "levels": [
-        \\    [
-        \\      {"px": "2000.5", "sz": "10.0", "n": 1}
-        \\    ],
-        \\    [
-        \\      {"px": "2001.0", "sz": "8.0", "n": 1}
-        \\    ]
-        \\  ],
-        \\  "time": 1640000000000
-        \\}
-    ;
+test "RateLimiter: initialization" {
+    const limiter = RateLimiter.init(10.0, 10.0);
+    try std.testing.expectEqual(@as(f64, 10.0), limiter.max_tokens);
+    try std.testing.expectEqual(@as(f64, 10.0), limiter.refill_rate);
+}
 
-    const parsed = try std.json.parseFromSlice(
-        std.json.Value,
-        testing.allocator,
-        json_response,
-        .{},
-    );
-    defer parsed.deinit();
+test "RateLimiter: tryAcquire" {
+    var limiter = RateLimiter.init(10.0, 10.0);
 
-    const orderbook = try parseOrderBook(testing.allocator, parsed.value);
-    defer testing.allocator.free(orderbook.bids);
-    defer testing.allocator.free(orderbook.asks);
+    // 初始应该能获取
+    try std.testing.expect(limiter.tryAcquire());
+    try std.testing.expect(limiter.tokens < 10.0);
+}
 
-    try testing.expectEqualStrings("ETH", orderbook.coin);
-    try testing.expect(orderbook.bids.len > 0);
-    try testing.expect(orderbook.bids[0].px.toFloat() == 2000.5);
+test "createHyperliquidRateLimiter" {
+    const limiter = createHyperliquidRateLimiter();
+    try std.testing.expectEqual(@as(f64, 20.0), limiter.max_tokens);
+    try std.testing.expectEqual(@as(f64, 20.0), limiter.refill_rate);
 }
 ```
 
@@ -123,28 +151,37 @@ test "InfoAPI: parse order book" {
 
 ## 集成测试
 
-### 连接测试网
+### 连接测试网（集成测试）
+
+位置：`tests/integration/hyperliquid_test.zig`
 
 ```zig
-test "Integration: connect to testnet" {
-    const config = HyperliquidClient.HyperliquidConfig{
-        .base_url = HyperliquidClient.HyperliquidConfig.DEFAULT_TESTNET_URL,
-        .api_key = null,
-        .secret_key = null,
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    // 创建 logger
+    var logger = createLogger(allocator);
+    defer logger.deinit();
+
+    // 测试 1: 创建连接器
+    std.debug.print("Test 1: Creating Hyperliquid connector...\n", .{});
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
         .testnet = true,
-        .timeout_ms = 10000,
-        .max_retries = 3,
     };
 
-    var client = try HyperliquidClient.init(testing.allocator, config, logger);
-    defer client.deinit();
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
 
-    // 测试获取元数据
-    const meta = try InfoAPI.getMeta(&client);
-    defer testing.allocator.free(meta.universe);
+    const exchange = connector.interface();
+    std.debug.print("✓ Connector created: {s}\n\n", .{exchange.getName()});
 
-    try testing.expect(meta.universe.len > 0);
-    std.debug.print("\nFound {} assets\n", .{meta.universe.len});
+    // 测试 2: 连接到交易所
+    std.debug.print("Test 2: Connecting to Hyperliquid testnet...\n", .{});
+    try exchange.connect();
+    std.debug.print("✓ Connected: {}\n\n", .{exchange.isConnected()});
 }
 ```
 
@@ -153,25 +190,30 @@ test "Integration: connect to testnet" {
 ### 获取订单簿测试
 
 ```zig
-test "Integration: get order book" {
-    var client = try createTestClient();
-    defer client.deinit();
+// 测试 5: 获取 ETH-USDC 订单簿
+std.debug.print("Test 5: Getting ETH-USDC orderbook (depth=5)...\n", .{});
+const orderbook = exchange.getOrderbook(eth_pair, 5) catch |err| {
+    std.debug.print("✗ Failed to get orderbook: {}\n", .{err});
+    return err;
+};
+defer allocator.free(orderbook.bids);
+defer allocator.free(orderbook.asks);
 
-    const orderbook = try InfoAPI.getL2Book(&client, "ETH");
-    defer testing.allocator.free(orderbook.bids);
-    defer testing.allocator.free(orderbook.asks);
+std.debug.print("✓ ETH-USDC Orderbook:\n", .{});
+std.debug.print("  Bids: {} levels\n", .{orderbook.bids.len});
+std.debug.print("  Asks: {} levels\n", .{orderbook.asks.len});
 
-    try testing.expect(orderbook.bids.len > 0);
-    try testing.expect(orderbook.asks.len > 0);
-
-    std.debug.print("\nOrder Book for ETH:\n", .{});
+if (orderbook.bids.len > 0) {
     std.debug.print("  Best Bid: {} @ {}\n", .{
-        orderbook.bids[0].sz.toFloat(),
-        orderbook.bids[0].px.toFloat(),
+        orderbook.bids[0].quantity.toFloat(),
+        orderbook.bids[0].price.toFloat(),
     });
+}
+
+if (orderbook.asks.len > 0) {
     std.debug.print("  Best Ask: {} @ {}\n", .{
-        orderbook.asks[0].sz.toFloat(),
-        orderbook.asks[0].px.toFloat(),
+        orderbook.asks[0].quantity.toFloat(),
+        orderbook.asks[0].price.toFloat(),
     });
 }
 ```
@@ -521,4 +563,53 @@ $ zig test src/exchange/hyperliquid/http_test.zig --summary all
 
 ---
 
-*Last updated: 2025-12-23*
+## 运行集成测试
+
+### 前置条件
+
+1. 确保有网络连接
+2. 测试网 API 可访问
+
+### 运行命令
+
+```bash
+# 运行所有测试
+$ zig build test
+
+# 运行集成测试
+$ zig build test-integration
+
+# 或直接运行
+$ zig build run-hyperliquid-test
+```
+
+### 预期输出
+
+```
+=== Hyperliquid Integration Tests ===
+
+Test 1: Creating Hyperliquid connector...
+✓ Connector created: hyperliquid
+
+Test 2: Connecting to Hyperliquid testnet...
+✓ Connected: true
+
+Test 3: Getting ETH-USDC ticker...
+✓ ETH-USDC Ticker:
+  Bid:        3500.5
+  Ask:        3500.5
+  Last:       3500.5
+  Mid Price:  3500.5
+  ...
+
+Test 5: Getting ETH-USDC orderbook (depth=5)...
+✓ ETH-USDC Orderbook:
+  Bids: 5 levels
+  Asks: 5 levels
+  Best Bid: 10.5 @ 3500.0
+  Best Ask: 8.2 @ 3501.0
+```
+
+---
+
+*Last updated: 2025-12-24*
