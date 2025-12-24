@@ -61,6 +61,10 @@
             //    // actually used.
             //    .lazy = false,
         },
+        .websocket = .{
+            .url = "https://github.com/karlseguin/websocket.zig/archive/refs/heads/master.tar.gz",
+            .hash = "websocket-0.1.0-ZPISdRNzAwAGszh62EpRtoQxu8wb1MSMVI6Ow0o2dmyJ",
+        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

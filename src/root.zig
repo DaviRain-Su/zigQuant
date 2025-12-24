@@ -17,6 +17,18 @@ pub const exchange_registry = @import("exchange/registry.zig");
 pub const exchange_symbol_mapper = @import("exchange/symbol_mapper.zig");
 pub const hyperliquid_connector = @import("exchange/hyperliquid/connector.zig");
 
+// Hyperliquid modules
+pub const hyperliquid = struct {
+    pub const HyperliquidClient = @import("exchange/hyperliquid/http.zig").HyperliquidClient;
+    pub const HyperliquidWS = @import("exchange/hyperliquid/websocket.zig").HyperliquidWS;
+    pub const InfoAPI = @import("exchange/hyperliquid/info_api.zig").InfoAPI;
+    pub const ExchangeAPI = @import("exchange/hyperliquid/exchange_api.zig").ExchangeAPI;
+    pub const Signer = @import("exchange/hyperliquid/auth.zig").Signer;
+    pub const Subscription = @import("exchange/hyperliquid/ws_types.zig").Subscription;
+    pub const Channel = @import("exchange/hyperliquid/ws_types.zig").Channel;
+    pub const Message = @import("exchange/hyperliquid/ws_types.zig").Message;
+};
+
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
 pub const Duration = time.Duration;

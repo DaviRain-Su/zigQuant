@@ -27,6 +27,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add WebSocket dependency for real-time market data
+    const websocket = b.dependency("websocket", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -47,6 +53,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .imports = &.{
             .{ .name = "zigeth", .module = zigeth.module("zigeth") },
+            .{ .name = "websocket", .module = websocket.module("websocket") },
         },
     });
 
@@ -167,6 +174,23 @@ pub fn build(b: *std.Build) void {
     const run_integration_test = b.addRunArtifact(integration_test);
     const integration_step = b.step("test-integration", "Run integration tests (requires network)");
     integration_step.dependOn(&run_integration_test.step);
+
+    // WebSocket integration test - requires network access
+    const ws_integration_test = b.addExecutable(.{
+        .name = "hyperliquid-ws-integration-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/hyperliquid_ws_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_ws_integration_test = b.addRunArtifact(ws_integration_test);
+    const ws_integration_step = b.step("test-ws", "Run WebSocket integration test (requires network)");
+    ws_integration_step.dependOn(&run_ws_integration_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
