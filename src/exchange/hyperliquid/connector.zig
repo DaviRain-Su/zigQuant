@@ -78,12 +78,20 @@ pub const HyperliquidConnector = struct {
             .rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter(),
             .info_api = undefined, // Initialize after http_client is in place
             .exchange_api = undefined, // Initialize after http_client is in place
-            .signer = null, // TODO: Initialize from config if private_key is provided
+            .signer = null, // Will be initialized below if private_key is provided
         };
+
+        // Initialize signer if private key is provided (api_secret contains hex-encoded private key)
+        if (config.api_secret.len > 0) {
+            self.signer = try self.initializeSigner(config.api_secret);
+        }
 
         // Now initialize APIs with stable pointer to self.http_client
         self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
-        self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, null, logger);
+
+        // Pass signer pointer to ExchangeAPI
+        const signer_ptr = if (self.signer) |*s| s else null;
+        self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, signer_ptr, logger);
 
         return self;
     }
@@ -92,6 +100,10 @@ pub const HyperliquidConnector = struct {
     pub fn destroy(self: *HyperliquidConnector) void {
         if (self.connected) {
             disconnect(self);
+        }
+        // Cleanup signer if initialized
+        if (self.signer) |*signer| {
+            signer.deinit();
         }
         // Cleanup HTTP client
         self.http_client.deinit();
@@ -308,13 +320,47 @@ pub const HyperliquidConnector = struct {
             .reduce_only = false,
         };
 
-        // Call Exchange API (note: signing is stub for now)
+        // Call Exchange API (with signing)
         const response = try self.exchange_api.placeOrder(hl_request);
-        _ = response;
 
-        // NOTE: This won't work until signing is implemented
-        // For now, return NotImplemented
-        return error.NotImplemented;
+        // Check response status
+        if (!std.mem.eql(u8, response.status, "ok")) {
+            self.logger.err("Order placement failed: {s}", .{response.status}) catch {};
+            return error.OrderRejected;
+        }
+
+        // Extract order ID from response
+        const order_id = blk: {
+            if (response.response) |resp| {
+                if (resp.data) |data| {
+                    if (data.statuses.len > 0) {
+                        if (data.statuses[0].resting) |resting| {
+                            break :blk resting.oid;
+                        }
+                    }
+                }
+            }
+            return error.InvalidOrderResponse;
+        };
+
+        self.logger.info("Order placed successfully: ID={d}", .{order_id}) catch {};
+
+        // Convert to unified Order format
+        const now = Timestamp.now();
+        return Order{
+            .exchange_order_id = order_id,
+            .client_order_id = null,
+            .pair = request.pair,
+            .side = request.side,
+            .order_type = request.order_type,
+            .status = .pending, // Initial status
+            .amount = request.amount,
+            .price = request.price,
+            .filled_amount = Decimal.ZERO,
+            .avg_fill_price = null,
+            .created_at = now,
+            .updated_at = now,
+        };
     }
 
     fn cancelOrder(ptr: *anyopaque, order_id: u64) anyerror!void {
@@ -437,10 +483,38 @@ pub const HyperliquidConnector = struct {
     // Helper Methods (Phase D)
     // ========================================================================
 
-    // TODO Phase D: Add helper methods
-    // fn buildHyperliquidOrder(self: *HyperliquidConnector, request: OrderRequest) !HLOrder
-    // fn signOrder(self: *HyperliquidConnector, order: HLOrder) !SignedAction
-    // fn signCancelRequest(self: *HyperliquidConnector, cancel: CancelRequest) !SignedAction
+    /// Initialize signer from private key hex string
+    ///
+    /// @param private_key_hex: Private key as hex string (with or without 0x prefix)
+    /// @return Initialized Signer
+    fn initializeSigner(self: *HyperliquidConnector, private_key_hex: []const u8) !Signer {
+        // Remove 0x prefix if present
+        const hex_str = if (private_key_hex.len >= 2 and
+            private_key_hex[0] == '0' and private_key_hex[1] == 'x')
+            private_key_hex[2..]
+        else
+            private_key_hex;
+
+        // Validate hex string length (32 bytes = 64 hex characters)
+        if (hex_str.len != 64) {
+            self.logger.err("Invalid private key length: {d} (expected 64 hex chars)", .{hex_str.len}) catch {};
+            return error.InvalidPrivateKey;
+        }
+
+        // Convert hex string to bytes
+        var private_key_bytes: [32]u8 = undefined;
+        _ = std.fmt.hexToBytes(&private_key_bytes, hex_str) catch {
+            self.logger.err("Failed to parse private key hex", .{}) catch {};
+            return error.InvalidPrivateKey;
+        };
+
+        // Initialize signer
+        const signer = try Signer.init(self.allocator, private_key_bytes);
+
+        self.logger.info("Initialized signer with address: {s}", .{signer.address}) catch {};
+
+        return signer;
+    }
 };
 
 // ============================================================================
@@ -586,4 +660,191 @@ test "HyperliquidConnector: trading methods return NotImplemented" {
 
     // Note: getTicker and getOrderbook are now implemented (Phase D.1)
     // but require network access, so they are tested in integration tests
+}
+
+test "HyperliquidConnector: initializeSigner - valid hex without 0x prefix" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    // Test with valid 64-char hex string (without 0x)
+    const test_private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    var signer = try connector.initializeSigner(test_private_key);
+    defer signer.deinit();
+
+    // Verify signer was created with valid address
+    try std.testing.expect(signer.address.len > 0);
+    try std.testing.expect(std.mem.startsWith(u8, signer.address, "0x"));
+}
+
+test "HyperliquidConnector: initializeSigner - valid hex with 0x prefix" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    // Test with valid 64-char hex string (with 0x prefix)
+    const test_private_key = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    var signer = try connector.initializeSigner(test_private_key);
+    defer signer.deinit();
+
+    // Verify signer was created
+    try std.testing.expect(signer.address.len > 0);
+}
+
+test "HyperliquidConnector: initializeSigner - invalid length" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    // Test with invalid length (too short)
+    const invalid_key = "0123456789abcdef"; // Only 16 chars
+    try std.testing.expectError(error.InvalidPrivateKey, connector.initializeSigner(invalid_key));
+}
+
+test "HyperliquidConnector: createOrder - requires signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITHOUT api_secret (no signer)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "", // Empty = no signer
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    // Create a test order request
+    const order_request = OrderRequest{
+        .pair = .{ .base = "ETH", .quote = "USDC" },
+        .side = .buy,
+        .order_type = .limit, // OrderType is a simple enum, not a union
+        .amount = Decimal.fromInt(1),
+        .price = Decimal.fromInt(3500),
+        .time_in_force = .gtc,
+        .reduce_only = false,
+    };
+
+    // Should fail because no signer is configured
+    try std.testing.expectError(error.SignerRequired, exchange.createOrder(order_request));
+}
+
+test "HyperliquidConnector: create with private key initializes signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITH api_secret (private key)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    // Verify signer was initialized
+    try std.testing.expect(connector.signer != null);
+    if (connector.signer) |signer| {
+        try std.testing.expect(signer.address.len > 0);
+    }
 }

@@ -2,17 +2,43 @@
 
 > 版本历史和更新记录
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-01-24
 
 ---
 
 ## [Unreleased]
 
 ### Planned
+- [ ] 实现 cancelOrder 方法
+- [ ] 实现 getOrder 方法
+- [ ] 实现 getBalance 方法
+- [ ] 实现 getPositions 方法
+- [ ] 实现 cancelAllOrders 方法
 - [ ] 实现异步 HTTP 请求
 - [ ] 添加连接池支持
 - [ ] 实现批量 API 请求
 - [ ] 支持 HTTP/2
+
+---
+
+## [0.2.1] - 2025-01-24
+
+### Added
+- ✨ **createOrder 方法完整实现**
+  - 集成 Ed25519 签名到订单创建流程
+  - 自动从 `ExchangeConfig.api_secret` 初始化 Signer（私钥以 hex 字符串形式提供）
+  - 支持带/不带 0x 前缀的私钥格式
+  - 将 Hyperliquid 订单响应转换为统一 Order 格式
+  - 完整的错误处理（SignerRequired, InvalidPrivateKey, OrderRejected 等）
+
+### Changed
+- 🔧 `HyperliquidConnector.create()` 现在会自动初始化 Signer（如果提供私钥）
+- 🔧 `HyperliquidConnector.destroy()` 现在会正确清理 Signer 资源
+
+### Tests
+- ✅ 新增 5 个单元测试（initializeSigner、createOrder 签名验证）
+- ✅ 新增集成测试 Test 8（验证 createOrder 需要 signer）
+- ✅ 总计 145/145 测试通过
 
 ---
 

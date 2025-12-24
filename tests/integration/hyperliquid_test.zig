@@ -157,5 +157,55 @@ pub fn main() !void {
     exchange.disconnect();
     std.debug.print("✓ Disconnected: {}\n\n", .{!exchange.isConnected()});
 
+    // Test 8: createOrder (requires signer) - Framework test
+    std.debug.print("Test 8: Testing createOrder (without signer - should fail)...\n", .{});
+    const order_request = zigQuant.OrderRequest{
+        .pair = eth_pair,
+        .side = .buy,
+        .order_type = .limit,
+        .amount = zigQuant.Decimal.fromInt(1),
+        .price = zigQuant.Decimal.fromInt(3000), // Low price to avoid actual fills
+        .time_in_force = .gtc,
+        .reduce_only = false,
+    };
+
+    // Should fail because no signer is configured
+    const create_result = exchange.createOrder(order_request);
+    if (create_result) |_| {
+        std.debug.print("✗ Unexpected success (should require signer)\n", .{});
+        return error.UnexpectedSuccess;
+    } else |err| {
+        if (err == error.SignerRequired) {
+            std.debug.print("✓ Correctly rejected: SignerRequired\n", .{});
+        } else {
+            std.debug.print("✗ Unexpected error: {}\n", .{err});
+            return err;
+        }
+    }
+    std.debug.print("\n", .{});
+
+    // NOTE: To test actual order creation, set api_secret in ExchangeConfig:
+    //
+    // const config_with_key = ExchangeConfig{
+    //     .name = "hyperliquid",
+    //     .api_secret = "YOUR_PRIVATE_KEY_HEX_64_CHARS", // ⚠️ Use testnet key only!
+    //     .testnet = true,
+    // };
+    //
+    // const connector_auth = try HyperliquidConnector.create(allocator, config_with_key, logger);
+    // defer connector_auth.destroy();
+    //
+    // const exchange_auth = connector_auth.interface();
+    // try exchange_auth.connect();
+    //
+    // const order = try exchange_auth.createOrder(order_request);
+    // std.debug.print("✓ Order created: ID={d}, Status={s}\n", .{
+    //     order.exchange_order_id,
+    //     @tagName(order.status),
+    // });
+    //
+    // // Remember to cancel the order if needed:
+    // // try exchange_auth.cancelOrder(order.exchange_order_id);
+
     std.debug.print("=== All Integration Tests Passed! ✓ ===\n\n", .{});
 }
