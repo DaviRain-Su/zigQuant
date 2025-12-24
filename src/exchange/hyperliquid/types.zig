@@ -54,6 +54,12 @@ pub const UserStateRequest = struct {
     user: []const u8,
 };
 
+/// Request for user's open orders
+pub const OpenOrdersRequest = struct {
+    type: []const u8 = "openOrders",
+    user: []const u8,
+};
+
 // ============================================================================
 // Info API Response Types
 // ============================================================================
@@ -122,6 +128,27 @@ pub const UserStateResponse = struct {
     marginSummary: MarginSummary,
     withdrawable: []const u8,
 };
+
+/// Open order information
+pub const OpenOrder = struct {
+    coin: []const u8, // Asset symbol (e.g., "ETH")
+    side: []const u8, // "A" for ask (sell), "B" for bid (buy)
+    limitPx: []const u8, // Limit price
+    sz: []const u8, // Current size (remaining)
+    oid: u64, // Order ID
+    timestamp: u64, // Order timestamp (ms)
+    origSz: []const u8, // Original size
+    reduceOnly: bool = false, // Reduce-only flag
+    orderType: []const u8 = "Limit", // Order type
+    isPositionTpsl: bool = false, // Is position TP/SL
+    isTrigger: bool = false, // Is trigger order
+    triggerCondition: ?[]const u8 = null, // Trigger condition
+    triggerPx: ?[]const u8 = null, // Trigger price
+    cloid: ?[]const u8 = null, // Client order ID
+};
+
+/// Open orders response (array of orders)
+pub const OpenOrdersResponse = []OpenOrder;
 
 // ============================================================================
 // Exchange API Request Types

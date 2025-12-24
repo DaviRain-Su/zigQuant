@@ -56,6 +56,9 @@ pub const HyperliquidConnector = struct {
     exchange_api: ExchangeAPI,
     signer: ?Signer, // Optional: only needed for trading
 
+    // Asset mapping: coin name → asset index
+    asset_map: ?std.StringHashMap(u64), // Populated on first use
+
     // TODO Phase D.2: WebSocket client (optional)
     // ws: ?WebSocketClient,
 
@@ -79,6 +82,7 @@ pub const HyperliquidConnector = struct {
             .info_api = undefined, // Initialize after http_client is in place
             .exchange_api = undefined, // Initialize after http_client is in place
             .signer = null, // Will be initialized below if private_key is provided
+            .asset_map = null, // Lazy-loaded on first use
         };
 
         // Initialize signer if private key is provided (api_secret contains hex-encoded private key)
@@ -104,6 +108,15 @@ pub const HyperliquidConnector = struct {
         // Cleanup signer if initialized
         if (self.signer) |*signer| {
             signer.deinit();
+        }
+        // Cleanup asset map if initialized
+        if (self.asset_map) |*map| {
+            // Free all keys
+            var iter = map.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+            }
+            map.deinit();
         }
         // Cleanup HTTP client
         self.http_client.deinit();
@@ -376,14 +389,30 @@ pub const HyperliquidConnector = struct {
         // Rate limit
         self.rate_limiter.wait();
 
-        // NOTE: Simplified implementation for MVP
-        // Hyperliquid's cancel API requires both asset index and order ID
-        // For now, we use a default coin ("ETH") to get the asset index
-        // TODO: Maintain order_id -> coin mapping for accurate cancellation
-        const default_coin = "ETH"; // Most common trading pair on Hyperliquid
+        // Query open orders to find the coin for this order_id
+        const user_address = self.signer.?.address;
+        const open_orders = try self.info_api.getOpenOrders(user_address);
+        defer open_orders.deinit();
+
+        // Find the order and extract its coin name
+        var coin: ?[]const u8 = null;
+        for (open_orders.value) |order| {
+            if (order.oid == order_id) {
+                coin = order.coin;
+                break;
+            }
+        }
+
+        if (coin == null) {
+            self.logger.err("Order {d} not found in open orders", .{order_id}) catch {};
+            return error.OrderNotFound;
+        }
+
+        // Look up asset index for the coin
+        const asset_index = try self.getAssetIndex(coin.?);
 
         // Call Exchange API to cancel the order
-        const response = try self.exchange_api.cancelOrder(default_coin, order_id);
+        const response = try self.exchange_api.cancelOrder(asset_index, order_id);
 
         // Check response status
         if (!std.mem.eql(u8, response.status, "ok")) {
@@ -397,23 +426,74 @@ pub const HyperliquidConnector = struct {
     fn cancelAllOrders(ptr: *anyopaque, pair: ?TradingPair) anyerror!u32 {
         const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
-        if (pair) |p| {
-            const symbol = try symbol_mapper.toHyperliquid(p);
-            _ = symbol;
-            self.logger.debug("cancelAllOrders called for {s}-{s}", .{ p.base, p.quote }) catch {};
-        } else {
-            self.logger.debug("cancelAllOrders called for all pairs", .{}) catch {};
+        // Require signer for authentication
+        if (self.signer == null) {
+            self.logger.err("Cannot cancel orders: signer not configured", .{}) catch {};
+            return error.SignerRequired;
         }
 
-        // TODO Phase D: Build and sign cancel all request
-        // const cancel_req = try self.buildCancelAllRequest(pair);
-        // const signed = try self.signCancelRequest(cancel_req);
-        //
-        // // Submit to Exchange API
-        // const response = try self.http.cancelAllOrders(signed);
-        // return response.statuses.len;
+        // Rate limiting
+        self.rate_limiter.wait();
 
-        return error.NotImplemented;
+        // Get count of open orders before cancellation
+        const user_address = self.signer.?.address;
+        const before_orders = try self.info_api.getOpenOrders(user_address);
+        defer before_orders.deinit();
+
+        var before_count: u32 = 0;
+        if (pair) |p| {
+            // Count only orders for the specified pair
+            for (before_orders.value) |order| {
+                if (std.mem.eql(u8, order.coin, p.base)) {
+                    before_count += 1;
+                }
+            }
+            self.logger.debug("cancelAllOrders called for {s}-{s} ({d} orders)", .{ p.base, p.quote, before_count }) catch {};
+        } else {
+            before_count = @intCast(before_orders.value.len);
+            self.logger.debug("cancelAllOrders called for all pairs ({d} orders)", .{before_count}) catch {};
+        }
+
+        if (before_count == 0) {
+            self.logger.info("No orders to cancel", .{}) catch {};
+            return 0;
+        }
+
+        // Extract coin name and look up asset index if pair is specified
+        const asset_index: ?u64 = if (pair) |p|
+            try self.getAssetIndex(p.base)
+        else
+            null;
+
+        // Call Exchange API to cancel all orders
+        const response = try self.exchange_api.cancelAllOrders(asset_index);
+
+        // Check response status
+        if (!std.mem.eql(u8, response.status, "ok")) {
+            self.logger.err("Cancel all orders failed: {s}", .{response.status}) catch {};
+            return error.CancelAllOrdersFailed;
+        }
+
+        // Get count of open orders after cancellation
+        self.rate_limiter.wait();
+        const after_orders = try self.info_api.getOpenOrders(user_address);
+        defer after_orders.deinit();
+
+        var after_count: u32 = 0;
+        if (pair) |p| {
+            for (after_orders.value) |order| {
+                if (std.mem.eql(u8, order.coin, p.base)) {
+                    after_count += 1;
+                }
+            }
+        } else {
+            after_count = @intCast(after_orders.value.len);
+        }
+
+        const cancelled_count = before_count - after_count;
+        self.logger.info("Cancelled {d} orders", .{cancelled_count}) catch {};
+
+        return cancelled_count;
     }
 
     fn getOrder(ptr: *anyopaque, order_id: u64) anyerror!Order {
@@ -421,19 +501,73 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("getOrder called: {d}", .{order_id}) catch {};
 
-        // TODO Phase D: Query order status from Info API
-        // const user_state = try self.http.getUserState(self.config.user_address);
-        //
-        // // Find order in user_state.assetPositions or openOrders
-        // for (user_state.openOrders) |open_order| {
-        //     if (open_order.oid == order_id) {
-        //         return convertToUnifiedOrder(open_order);
-        //     }
-        // }
-        //
-        // return error.OrderNotFound;
+        // Require signer for authentication (need user address)
+        if (self.signer == null) {
+            self.logger.err("Cannot get order: signer not configured", .{}) catch {};
+            return error.SignerRequired;
+        }
 
-        return error.NotImplemented;
+        // Rate limiting
+        self.rate_limiter.wait();
+
+        // Get user's open orders
+        const user_address = self.signer.?.address;
+        const parsed_orders = try self.info_api.getOpenOrders(user_address);
+        defer parsed_orders.deinit();
+
+        // Search for the order by ID
+        for (parsed_orders.value) |open_order| {
+            if (open_order.oid == order_id) {
+                // Found the order - convert to unified Order format
+                const side: Side = if (std.mem.eql(u8, open_order.side, "B")) .buy else .sell;
+                const price = try hl_types.parsePrice(open_order.limitPx);
+                const amount = try hl_types.parsePrice(open_order.sz);
+                const filled_amount = blk: {
+                    const orig_sz = try hl_types.parsePrice(open_order.origSz);
+                    break :blk orig_sz.sub(amount);
+                };
+
+                // Create TradingPair (Hyperliquid uses USDC as quote)
+                const pair = TradingPair{
+                    .base = open_order.coin,
+                    .quote = "USDC",
+                };
+
+                // Convert orderType string to OrderType enum
+                const order_type: OrderType = if (std.mem.eql(u8, open_order.orderType, "Market"))
+                    .market
+                else
+                    .limit;
+
+                self.logger.info("Order found: ID={d}, {s}-{s}, {s}, Price={}, Amount={}", .{
+                    order_id,
+                    pair.base,
+                    pair.quote,
+                    @tagName(side),
+                    price.toFloat(),
+                    amount.toFloat(),
+                }) catch {};
+
+                const created_at = Timestamp.fromMillis(@intCast(open_order.timestamp));
+
+                return Order{
+                    .exchange_order_id = open_order.oid,
+                    .pair = pair,
+                    .side = side,
+                    .order_type = order_type,
+                    .price = price,
+                    .amount = amount,
+                    .filled_amount = filled_amount,
+                    .status = .open, // It's in openOrders, so status is open
+                    .created_at = created_at,
+                    .updated_at = created_at, // Same as created_at for open orders
+                };
+            }
+        }
+
+        // Order not found
+        self.logger.warn("Order not found: ID={d}", .{order_id}) catch {};
+        return error.OrderNotFound;
     }
 
     // ========================================================================
@@ -445,21 +579,44 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("getBalance called", .{}) catch {};
 
-        // TODO Phase D: Query user state from Info API
-        // const user_state = try self.http.getUserState(self.config.user_address);
-        //
-        // // Hyperliquid returns cross margin account data
-        // var balances = try self.allocator.alloc(Balance, 1);
-        // balances[0] = Balance{
-        //     .asset = "USDC",
-        //     .total = user_state.crossMarginSummary.accountValue,
-        //     .available = user_state.crossMarginSummary.withdrawable,
-        //     .locked = user_state.crossMarginSummary.totalMarginUsed,
-        // };
-        //
-        // return balances;
+        // Check if signer is available (we need the user address)
+        if (self.signer == null) {
+            return error.SignerRequired;
+        }
 
-        return error.NotImplemented;
+        // Rate limit
+        self.rate_limiter.wait();
+
+        // Get user address from signer
+        const user_address = self.signer.?.address;
+
+        // Query user state from Info API
+        const user_state = try self.info_api.getUserState(user_address);
+
+        // Hyperliquid returns cross margin account data
+        // For now, we return a single USDC balance (Hyperliquid's quote currency)
+        var balances = try self.allocator.alloc(Balance, 1);
+        errdefer self.allocator.free(balances);
+
+        // Parse account values from string to Decimal
+        const account_value = try hl_types.parsePrice(user_state.crossMarginSummary.accountValue);
+        const withdrawable = try hl_types.parsePrice(user_state.crossMarginSummary.withdrawable);
+        const margin_used = try hl_types.parsePrice(user_state.crossMarginSummary.totalMarginUsed);
+
+        balances[0] = Balance{
+            .asset = "USDC", // Hyperliquid uses USDC as collateral
+            .total = account_value,
+            .available = withdrawable,
+            .locked = margin_used,
+        };
+
+        self.logger.info("Balance retrieved: total={}, available={}, locked={}", .{
+            account_value.toFloat(),
+            withdrawable.toFloat(),
+            margin_used.toFloat(),
+        }) catch {};
+
+        return balances;
     }
 
     fn getPositions(ptr: *anyopaque) anyerror![]Position {
@@ -467,32 +624,70 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("getPositions called", .{}) catch {};
 
-        // TODO Phase D: Query user state from Info API
-        // const user_state = try self.http.getUserState(self.config.user_address);
-        //
-        // var positions = std.ArrayList(Position).init(self.allocator);
-        // defer positions.deinit();
-        //
-        // for (user_state.assetPositions) |asset_pos| {
-        //     if (asset_pos.position.szi == 0) continue; // Skip zero positions
-        //
-        //     const pair = symbol_mapper.fromHyperliquid(asset_pos.position.coin);
-        //     const size_f = std.fmt.parseFloat(f64, asset_pos.position.szi) catch continue;
-        //
-        //     try positions.append(Position{
-        //         .pair = pair,
-        //         .side = if (size_f > 0) .buy else .sell,
-        //         .size = Decimal.fromFloat(@abs(size_f)),
-        //         .entry_price = asset_pos.position.entryPx,
-        //         .unrealized_pnl = asset_pos.position.unrealizedPnl,
-        //         .leverage = asset_pos.position.leverage.value,
-        //         .margin_used = asset_pos.position.marginUsed,
-        //     });
-        // }
-        //
-        // return positions.toOwnedSlice();
+        // Require signer for authentication (need user address)
+        if (self.signer == null) {
+            self.logger.err("Cannot get positions: signer not configured", .{}) catch {};
+            return error.SignerRequired;
+        }
 
-        return error.NotImplemented;
+        // Rate limiting
+        self.rate_limiter.wait();
+
+        // Get user state from Info API
+        const user_address = self.signer.?.address;
+        const user_state = try self.info_api.getUserState(user_address);
+
+        // Parse positions from assetPositions array
+        var positions_list = try std.ArrayList(Position).initCapacity(self.allocator, user_state.assetPositions.len);
+        errdefer positions_list.deinit(self.allocator);
+
+        for (user_state.assetPositions) |asset_pos| {
+            // Parse position size (szi)
+            const size_str = asset_pos.position.szi;
+            const size_value = try hl_types.parsePrice(size_str);
+
+            // Skip zero positions
+            if (size_value.isZero()) continue;
+
+            // Determine side (long if positive, short if negative)
+            const is_long = size_value.isPositive();
+            const abs_size = if (is_long) size_value else size_value.negate();
+
+            // Parse entry price
+            const entry_price = if (asset_pos.position.entryPx) |entry_px|
+                try hl_types.parsePrice(entry_px)
+            else
+                Decimal.ZERO;
+
+            // Parse unrealized PnL
+            const unrealized_pnl = try hl_types.parsePrice(asset_pos.position.unrealizedPnl);
+
+            // Convert Hyperliquid symbol to TradingPair
+            // Hyperliquid perpetuals always use USDC as quote currency
+            const pair = TradingPair{
+                .base = asset_pos.position.coin,
+                .quote = "USDC",
+            };
+
+            // Parse margin used
+            const margin_used = try hl_types.parsePrice(asset_pos.position.marginUsed);
+
+            try positions_list.append(self.allocator, Position{
+                .pair = pair,
+                .side = if (is_long) .buy else .sell,
+                .size = abs_size,
+                .entry_price = entry_price,
+                .unrealized_pnl = unrealized_pnl,
+                .leverage = asset_pos.position.leverage.value,
+                .margin_used = margin_used,
+            });
+        }
+
+        const positions = try positions_list.toOwnedSlice(self.allocator);
+
+        self.logger.info("Positions retrieved: {} positions", .{positions.len}) catch {};
+
+        return positions;
     }
 
     // ========================================================================
@@ -530,6 +725,59 @@ pub const HyperliquidConnector = struct {
         self.logger.info("Initialized signer with address: {s}", .{signer.address}) catch {};
 
         return signer;
+    }
+
+    /// Load asset mapping from Hyperliquid meta API
+    ///
+    /// Populates self.asset_map with coin name → asset index mapping
+    fn loadAssetMap(self: *HyperliquidConnector) !void {
+        if (self.asset_map != null) {
+            return; // Already loaded
+        }
+
+        self.logger.debug("Loading asset mapping from getMeta", .{}) catch {};
+
+        // Call getMeta API
+        const meta = try self.info_api.getMeta();
+        defer meta.deinit();
+
+        // Create hash map
+        var map = std.StringHashMap(u64).init(self.allocator);
+        errdefer map.deinit();
+
+        // Populate map with coin name → asset index
+        for (meta.value.universe, 0..) |asset, index| {
+            // Duplicate the coin name string (will be freed in destroy())
+            const coin_name = try self.allocator.dupe(u8, asset.name);
+            errdefer self.allocator.free(coin_name);
+
+            try map.put(coin_name, index);
+
+            self.logger.debug("Asset mapping: {s} → {d}", .{ coin_name, index }) catch {};
+        }
+
+        self.asset_map = map;
+        self.logger.info("Loaded asset mapping: {d} assets", .{map.count()}) catch {};
+    }
+
+    /// Get asset index for a given coin name
+    ///
+    /// @param coin: Coin name (e.g., "ETH", "BTC")
+    /// @return Asset index
+    fn getAssetIndex(self: *HyperliquidConnector, coin: []const u8) !u64 {
+        // Ensure asset map is loaded
+        if (self.asset_map == null) {
+            try self.loadAssetMap();
+        }
+
+        // Look up asset index
+        if (self.asset_map.?.get(coin)) |index| {
+            return index;
+        }
+
+        // Asset not found
+        self.logger.err("Asset not found in mapping: {s}", .{coin}) catch {};
+        return error.AssetNotFound;
     }
 };
 
@@ -670,9 +918,12 @@ test "HyperliquidConnector: trading methods return NotImplemented" {
 
     const exchange = connector.interface();
 
-    // Trading and account methods should return NotImplemented (Phase D.2)
-    try std.testing.expectError(error.NotImplemented, exchange.getBalance());
-    try std.testing.expectError(error.NotImplemented, exchange.getPositions());
+    // Trading methods implemented: createOrder, cancelOrder, getBalance
+    // getBalance requires signer (no signer in this test config)
+    try std.testing.expectError(error.SignerRequired, exchange.getBalance());
+
+    // getPositions requires signer (no signer in this test config)
+    try std.testing.expectError(error.SignerRequired, exchange.getPositions());
 
     // Note: getTicker and getOrderbook are now implemented (Phase D.1)
     // but require network access, so they are tested in integration tests
@@ -898,4 +1149,178 @@ test "HyperliquidConnector: cancelOrder - requires signer" {
 
     // Should fail because no signer is configured
     try std.testing.expectError(error.SignerRequired, exchange.cancelOrder(12345));
+}
+
+test "HyperliquidConnector: getBalance - requires signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITHOUT api_secret (no signer)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "", // Empty = no signer
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    // Should fail because no signer is configured
+    try std.testing.expectError(error.SignerRequired, exchange.getBalance());
+}
+
+test "HyperliquidConnector: getPositions - requires signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITHOUT api_secret (no signer)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "", // Empty = no signer
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    // Should fail because no signer is configured
+    try std.testing.expectError(error.SignerRequired, exchange.getPositions());
+}
+
+test "HyperliquidConnector: getOrder - requires signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITHOUT api_secret (no signer)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "", // Empty = no signer
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    // Should fail because no signer is configured
+    try std.testing.expectError(error.SignerRequired, exchange.getOrder(12345));
+}
+
+test "HyperliquidConnector: cancelAllOrders - requires signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITHOUT api_secret (no signer)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "", // Empty = no signer
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    // Should fail because no signer is configured
+    try std.testing.expectError(error.SignerRequired, exchange.cancelAllOrders(null));
+}
+
+test "HyperliquidConnector: asset mapping - lazy initialization" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    // Verify asset map is initially null (lazy initialization)
+    try std.testing.expect(connector.asset_map == null);
+
+    // NOTE: Full asset mapping tests (loadAssetMap, getAssetIndex) require
+    // network access to call getMeta() API, so they are tested in integration tests.
 }

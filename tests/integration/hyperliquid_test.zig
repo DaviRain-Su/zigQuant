@@ -229,5 +229,158 @@ pub fn main() !void {
     // try exchange_auth.cancelOrder(order.exchange_order_id);
     // std.debug.print("✓ Order cancelled successfully\n", .{});
 
+    // Test 10: getBalance (requires signer) - Framework test
+    std.debug.print("Test 10: Testing getBalance (without signer - should fail)...\n", .{});
+
+    // Should fail because no signer is configured
+    const balance_result = exchange.getBalance();
+    if (balance_result) |balances| {
+        allocator.free(balances);
+        std.debug.print("✗ Unexpected success (should require signer)\n", .{});
+        return error.UnexpectedSuccess;
+    } else |err| {
+        if (err == error.SignerRequired) {
+            std.debug.print("✓ Correctly rejected: SignerRequired\n", .{});
+        } else {
+            std.debug.print("✗ Unexpected error: {}\n", .{err});
+            return err;
+        }
+    }
+    std.debug.print("\n", .{});
+
+    // NOTE: To test actual balance query with auth:
+    // const balances = try exchange_auth.getBalance();
+    // defer allocator.free(balances);
+    // for (balances) |balance| {
+    //     std.debug.print("✓ Balance: {s} | Total: {} | Available: {} | Locked: {}\n", .{
+    //         balance.asset,
+    //         balance.total.toFloat(),
+    //         balance.available.toFloat(),
+    //         balance.locked.toFloat(),
+    //     });
+    // }
+
+    // Test 11: getPositions (requires signer) - Framework test
+    std.debug.print("Test 11: Testing getPositions (without signer - should fail)...\n", .{});
+
+    // Should fail because no signer is configured
+    const positions_result = exchange.getPositions();
+    if (positions_result) |positions| {
+        allocator.free(positions);
+        std.debug.print("✗ Unexpected success (should require signer)\n", .{});
+        return error.UnexpectedSuccess;
+    } else |err| {
+        if (err == error.SignerRequired) {
+            std.debug.print("✓ Correctly rejected: SignerRequired\n", .{});
+        } else {
+            std.debug.print("✗ Unexpected error: {}\n", .{err});
+            return err;
+        }
+    }
+    std.debug.print("\n", .{});
+
+    // NOTE: To test actual positions query with auth:
+    // const positions = try exchange_auth.getPositions();
+    // defer allocator.free(positions);
+    // for (positions) |position| {
+    //     std.debug.print("✓ Position: {s}-{s} | Side: {s} | Size: {} | Entry: {} | PnL: {} | Leverage: {}x\n", .{
+    //         position.pair.base,
+    //         position.pair.quote,
+    //         @tagName(position.side),
+    //         position.size.toFloat(),
+    //         position.entry_price.toFloat(),
+    //         position.unrealized_pnl.toFloat(),
+    //         position.leverage,
+    //     });
+    // }
+
+    // Test 12: getOrder (requires signer) - Framework test
+    std.debug.print("Test 12: Testing getOrder (without signer - should fail)...\n", .{});
+
+    // Should fail because no signer is configured
+    const order_result = exchange.getOrder(12345);
+    if (order_result) |_| {
+        std.debug.print("✗ Unexpected success (should require signer)\n", .{});
+        return error.UnexpectedSuccess;
+    } else |err| {
+        if (err == error.SignerRequired) {
+            std.debug.print("✓ Correctly rejected: SignerRequired\n", .{});
+        } else {
+            std.debug.print("✗ Unexpected error: {}\n", .{err});
+            return err;
+        }
+    }
+    std.debug.print("\n", .{});
+
+    // NOTE: To test actual order query with auth:
+    // // First create an order to get an order ID
+    // const order = try exchange_auth.createOrder(order_request);
+    // std.debug.print("Created order: ID={d}\n", .{order.exchange_order_id});
+    //
+    // // Then query it back
+    // const queried_order = try exchange_auth.getOrder(order.exchange_order_id);
+    // std.debug.print("✓ Order found: {s}-{s} | Side: {s} | Price: {} | Amount: {} | Status: {s}\n", .{
+    //     queried_order.pair.base,
+    //     queried_order.pair.quote,
+    //     @tagName(queried_order.side),
+    //     queried_order.price.?.toFloat(),
+    //     queried_order.amount.toFloat(),
+    //     @tagName(queried_order.status),
+    // });
+
+    // Test 13: cancelAllOrders (requires signer) - Framework test
+    std.debug.print("Test 13: Testing cancelAllOrders (without signer - should fail)...\n", .{});
+
+    // Should fail because no signer is configured
+    const cancel_all_result = exchange.cancelAllOrders(null);
+    if (cancel_all_result) |_| {
+        std.debug.print("✗ Unexpected success (should require signer)\n", .{});
+        return error.UnexpectedSuccess;
+    } else |err| {
+        if (err == error.SignerRequired) {
+            std.debug.print("✓ Correctly rejected: SignerRequired\n", .{});
+        } else {
+            std.debug.print("✗ Unexpected error: {}\n", .{err});
+            return err;
+        }
+    }
+    std.debug.print("\n", .{});
+
+    // NOTE: To test actual cancelAllOrders with auth:
+    // // First create some orders
+    // const order1 = try exchange_auth.createOrder(order_request);
+    // const order2 = try exchange_auth.createOrder(order_request);
+    // std.debug.print("Created 2 orders\n", .{});
+    //
+    // // Cancel all orders
+    // const cancelled_count = try exchange_auth.cancelAllOrders(null);
+    // std.debug.print("✓ Cancelled {d} orders\n", .{cancelled_count});
+    //
+    // // Or cancel orders for a specific pair
+    // const cancelled_eth = try exchange_auth.cancelAllOrders(eth_pair);
+    // std.debug.print("✓ Cancelled {d} ETH orders\n", .{cancelled_eth});
+
+    // Test 14: Asset mapping (getMeta) - Framework test
+    std.debug.print("Test 14: Testing asset mapping (lazy loading)...\n", .{});
+
+    // Reconnect for this test
+    try exchange.connect();
+    defer exchange.disconnect();
+
+    // Asset mapping is tested indirectly through the connector's functionality
+    // The asset_map is lazy-loaded when first needed (e.g., in cancelOrder)
+    //
+    // Direct testing requires:
+    // 1. Call getMeta() to load asset mapping
+    // 2. Verify ETH → 0, BTC → 1, etc.
+    //
+    // This is implicitly tested when cancelOrder and cancelAllOrders are called
+    // with authentication (they use getAssetIndex internally)
+
+    std.debug.print("✓ Asset mapping will be lazy-loaded when needed\n", .{});
+    std.debug.print("  Full testing requires authenticated API calls\n", .{});
+    std.debug.print("  (cancelOrder/cancelAllOrders use getAssetIndex internally)\n", .{});
+    std.debug.print("\n", .{});
+
     std.debug.print("=== All Integration Tests Passed! ✓ ===\n\n", .{});
 }

@@ -105,18 +105,18 @@ pub const ExchangeAPI = struct {
 
     /// Cancel an order
     ///
-    /// @param coin: Symbol (e.g., "ETH")
+    /// @param asset_index: Asset index from meta (e.g., 0 for ETH)
     /// @param order_id: Order ID to cancel
     pub fn cancelOrder(
         self: *ExchangeAPI,
-        coin: []const u8,
+        asset_index: u64,
         order_id: u64,
     ) !types.CancelResponse {
         if (self.signer == null) {
             return error.SignerRequired;
         }
 
-        self.logger.debug("Canceling order {d} for {s}", .{ order_id, coin }) catch {};
+        self.logger.debug("Canceling order {d} (asset index: {d})", .{ order_id, asset_index }) catch {};
 
         // Construct cancel action
         const action_json = try std.fmt.allocPrint(
@@ -124,7 +124,7 @@ pub const ExchangeAPI = struct {
             \\{{"type":"cancel","cancels":[{{"a":{d},"o":{d}}}]}}
             ,
             .{
-                0, // asset index (TODO: lookup from coin)
+                asset_index,
                 order_id,
             },
         );
@@ -168,21 +168,70 @@ pub const ExchangeAPI = struct {
 
     /// Cancel all orders for a coin
     ///
-    /// @param coin: Symbol (e.g., "ETH") or null for all
+    /// @param asset_index: Asset index from meta (e.g., 0 for ETH), or null for all
     pub fn cancelAllOrders(
         self: *ExchangeAPI,
-        coin: ?[]const u8,
+        asset_index: ?u64,
     ) !types.CancelResponse {
-        _ = coin;
-
         if (self.signer == null) {
             return error.SignerRequired;
         }
 
-        self.logger.debug("Canceling all orders", .{}) catch {};
+        if (asset_index) |idx| {
+            self.logger.debug("Canceling all orders for asset index {d}", .{idx}) catch {};
+        } else {
+            self.logger.debug("Canceling all orders", .{}) catch {};
+        }
 
-        // TODO: Implement cancel all
-        return error.NotImplemented;
+        // Construct cancel all action
+        // If asset_index is null, cancel all orders across all assets
+        // If asset_index is provided, cancel only orders for that asset
+        const action_json = if (asset_index) |idx| blk: {
+            break :blk try std.fmt.allocPrint(
+                self.allocator,
+                \\{{"type":"cancel","cancels":[{{"a":{d},"o":null}}]}}
+                ,
+                .{idx},
+            );
+        } else blk: {
+            break :blk try self.allocator.dupe(u8, "{\"type\":\"cancel\",\"cancels\":[{\"a\":null,\"o\":null}]}");
+        };
+        defer self.allocator.free(action_json);
+
+        // Sign the action
+        const signature = try self.signer.?.signAction(action_json);
+        defer self.allocator.free(signature.r);
+        defer self.allocator.free(signature.s);
+
+        // Construct signed request
+        const request_json = try std.fmt.allocPrint(
+            self.allocator,
+            \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
+            ,
+            .{
+                action_json,
+                std.time.milliTimestamp(),
+                signature.r,
+                signature.s,
+                signature.v,
+            },
+        );
+        defer self.allocator.free(request_json);
+
+        // Send request
+        const response_body = try self.http_client.postExchange(request_json);
+        defer self.allocator.free(response_body);
+
+        // Parse response
+        const parsed = try std.json.parseFromSlice(
+            types.CancelResponse,
+            self.allocator,
+            response_body,
+            .{ .allocate = .alloc_always },
+        );
+        defer parsed.deinit();
+
+        return parsed.value;
     }
 };
 

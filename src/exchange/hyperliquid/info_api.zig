@@ -176,6 +176,38 @@ pub const InfoAPI = struct {
         return parsed.value;
     }
 
+    /// Get user's open orders
+    ///
+    /// @param user: User address (e.g., "0x...")
+    /// @return OpenOrdersResponse (array of OpenOrder)
+    pub fn getOpenOrders(self: *InfoAPI, user: []const u8) !std.json.Parsed(types.OpenOrdersResponse) {
+        self.logger.debug("Fetching open orders for {s}", .{user}) catch {};
+
+        // Prepare request
+        const request_json = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"type\":\"openOrders\",\"user\":\"{s}\"}}",
+            .{user},
+        );
+        defer self.allocator.free(request_json);
+
+        // Send request
+        const response_body = try self.http_client.postInfo(request_json);
+        defer self.allocator.free(response_body);
+
+        // Parse response
+        const parsed = try std.json.parseFromSlice(
+            types.OpenOrdersResponse,
+            self.allocator,
+            response_body,
+            .{ .allocate = .alloc_always, .ignore_unknown_fields = true },
+        );
+
+        self.logger.debug("Retrieved {} open orders", .{parsed.value.len}) catch {};
+
+        return parsed;
+    }
+
     /// Free AllMids result
     pub fn freeAllMids(self: *InfoAPI, mids: *std.StringHashMap([]const u8)) void {
         var iter = mids.iterator();
