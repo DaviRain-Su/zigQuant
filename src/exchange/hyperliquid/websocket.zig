@@ -29,8 +29,13 @@ const ReadHandler = struct {
     }
 
     pub fn close(handler: *@This()) void {
-        handler.ws.logger.warn("Server closed connection", .{}) catch {};
-        handler.ws.handleConnectionError();
+        // Only log and reconnect if we should reconnect
+        if (handler.ws.should_reconnect.load(.acquire)) {
+            handler.ws.logger.warn("Server closed connection", .{}) catch {};
+            handler.ws.handleConnectionError();
+        } else {
+            handler.ws.logger.debug("Server closed connection during shutdown", .{}) catch {};
+        }
     }
 
     pub fn serverPing(handler: *@This(), data: []u8) !void {
@@ -41,8 +46,13 @@ const ReadHandler = struct {
 
     pub fn serverClose(handler: *@This(), data: []u8) !void {
         _ = data;
-        handler.ws.logger.info("Received close frame", .{}) catch {};
-        handler.ws.handleConnectionError();
+        // Only log and reconnect if we should reconnect
+        if (handler.ws.should_reconnect.load(.acquire)) {
+            handler.ws.logger.info("Received close frame", .{}) catch {};
+            handler.ws.handleConnectionError();
+        } else {
+            handler.ws.logger.debug("Received close frame during shutdown", .{}) catch {};
+        }
     }
 };
 

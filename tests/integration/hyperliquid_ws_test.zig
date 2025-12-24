@@ -86,7 +86,6 @@ pub fn main() !void {
     // Connect
     std.debug.print("Connecting to Hyperliquid WebSocket...\n", .{});
     try ws.connect();
-    defer ws.disconnect();
 
     // Subscribe to allMids
     std.debug.print("Subscribing to allMids...\n", .{});
@@ -101,6 +100,12 @@ pub fn main() !void {
     std.Thread.sleep(30 * std.time.ns_per_s);
 
     std.debug.print("Test completed successfully!\n", .{});
+
+    // Disable reconnection before disconnecting to avoid spurious warnings
+    ws.should_reconnect.store(false, .release);
+
+    std.debug.print("Disconnecting...\n", .{});
+    ws.disconnect();
 }
 
 fn messageCallback(msg: Message) void {
