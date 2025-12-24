@@ -32,10 +32,16 @@ pub const hyperliquid = struct {
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
 pub const order_manager = @import("trading/order_manager.zig");
+pub const position = @import("trading/position.zig");
+pub const account = @import("trading/account.zig");
+pub const position_tracker = @import("trading/position_tracker.zig");
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
 pub const OrderManager = order_manager.OrderManager;
+pub const TradingPosition = position.Position;
+pub const Account = account.Account;
+pub const PositionTracker = position_tracker.PositionTracker;
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -125,4 +131,7 @@ test {
     // Trading modules
     _ = order_store;
     _ = order_manager;
+    _ = position;
+    _ = account;
+    _ = position_tracker;
 }
