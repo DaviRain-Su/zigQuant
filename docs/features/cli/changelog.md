@@ -2,60 +2,74 @@
 
 > 版本历史和更新记录
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
-## [Unreleased]
+## [Released]
 
-### Planned - v0.2.0
+### v0.2.0 - 2025-12-24
 
 #### Added
 - ✨ CLI 框架实现
-  - 基于 zig-clap 的命令行参数解析
+  - 简洁的直接命令模式（无子命令层级）
+  - JSON 配置文件支持
   - 命令路由系统
-  - 配置文件加载支持
 
-- ✨ 核心命令实现
-  - `market` 命令：查询市场数据
-    - `ticker`: 显示最优买卖价
-    - `orderbook`: 显示订单簿
-    - `trades`: 显示最近成交
-  - `order` 命令：订单操作
-    - `buy`: 下限价买单
-    - `sell`: 下限价卖单
-    - `cancel`: 撤销订单
-    - `list`: 列出所有订单
-  - `position` 命令：仓位查询
-    - `list`: 列出所有仓位
-    - `info`: 查询仓位详情
-  - `account` 命令：账户信息
-    - `info`: 显示账户信息
-    - `balance`: 显示资金余额
-  - `config` 命令：配置管理
-    - `show`: 显示当前配置
+- ✨ 核心命令实现（11 个命令）
+  - `help`: 显示帮助信息
+  - `price <PAIR>`: 查询交易对价格
+  - `book <PAIR> [depth]`: 查询订单簿（默认深度 10）
+  - `balance`: 查询账户余额
+  - `positions`: 查询持仓
+  - `orders [PAIR]`: 查询未成交订单（可按交易对筛选）
+  - `buy <PAIR> <QTY> <PRICE>`: 下限价买单
+  - `sell <PAIR> <QTY> <PRICE>`: 下限价卖单
+  - `cancel <ORDER_ID>`: 撤销指定订单
+  - `cancel-all [PAIR]`: 撤销所有订单（可按交易对筛选）
+  - `repl`: 进入交互式 REPL 模式
 
 - ✨ 交互式 REPL 模式
   - 命令循环和解析
   - 命令执行引擎
   - 帮助系统
-  - 退出处理
+  - 退出处理（`exit` 或 `quit`）
 
 - ✨ 输出格式化
-  - 表格化输出
+  - ANSI 彩色输出（使用 ConsoleWriter）
   - 结构化数据显示
-  - 错误信息友好提示
+  - 友好的错误信息提示
 
-- ✨ 全局选项
-  - `--config`: 指定配置文件
-  - `--verbose`: 详细输出模式
-  - `--help`: 显示帮助信息
+- ✨ Exchange 集成
+  - 通过 IExchange 接口连接 Hyperliquid
+  - 支持 testnet 和 mainnet
+  - Ed25519 签名认证
+  - 懒加载 Signer（避免启动阻塞）
+
+- ✨ 内存管理
+  - GeneralPurposeAllocator 内存泄漏检测
+  - 正确的资源清理和释放
 
 #### Changed
-无（首次发布）
+- 🔄 Logger 日志系统增强
+  - 支持 printf-style 格式化（元组参数）
+  - 支持 structured logging（结构体参数）
+  - 自动检测参数类型并选择格式化方式
 
 #### Fixed
-无（首次发布）
+- 🐛 修复控制台输出缓冲未刷新导致无输出（src/main.zig:65-66）
+- 🐛 修复 console_writer 栈变量导致的悬空指针问题（src/cli/cli.zig:24）
+- 🐛 修复内存泄漏：config_parsed 和 connector 未释放（src/cli/cli.zig:25-26, 86-89）
+- 🐛 修复 balance/positions 命令的 Signer 懒加载问题（src/exchange/hyperliquid/connector.zig:426, 451）
+- 🐛 修复 orders 命令未实现（添加 getOpenOrders 到 IExchange）
+- 🐛 修复日志格式问题：printf-style vs structured logging（src/core/logger.zig:108-121）
+- 🐛 修复 Zig 0.15.2 Writer API 兼容性问题
+
+#### Tested
+- ✅ 所有 11 个命令在 Hyperliquid testnet 上测试通过
+- ✅ 使用真实 API 凭证验证 balance/positions/orders 功能
+- ✅ 内存泄漏检测通过（无泄漏）
+- ✅ REPL 模式交互测试通过
 
 #### Deprecated
 无
@@ -69,59 +83,57 @@
 
 ### v0.3.0 (计划中)
 
-#### Planned
-- [ ] 彩色输出支持
-  - ANSI 颜色码
-  - 自动检测终端能力
-  - `--no-color` 选项
+#### Planned - 短期改进
+- [ ] 订单类型扩展
+  - 市价单支持
+  - 止损单支持
+  - 其他订单类型
 
-- [ ] 命令自动补全
-  - Tab 补全命令名
-  - Tab 补全参数
-  - 智能建议
-
-- [ ] 命令历史功能
-  - 上下箭头浏览历史
-  - 历史记录持久化
-  - 历史搜索
-
-- [ ] 高级输出格式
+- [ ] 输出格式增强
   - JSON 输出模式（`--json`）
   - CSV 输出模式（`--csv`）
-  - 分页输出（`--page`）
+  - 自定义格式模板
 
-- [ ] 脚本批处理模式
+- [ ] REPL 增强
+  - 命令历史（上下箭头）
+  - 命令自动补全（Tab 键）
+  - 智能建议
+
+- [ ] 性能优化
+  - 减少启动时间
+  - 连接池复用
+  - 缓存机制
+
+### v0.4.0 (计划中)
+
+#### Planned - 长期改进
+- [ ] 多交易所支持
+  - Binance 集成
+  - OKX 集成
+  - 其他主流交易所
+
+- [ ] WebSocket 实时数据
+  - 实时价格订阅
+  - 实时订单簿更新
+  - 实时成交通知
+
+- [ ] 批处理和脚本
   - 从文件读取命令
   - 批量执行
   - 错误处理策略
 
-- [ ] 进度指示器
-  - 加载动画
-  - 进度条
-  - 状态更新
+- [ ] TUI 界面
+  - 使用 termbox 或类似库
+  - 多面板布局
+  - 实时数据刷新
 
-### v0.4.0 (计划中)
-
-#### Planned
 - [ ] 命令别名系统
   - 用户自定义别名
   - 预设常用别名
-  - 别名管理命令
-
-- [ ] 管道和重定向
-  - 命令输出重定向
-  - 命令间管道连接
-  - 过滤和处理
-
-- [ ] 交互式配置
-  - `config init` 初始化配置
-  - `config edit` 编辑配置
-  - 配置验证
 
 - [ ] 插件系统
   - 自定义命令加载
   - 插件管理
-  - 插件市场
 
 ---
 
