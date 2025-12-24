@@ -29,6 +29,14 @@ pub const hyperliquid = struct {
     pub const Message = @import("exchange/hyperliquid/ws_types.zig").Message;
 };
 
+// Trading modules
+pub const order_store = @import("trading/order_store.zig");
+pub const order_manager = @import("trading/order_manager.zig");
+
+// Re-export trading types
+pub const OrderStore = order_store.OrderStore;
+pub const OrderManager = order_manager.OrderManager;
+
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
 pub const Duration = time.Duration;
@@ -72,6 +80,8 @@ pub const TimeInForce = exchange_types.TimeInForce;
 pub const OrderStatus = exchange_types.OrderStatus;
 pub const OrderRequest = exchange_types.OrderRequest;
 pub const Order = exchange_types.Order;
+pub const OrderUpdateEvent = exchange_types.OrderUpdateEvent;
+pub const OrderFillEvent = exchange_types.OrderFillEvent;
 pub const Ticker = exchange_types.Ticker;
 pub const OrderbookLevel = exchange_types.OrderbookLevel;
 pub const Orderbook = exchange_types.Orderbook;
@@ -111,4 +121,8 @@ test {
     _ = @import("exchange/hyperliquid/message_handler.zig");
     _ = @import("exchange/hyperliquid/rate_limiter.zig");
     _ = @import("exchange/hyperliquid/types.zig");
+
+    // Trading modules
+    _ = order_store;
+    _ = order_manager;
 }

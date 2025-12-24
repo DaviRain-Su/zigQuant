@@ -214,7 +214,7 @@ pub const OrderRequest = struct {
 
 /// Unified order response (from exchange)
 pub const Order = struct {
-    exchange_order_id: u64,
+    exchange_order_id: ?u64 = null, // Optional until exchange confirms
     client_order_id: ?[]const u8 = null,
     pair: TradingPair,
     side: Side,
@@ -241,6 +241,28 @@ pub const Order = struct {
     pub fn isActive(self: Order) bool {
         return self.status == .open or self.status == .partially_filled;
     }
+};
+
+// ============================================================================
+// Order Events (for WebSocket/real-time updates)
+// ============================================================================
+
+/// Order status update event (from WebSocket or polling)
+pub const OrderUpdateEvent = struct {
+    exchange_order_id: u64,
+    status: OrderStatus,
+    filled_amount: Decimal,
+    avg_fill_price: ?Decimal = null,
+    timestamp: Timestamp,
+};
+
+/// Order fill/execution event
+pub const OrderFillEvent = struct {
+    exchange_order_id: u64,
+    fill_price: Decimal,
+    fill_amount: Decimal,
+    total_filled: Decimal, // Total filled amount after this fill
+    timestamp: Timestamp,
 };
 
 // ============================================================================
