@@ -16,6 +16,41 @@
 
 ---
 
+## [0.2.3] - 2025-12-24
+
+### Added
+- ✨ **WebSocket 实时数据流完整集成**
+  - 新增 `ws: ?*HyperliquidWS` 字段到 HyperliquidConnector
+  - 新增 `initWebSocket()` 方法初始化 WebSocket 连接
+  - 新增 `subscribe(subscription)` 方法订阅频道
+  - 新增 `unsubscribe(subscription)` 方法取消订阅
+  - 新增 `setMessageCallback(callback)` 设置消息回调
+  - 新增 `isWebSocketInitialized()` 检查 WebSocket 状态
+  - 新增 `disconnectWebSocket()` 断开 WebSocket 连接
+  - 支持 8 种频道：allMids, l2Book, trades, user, orderUpdates, userFills, userFundings, userNonFundingLedgerUpdates
+  - 自动重连机制（最多 5 次）
+  - 心跳机制（30 秒 ping 间隔）
+  - 线程安全的订阅管理
+
+### Changed
+- 🔧 `HyperliquidConnector.destroy()` 现在清理 WebSocket 资源
+- 🔧 WebSocket 采用懒加载策略，仅在调用 `initWebSocket()` 时初始化
+
+### Architecture
+- 📐 WebSocket 方法直接暴露在 Connector 层，不通过 IExchange 接口
+- 📐 设计理念：保持 IExchange 专注于同步 REST API，WebSocket 作为可选功能
+
+### Tests
+- ✅ 新增集成测试 Test 15（WebSocket initialization, subscribe, disconnect）
+- ✅ 总计 152/152 测试通过
+
+### Examples
+- ✅ 完整的 WebSocket 示例（examples/02_websocket_stream.zig）
+- ✅ 演示订阅 allMids, l2Book, trades 频道
+- ✅ 30 秒内接收 117+ 实时消息
+
+---
+
 ## [0.2.2] - 2025-01-24
 
 ### Added

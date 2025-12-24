@@ -26,6 +26,10 @@ const InfoAPI = @import("info_api.zig").InfoAPI;
 const ExchangeAPI = @import("exchange_api.zig").ExchangeAPI;
 const Signer = @import("auth.zig").Signer;
 const hl_types = @import("types.zig");
+const HyperliquidWS = @import("websocket.zig").HyperliquidWS;
+const ws_types = @import("ws_types.zig");
+const Subscription = ws_types.Subscription;
+const Message = ws_types.Message;
 
 // Re-export types for convenience
 const TradingPair = types.TradingPair;
@@ -59,8 +63,8 @@ pub const HyperliquidConnector = struct {
     // Asset mapping: coin name → asset index
     asset_map: ?std.StringHashMap(u64), // Populated on first use
 
-    // TODO Phase D.2: WebSocket client (optional)
-    // ws: ?WebSocketClient,
+    // WebSocket client for real-time data
+    ws: ?*HyperliquidWS, // Optional: initialized when needed
 
     /// Create a new Hyperliquid connector and return it as IExchange
     pub fn create(
@@ -83,6 +87,7 @@ pub const HyperliquidConnector = struct {
             .exchange_api = undefined, // Initialize after http_client is in place
             .signer = null, // Will be initialized below if private_key is provided
             .asset_map = null, // Lazy-loaded on first use
+            .ws = null, // Will be initialized when connect() is called with WebSocket enabled
         };
 
         // Initialize signer if private key is provided (api_secret contains hex-encoded private key)
@@ -117,6 +122,11 @@ pub const HyperliquidConnector = struct {
                 self.allocator.free(entry.key_ptr.*);
             }
             map.deinit();
+        }
+        // Cleanup WebSocket if initialized
+        if (self.ws) |ws| {
+            ws.deinit();
+            self.allocator.destroy(ws);
         }
         // Cleanup HTTP client
         self.http_client.deinit();
@@ -688,6 +698,96 @@ pub const HyperliquidConnector = struct {
         self.logger.info("Positions retrieved: {} positions", .{positions.len}) catch {};
 
         return positions;
+    }
+
+    // ========================================================================
+    // WebSocket Methods (Phase D.2)
+    // ========================================================================
+
+    /// Initialize WebSocket connection
+    ///
+    /// Must be called before subscribing to channels
+    pub fn initWebSocket(self: *HyperliquidConnector) !void {
+        if (self.ws != null) {
+            // Already initialized
+            return;
+        }
+
+        self.logger.debug("Initializing WebSocket client", .{}) catch {};
+
+        // Create WebSocket config
+        const ws_url = if (self.config.testnet)
+            "wss://api.hyperliquid-testnet.xyz/ws"
+        else
+            "wss://api.hyperliquid.xyz/ws";
+
+        const ws_config = HyperliquidWS.Config{
+            .ws_url = ws_url,
+            .host = if (self.config.testnet) "api.hyperliquid-testnet.xyz" else "api.hyperliquid.xyz",
+            .port = 443,
+            .path = "/ws",
+            .use_tls = true,
+            .ping_interval_ms = 30000, // 30 seconds
+            .reconnect_interval_ms = 5000, // 5 seconds
+            .max_reconnect_attempts = 5,
+        };
+
+        // Create and initialize WebSocket client
+        const ws = try self.allocator.create(HyperliquidWS);
+        errdefer self.allocator.destroy(ws);
+
+        ws.* = HyperliquidWS.init(self.allocator, ws_config, self.logger);
+        self.ws = ws;
+
+        // Connect
+        try ws.connect();
+
+        self.logger.info("WebSocket initialized and connected", .{}) catch {};
+    }
+
+    /// Subscribe to a WebSocket channel
+    ///
+    /// @param subscription: Subscription details (channel, coin, user)
+    pub fn subscribe(self: *HyperliquidConnector, subscription: Subscription) !void {
+        if (self.ws == null) {
+            return error.WebSocketNotInitialized;
+        }
+
+        try self.ws.?.subscribe(subscription);
+    }
+
+    /// Unsubscribe from a WebSocket channel
+    ///
+    /// @param subscription: Subscription to remove
+    pub fn unsubscribe(self: *HyperliquidConnector, subscription: Subscription) !void {
+        if (self.ws == null) {
+            return error.WebSocketNotInitialized;
+        }
+
+        try self.ws.?.unsubscribe(subscription);
+    }
+
+    /// Set WebSocket message callback
+    ///
+    /// @param callback: Function to call when a message is received
+    pub fn setMessageCallback(self: *HyperliquidConnector, callback: *const fn (Message) void) !void {
+        if (self.ws == null) {
+            return error.WebSocketNotInitialized;
+        }
+
+        self.ws.?.on_message = callback;
+    }
+
+    /// Check if WebSocket is initialized
+    pub fn isWebSocketInitialized(self: *HyperliquidConnector) bool {
+        return self.ws != null;
+    }
+
+    /// Disconnect WebSocket (does not destroy it)
+    pub fn disconnectWebSocket(self: *HyperliquidConnector) void {
+        if (self.ws) |ws| {
+            ws.disconnect();
+        }
     }
 
     // ========================================================================

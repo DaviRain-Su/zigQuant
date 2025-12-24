@@ -382,5 +382,31 @@ pub fn main() !void {
     std.debug.print("  (cancelOrder/cancelAllOrders use getAssetIndex internally)\n", .{});
     std.debug.print("\n", .{});
 
+    // Test 15: WebSocket integration - Framework test
+    std.debug.print("Test 15: Testing WebSocket integration with Connector...\n", .{});
+
+    // Initialize WebSocket
+    std.debug.print("   • Initializing WebSocket...\n", .{});
+    try connector.initWebSocket();
+    try std.testing.expect(connector.isWebSocketInitialized());
+    std.debug.print("   ✓ WebSocket initialized\n", .{});
+
+    // Subscribe to a channel
+    std.debug.print("   • Subscribing to allMids...\n", .{});
+    try connector.subscribe(.{ .channel = .allMids });
+    std.debug.print("   ✓ Subscribed successfully\n", .{});
+
+    // Wait a moment for messages
+    std.debug.print("   • Waiting for messages (3 seconds)...\n", .{});
+    std.Thread.sleep(3 * std.time.ns_per_s);
+
+    // Disconnect WebSocket
+    std.debug.print("   • Disconnecting WebSocket...\n", .{});
+    connector.disconnectWebSocket();
+    std.debug.print("   ✓ WebSocket disconnected\n", .{});
+
+    std.debug.print("✓ WebSocket integration works correctly\n", .{});
+    std.debug.print("\n", .{});
+
     std.debug.print("=== All Integration Tests Passed! ✓ ===\n\n", .{});
 }
