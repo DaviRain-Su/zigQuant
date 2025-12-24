@@ -382,6 +382,9 @@ test "PositionTracker: init and deinit" {
         fn getBalance(_: *anyopaque) anyerror![]@import("../exchange/types.zig").Balance {
             return error.NotImplemented;
         }
+        fn getOpenOrders(_: *anyopaque, _: ?@import("../exchange/types.zig").TradingPair) anyerror![]@import("../exchange/types.zig").Order {
+            return error.NotImplemented;
+        }
         fn getPositions(_: *anyopaque) anyerror![]@import("../exchange/types.zig").Position {
             return error.NotImplemented;
         }
@@ -397,6 +400,7 @@ test "PositionTracker: init and deinit" {
             .cancelOrder = cancelOrder,
             .cancelAllOrders = cancelAllOrders,
             .getOrder = getOrder,
+            .getOpenOrders = getOpenOrders,
             .getBalance = getBalance,
             .getPositions = getPositions,
         };

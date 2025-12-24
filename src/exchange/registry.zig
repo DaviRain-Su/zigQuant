@@ -232,6 +232,12 @@ const MockExchange = struct {
         return error.NotImplemented;
     }
 
+    fn getOpenOrders(ptr: *anyopaque, pair: ?@import("types.zig").TradingPair) anyerror![]@import("types.zig").Order {
+        _ = ptr;
+        _ = pair;
+        return error.NotImplemented;
+    }
+
     fn getPositions(ptr: *anyopaque) anyerror![]@import("types.zig").Position {
         _ = ptr;
         return error.NotImplemented;
@@ -248,6 +254,7 @@ const MockExchange = struct {
         .cancelOrder = cancelOrder,
         .cancelAllOrders = cancelAllOrders,
         .getOrder = getOrder,
+        .getOpenOrders = getOpenOrders,
         .getBalance = getBalance,
         .getPositions = getPositions,
     };

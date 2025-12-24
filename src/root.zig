@@ -29,12 +29,21 @@ pub const hyperliquid = struct {
     pub const Message = @import("exchange/hyperliquid/ws_types.zig").Message;
 };
 
+// Market data modules
+pub const orderbook = @import("market/orderbook.zig");
+
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
 pub const order_manager = @import("trading/order_manager.zig");
 pub const position = @import("trading/position.zig");
 pub const account = @import("trading/account.zig");
 pub const position_tracker = @import("trading/position_tracker.zig");
+
+// Re-export market data types
+pub const OrderBook = orderbook.OrderBook;
+pub const OrderBookManager = orderbook.OrderBookManager;
+pub const BookLevel = orderbook.Level; // Renamed to avoid conflict with logger.Level
+pub const SlippageResult = orderbook.SlippageResult;
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
@@ -128,6 +137,9 @@ test {
     _ = @import("exchange/hyperliquid/message_handler.zig");
     _ = @import("exchange/hyperliquid/rate_limiter.zig");
     _ = @import("exchange/hyperliquid/types.zig");
+
+    // Market data modules
+    _ = orderbook;
 
     // Trading modules
     _ = order_store;

@@ -886,7 +886,7 @@ pub const HyperliquidConnector = struct {
 
         // No credentials provided
         if (self.config.api_secret.len == 0) {
-            return error.NoCredentials;
+            return error.SignerRequired;
         }
 
         // Initialize signer now
@@ -1311,7 +1311,13 @@ test "HyperliquidConnector: create with private key initializes signer" {
     const connector = try HyperliquidConnector.create(allocator, config, logger);
     defer connector.destroy();
 
-    // Verify signer was initialized
+    // Signer uses lazy initialization, so it won't be initialized until first use
+    try std.testing.expect(connector.signer == null);
+
+    // Trigger signer initialization by calling ensureSigner
+    try connector.ensureSigner();
+
+    // Now verify signer was initialized
     try std.testing.expect(connector.signer != null);
     if (connector.signer) |signer| {
         try std.testing.expect(signer.address.len > 0);

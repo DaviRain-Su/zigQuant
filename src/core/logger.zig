@@ -702,7 +702,23 @@ pub const StdLogWriter = struct {
 
         // Log with scope field
         if (global_logger) |logger| {
-            logger.log(our_level, message, .{ .scope = scope_name }) catch {
+            // Create scope field
+            const scope_field = Field{
+                .key = "scope",
+                .value = .{ .string = scope_name },
+            };
+            const fields = &[_]Field{scope_field};
+
+            // Create log record directly
+            const record = LogRecord{
+                .level = our_level,
+                .message = message,
+                .timestamp = std.time.milliTimestamp(),
+                .fields = fields,
+            };
+
+            // Write the record
+            logger.writer.write(record) catch {
                 // If logging fails, fall back to stderr
                 std.debug.print("[{s}] ({s}) {s}\n", .{ our_level.toString(), scope_name, message });
             };

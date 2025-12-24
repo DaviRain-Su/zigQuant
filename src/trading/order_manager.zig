@@ -506,6 +506,9 @@ test "OrderManager: init and deinit" {
         fn getBalance(_: *anyopaque) anyerror![]types.Balance {
             return error.NotImplemented;
         }
+        fn getOpenOrders(_: *anyopaque, _: ?types.TradingPair) anyerror![]types.Order {
+            return error.NotImplemented;
+        }
         fn getPositions(_: *anyopaque) anyerror![]types.Position {
             return error.NotImplemented;
         }
@@ -521,6 +524,7 @@ test "OrderManager: init and deinit" {
             .cancelOrder = cancelOrder,
             .cancelAllOrders = cancelAllOrders,
             .getOrder = getOrder,
+            .getOpenOrders = getOpenOrders,
             .getBalance = getBalance,
             .getPositions = getPositions,
         };
@@ -589,6 +593,9 @@ test "OrderManager: handleOrderUpdate" {
         fn getBalance(_: *anyopaque) anyerror![]types.Balance {
             return error.NotImplemented;
         }
+        fn getOpenOrders(_: *anyopaque, _: ?types.TradingPair) anyerror![]types.Order {
+            return error.NotImplemented;
+        }
         fn getPositions(_: *anyopaque) anyerror![]types.Position {
             return error.NotImplemented;
         }
@@ -604,6 +611,7 @@ test "OrderManager: handleOrderUpdate" {
             .cancelOrder = cancelOrder,
             .cancelAllOrders = cancelAllOrders,
             .getOrder = getOrder,
+            .getOpenOrders = getOpenOrders,
             .getBalance = getBalance,
             .getPositions = getPositions,
         };
@@ -704,6 +712,9 @@ test "OrderManager: handleOrderFill" {
         fn getBalance(_: *anyopaque) anyerror![]types.Balance {
             return error.NotImplemented;
         }
+        fn getOpenOrders(_: *anyopaque, _: ?types.TradingPair) anyerror![]types.Order {
+            return error.NotImplemented;
+        }
         fn getPositions(_: *anyopaque) anyerror![]types.Position {
             return error.NotImplemented;
         }
@@ -719,6 +730,7 @@ test "OrderManager: handleOrderFill" {
             .cancelOrder = cancelOrder,
             .cancelAllOrders = cancelAllOrders,
             .getOrder = getOrder,
+            .getOpenOrders = getOpenOrders,
             .getBalance = getBalance,
             .getPositions = getPositions,
         };
