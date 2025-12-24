@@ -16,6 +16,34 @@
 
 ---
 
+## [0.2.4] - 2025-12-24
+
+### Fixed
+- 🐛 **Bug #4: Signer lazy loading for balance/positions commands**
+  - 修复 `getBalance()` 和 `getPositions()` 在 signer 未初始化时崩溃的问题
+  - 实现 `ensureSigner()` 懒加载机制，在首次使用时自动初始化 signer
+  - 确保 signer 在使用前已正确初始化
+  - 适用于所有需要认证的命令：`getBalance`, `getPositions`, `getOpenOrders`, `cancelOrder`, `cancelAllOrders`
+  - 位置：`src/exchange/hyperliquid/connector.zig` 第 426, 441, 586, 677, 721 行
+
+- 🐛 **Bug #5: Missing getOpenOrders() implementation**
+  - 实现 `IExchange.getOpenOrders()` 接口方法
+  - 新增完整的 `connector.zig` 中的 `getOpenOrders()` 实现（第 581-666 行）
+  - 支持查询所有挂单或按交易对过滤
+  - 自动转换 Hyperliquid 订单格式到统一 Order 格式
+  - 正确处理订单状态、价格、数量、成交信息
+  - 返回动态分配的订单数组（调用者负责释放）
+
+### Changed
+- 🔧 所有需要认证的方法现在都调用 `ensureSigner()` 确保 signer 已初始化
+- 🔧 `getBalance()` 和 `getPositions()` 不再假设 signer 已存在
+
+### Tests
+- ✅ Bug #4 和 Bug #5 的修复已通过集成测试验证
+- ✅ `ensureSigner()` 机制在所有认证方法中正常工作
+
+---
+
 ## [0.2.3] - 2025-12-24
 
 ### Added

@@ -1,5 +1,114 @@
 # Logger 正确使用方法 (Zig 0.15)
 
+## 📌 双模式日志（2025-12-24 新增）
+
+Logger 现在支持两种日志模式，自动检测参数类型：
+
+### 1️⃣ 结构化模式（Structured Logging）
+
+**用法**：使用命名字段的 struct（`.{.key = value}`）
+
+```zig
+const std = @import("std");
+const logger = @import("core/logger.zig");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    const stderr_file = std.fs.File.stderr();
+    var console = logger.ConsoleWriter(std.fs.File).init(gpa.allocator(), stderr_file);
+    defer console.deinit();
+
+    var log = logger.Logger.init(gpa.allocator(), console.writer(), .info);
+    defer log.deinit();
+
+    // 结构化日志：适合业务日志
+    try log.info("Order created", .{
+        .order_id = "ORD123",
+        .user_id = 456,
+        .price = 99.99,
+        .status = "pending",
+    });
+    // 输出: [info] 1737541845000 Order created order_id=ORD123 user_id=456 price=99.99 status=pending
+}
+```
+
+### 2️⃣ Printf 模式（Format String）
+
+**用法**：使用匿名值的 tuple（`.{value1, value2}`）
+
+```zig
+const std = @import("std");
+const logger = @import("core/logger.zig");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    const stderr_file = std.fs.File.stderr();
+    var console = logger.ConsoleWriter(std.fs.File).init(gpa.allocator(), stderr_file);
+    defer console.deinit();
+
+    var log = logger.Logger.init(gpa.allocator(), console.writer(), .info);
+    defer log.deinit();
+
+    // Printf 模式：适合快速调试
+    const user_id = 456;
+    const ip = "192.168.1.1";
+    try log.info("User {} logged in from {s}", .{user_id, ip});
+    // 输出: [info] 1737541845000 User 456 logged in from 192.168.1.1
+
+    const port = 8080;
+    try log.info("Server started on port {}", .{port});
+    // 输出: [info] 1737541845000 Server started on port 8080
+}
+```
+
+### 3️⃣ 混合使用
+
+在同一个应用中可以根据场景混合使用两种模式：
+
+```zig
+pub fn processOrder(log: *logger.Logger, order: Order) !void {
+    // Printf 模式：快速调试信息
+    try log.debug("Processing order {s}", .{order.id});
+
+    // 结构化模式：业务关键日志
+    try log.info("Order details", .{
+        .order_id = order.id,
+        .symbol = order.symbol,
+        .quantity = order.quantity,
+        .price = order.price,
+    });
+
+    const result = executeOrder(order) catch |err| {
+        // 结构化模式：错误日志
+        try log.err("Order execution failed", .{
+            .order_id = order.id,
+            .error = @errorName(err),
+            .timestamp = std.time.timestamp(),
+        });
+        return err;
+    };
+
+    // Printf 模式：成功信息
+    try log.info("Order {s} executed at price {d}", .{order.id, result.price});
+}
+```
+
+### 4️⃣ 模式选择建议
+
+| 场景 | 推荐模式 | 原因 |
+|------|---------|------|
+| 业务日志 | 结构化 | 字段清晰，便于查询分析 |
+| 性能监控 | 结构化 | 便于聚合统计 |
+| 快速调试 | Printf | 语法简洁，编写快速 |
+| 临时跟踪 | Printf | 减少代码冗余 |
+| JSON 输出 | 结构化 | 保持字段结构 |
+
+---
+
 ## ✅ 正确的 stdout/stderr 使用方式
 
 ### 错误示例 ❌
@@ -220,4 +329,4 @@ test "Logger basic" {
 
 ---
 
-*Last updated: 2025-01-24*
+*Last updated: 2025-12-24*

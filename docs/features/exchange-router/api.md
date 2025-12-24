@@ -2,7 +2,7 @@
 
 > 完整的 IExchange 接口、统一数据类型、Registry API 文档
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-24
 
 ---
 
@@ -38,6 +38,7 @@ pub const IExchange = struct {
         cancelOrder: *const fn (*anyopaque, u64) anyerror!void,
         cancelAllOrders: *const fn (*anyopaque, ?TradingPair) anyerror!u32,
         getOrder: *const fn (*anyopaque, u64) anyerror!Order,
+        getOpenOrders: *const fn (*anyopaque, ?TradingPair) anyerror![]Order,
         getBalance: *const fn (*anyopaque) anyerror![]Balance,
         getPositions: *const fn (*anyopaque) anyerror![]Position,
     };
@@ -334,6 +335,54 @@ std.debug.print("Filled: {} / {}\n", .{
 if (order.isComplete()) {
     std.debug.print("Order completed\n", .{});
 }
+```
+
+---
+
+#### `getOpenOrders`
+
+查询所有挂单（可选指定交易对）。
+
+```zig
+pub fn getOpenOrders(
+    self: IExchange,
+    pair: ?TradingPair,
+) ![]Order
+```
+
+**参数**:
+- `pair`: 交易对（null 表示所有交易对）
+
+**返回**: Order 数组（调用者负责释放）
+
+**错误**:
+- `error.AuthenticationRequired`: 需要认证
+
+**示例**:
+```zig
+// 查询所有挂单
+const all_orders = try exchange.getOpenOrders(null);
+defer allocator.free(all_orders);
+
+for (all_orders) |order| {
+    std.debug.print("Order {}: {s}-{s} {s} {} @ {}\n", .{
+        order.exchange_order_id,
+        order.pair.base,
+        order.pair.quote,
+        order.side.toString(),
+        order.amount.toFloat(),
+        if (order.price) |p| p.toFloat() else 0,
+    });
+}
+
+// 查询特定交易对的挂单
+const eth_orders = try exchange.getOpenOrders(.{
+    .base = "ETH",
+    .quote = "USDC",
+});
+defer allocator.free(eth_orders);
+
+std.debug.print("ETH-USDC has {} open orders\n", .{eth_orders.len});
 ```
 
 ---
@@ -927,7 +976,13 @@ pub fn main() !void {
     const order = try exchange.createOrder(order_request);
     std.debug.print("Order created: ID={}\n", .{order.exchange_order_id});
 
-    // 8. 查询账户余额
+    // 8. 查询挂单
+    const open_orders = try exchange.getOpenOrders(null);
+    defer allocator.free(open_orders);
+
+    std.debug.print("You have {} open orders\n", .{open_orders.len});
+
+    // 9. 查询账户余额
     const balances = try exchange.getBalance();
     defer allocator.free(balances);
 
@@ -985,23 +1040,26 @@ pub fn placeOrderWithRetry(
 ```zig
 pub fn cancelAllOpenOrders(
     exchange: IExchange,
+    allocator: std.mem.Allocator,
     logger: Logger,
 ) !void {
     // 方法 1: 使用 cancelAllOrders
     const cancelled = try exchange.cancelAllOrders(null);
     logger.info("Cancelled {} orders", .{cancelled});
 
-    // 方法 2: 逐个撤销（精细控制）
-    const positions = try exchange.getPositions();
-    defer allocator.free(positions);
+    // 方法 2: 使用 getOpenOrders 查询后逐个撤销（精细控制）
+    const open_orders = try exchange.getOpenOrders(null);
+    defer allocator.free(open_orders);
 
-    for (positions) |pos| {
-        const cancelled_count = try exchange.cancelAllOrders(pos.pair);
-        logger.info("Cancelled {} orders for {s}-{s}", .{
-            cancelled_count,
-            pos.pair.base,
-            pos.pair.quote,
-        });
+    for (open_orders) |order| {
+        if (order.isActive()) {
+            try exchange.cancelOrder(order.exchange_order_id);
+            logger.info("Cancelled order {} for {s}-{s}", .{
+                order.exchange_order_id,
+                order.pair.base,
+                order.pair.quote,
+            });
+        }
     }
 }
 ```
@@ -1016,4 +1074,4 @@ pub fn cancelAllOpenOrders(
 
 ---
 
-*Last updated: 2025-12-23*
+*Last updated: 2025-12-24*

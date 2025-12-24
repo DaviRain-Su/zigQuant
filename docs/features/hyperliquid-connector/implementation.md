@@ -41,7 +41,7 @@ pub const HyperliquidConnector = struct {
     rate_limiter: RateLimiter,
     info_api: InfoAPI,
     exchange_api: ExchangeAPI,
-    signer: ?Signer,  // 可选：仅交易时需要
+    signer: ?Signer,  // 可选：仅交易时需要（懒加载）
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -61,8 +61,12 @@ pub const HyperliquidConnector = struct {
             .rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter(),
             .info_api = undefined,
             .exchange_api = undefined,
-            .signer = null,
+            .signer = null,  // 懒加载：首次使用时初始化
         };
+
+        // 注意：Signer 延迟到首次使用时初始化（懒加载）
+        // 这避免了启动时阻塞在熵/加密初始化上
+        // Signer 将在需要交易操作时按需初始化
 
         // 使用稳定指针初始化 API
         self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
@@ -74,6 +78,10 @@ pub const HyperliquidConnector = struct {
     pub fn destroy(self: *HyperliquidConnector) void {
         if (self.connected) {
             disconnect(self);
+        }
+        // 清理 signer（如果已初始化）
+        if (self.signer) |*signer| {
+            signer.deinit();
         }
         self.http_client.deinit();
         self.allocator.destroy(self);
@@ -281,6 +289,65 @@ fn encodeDomainSeparator(allocator: Allocator, domain: EIP712Domain) ![32]u8 {
 
 **复杂度**: O(1)
 **说明**: 使用 Keccak256 hash 和 secp256k1 签名，符合 Ethereum EIP-712 标准
+
+---
+
+## Signer 懒加载机制
+
+为了优化启动性能和资源使用，Signer（签名器）采用懒加载策略。
+
+### 设计理念
+
+```zig
+/// Ensure signer is initialized (lazy initialization)
+/// Only initializes if not already initialized and credentials are available
+fn ensureSigner(self: *HyperliquidConnector) !void {
+    // 已经初始化，直接返回
+    if (self.signer != null) return;
+
+    // 未提供凭证
+    if (self.config.api_secret.len == 0) {
+        return error.NoCredentials;
+    }
+
+    // 现在才初始化 signer
+    self.logger.info("Lazy-initializing signer for trading operations...", .{}) catch {};
+    self.signer = try self.initializeSigner(self.config.api_secret);
+
+    // 更新 ExchangeAPI 的 signer 引用
+    const signer_ptr = if (self.signer) |*s| s else null;
+    self.exchange_api.signer = signer_ptr;
+}
+```
+
+### 优势
+
+1. **避免阻塞启动**: 不在 `create()` 时初始化加密库，避免阻塞
+2. **按需初始化**: 仅在需要交易操作时才初始化 signer
+3. **支持只读模式**: 无需私钥也可以查询市场数据
+4. **延迟熵消耗**: 推迟随机数生成器的初始化
+
+### 使用场景
+
+所有需要签名的方法都会自动调用 `ensureSigner()`:
+- `getBalance()` - 需要用户地址查询账户状态
+- `getPositions()` - 需要用户地址查询持仓
+- `getOpenOrders()` - 需要用户地址查询挂单
+- `createOrder()` - 需要签名提交订单
+- `cancelOrder()` - 需要签名取消订单
+- `cancelAllOrders()` - 需要签名批量取消
+
+### 错误处理
+
+```zig
+// 如果未提供私钥，返回明确错误
+const result = exchange.getBalance() catch |err| {
+    if (err == error.NoCredentials) {
+        std.debug.print("Trading requires api_secret in config\n", .{});
+    }
+    return err;
+};
+```
 
 ---
 

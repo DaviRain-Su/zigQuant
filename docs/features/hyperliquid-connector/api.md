@@ -261,7 +261,57 @@ for (user_state.assetPositions) |asset_pos| {
 
 ---
 
-**注意**: Info API 还支持其他端点（如 `getUserFills`, `getOpenOrders`），但当前实现中未单独封装。可以通过直接构造 JSON 请求调用 `http_client.postInfo()` 实现。
+---
+
+### getOpenOrders
+
+获取用户的所有挂单（open orders）。
+
+**函数签名**:
+```zig
+pub fn getOpenOrders(self: *InfoAPI, user: []const u8) !std.json.Parsed(types.OpenOrdersResponse)
+```
+
+**参数**:
+- `user`: 用户地址（主账户或子账户地址）
+
+**返回结构**:
+```zig
+pub const OpenOrdersResponse = []OpenOrder;
+
+pub const OpenOrder = struct {
+    coin: []const u8,
+    side: []const u8,        // "B" (buy) or "A" (sell)
+    limitPx: []const u8,     // 限价（字符串）
+    sz: []const u8,          // 剩余数量（字符串）
+    oid: u64,                // 订单 ID
+    timestamp: u64,          // 订单时间戳（毫秒）
+    origSz: []const u8,      // 原始数量（字符串）
+    orderType: []const u8,   // "Limit" or "Market"
+    // ... 其他字段
+};
+```
+
+**示例**:
+```zig
+const parsed_orders = try connector.info_api.getOpenOrders(user_address);
+defer parsed_orders.deinit();
+
+for (parsed_orders.value) |order| {
+    std.debug.print("Order {d}: {s} {s} @ {s}\n", .{
+        order.oid,
+        order.coin,
+        order.side,
+        order.limitPx,
+    });
+}
+```
+
+**注意**: 返回的 `std.json.Parsed(types.OpenOrdersResponse)` 需要调用 `deinit()` 释放。
+
+---
+
+**注意**: Info API 还支持其他端点（如 `getUserFills`），但当前实现中未单独封装。可以通过直接构造 JSON 请求调用 `http_client.postInfo()` 实现。
 
 ---
 

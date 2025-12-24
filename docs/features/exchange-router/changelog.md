@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### Recent Updates
+
+#### 2025-12-24
+- Added `IExchange.getOpenOrders()` interface method
+  - Query open orders with optional trading pair filter
+  - Implemented in `HyperliquidConnector.getOpenOrders()`
+  - Calls `InfoAPI.getOpenOrders()` internally
+  - Tested on Hyperliquid testnet
+  - Documentation updated in `api.md`
+
 ### In Progress for v0.2.0
 
 #### Phase A: 核心类型和接口 ✅ 已完成
@@ -91,6 +101,7 @@
   - [ ] cancelOrder() - 调用 ExchangeAPI
   - [ ] cancelAllOrders() - 调用 ExchangeAPI
   - [ ] getOrder() - 查询订单状态
+  - [x] getOpenOrders() - 调用 InfoAPI (2025-12-24)
   - [ ] getBalance() - 调用 InfoAPI
   - [ ] getPositions() - 调用 InfoAPI
 - [ ] 集成测试 🚧
@@ -124,11 +135,14 @@
 
 ### Added (已完成)
 - ✅ 统一的交易所接口 (IExchange) - 12 个方法的 VTable
+  - ✅ getOpenOrders() 接口方法 (2025-12-24)
 - ✅ 统一的数据类型系统 - TradingPair, Order, Ticker, Orderbook, Balance, Position 等
 - ✅ VTable 模式实现多态 - 类型安全的运行时多态
 - ✅ ExchangeRegistry 交易所注册表 - 生命周期管理和连接管理
 - ✅ SymbolMapper 符号映射器 - 支持 Hyperliquid, Binance, OKX, Bybit
 - ✅ Hyperliquid Connector 骨架 - 完整的 VTable 实现
+  - ✅ HyperliquidConnector.getOpenOrders() 实现 (2025-12-24)
+  - ✅ InfoAPI.getOpenOrders() 实现 (2025-12-24)
 - ✅ Mock Exchange 用于测试 - 在 registry.zig 中实现
 - ✅ 完整的单元测试 - 类型、Registry、SymbolMapper 测试覆盖率 90%+
 
@@ -371,4 +385,4 @@ const ticker = try ex.getTicker(pair);
 
 ---
 
-*Last updated: 2025-12-23*
+*Last updated: 2025-12-24*
