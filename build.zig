@@ -264,12 +264,30 @@ pub fn build(b: *std.Build) void {
     const example_connector_step = b.step("run-example-connector", "Run exchange connector example (requires network)");
     example_connector_step.dependOn(&run_example_connector.step);
 
+    // Example 5: Colored Logging
+    const example_colored_logging = b.addExecutable(.{
+        .name = "example-colored-logging",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/05_colored_logging.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_colored_logging);
+    const run_example_colored_logging = b.addRunArtifact(example_colored_logging);
+    const example_colored_logging_step = b.step("run-example-colored-logging", "Run colored logging example");
+    example_colored_logging_step.dependOn(&run_example_colored_logging.step);
+
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
     examples_step.dependOn(&run_example_core.step);
     examples_step.dependOn(&run_example_websocket.step);
     examples_step.dependOn(&run_example_http.step);
     examples_step.dependOn(&run_example_connector.step);
+    examples_step.dependOn(&run_example_colored_logging.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

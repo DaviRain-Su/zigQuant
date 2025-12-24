@@ -98,6 +98,33 @@ zig build run-example-connector
 
 ---
 
+### 5. Colored Logging (`05_colored_logging.zig`)
+
+Demonstrate colored log output:
+- Different colors for different log levels
+- ANSI color codes
+- Enable/disable colors
+- Structured logging with colors
+
+**Run:**
+```bash
+zig build run-example-colored-logging
+```
+
+**What you'll see:**
+- **TRACE**: Gray (dim/subtle)
+- **DEBUG**: Cyan (technical info)
+- **INFO**: Green (normal operations)
+- **WARN**: Yellow (attention needed)
+- **ERROR**: Red (errors)
+- **FATAL**: Bold Red (critical failures)
+- Comparison with non-colored output
+- Real trading scenario with colored logs
+
+**Key Feature:** Improves log readability and helps quickly identify important messages!
+
+---
+
 ## 🚀 Quick Start
 
 ### Run All Examples
@@ -114,6 +141,12 @@ zig build run-example-http
 
 # Exchange connector (requires network)
 zig build run-example-connector
+
+# Colored logging
+zig build run-example-colored-logging
+
+# Run all examples at once
+zig build run-examples
 ```
 
 ### Build Without Running

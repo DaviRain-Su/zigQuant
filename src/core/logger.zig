@@ -248,6 +248,68 @@ fn valueFromAny(value: anytype) !Value {
 }
 
 // ============================================================================
+// ANSI Color Codes
+// ============================================================================
+
+/// ANSI color codes for terminal output
+pub const AnsiColors = struct {
+    // Reset
+    pub const RESET = "\x1b[0m";
+
+    // Foreground colors
+    pub const BLACK = "\x1b[30m";
+    pub const RED = "\x1b[31m";
+    pub const GREEN = "\x1b[32m";
+    pub const YELLOW = "\x1b[33m";
+    pub const BLUE = "\x1b[34m";
+    pub const MAGENTA = "\x1b[35m";
+    pub const CYAN = "\x1b[36m";
+    pub const WHITE = "\x1b[37m";
+
+    // Bright foreground colors
+    pub const BRIGHT_BLACK = "\x1b[90m";
+    pub const BRIGHT_RED = "\x1b[91m";
+    pub const BRIGHT_GREEN = "\x1b[92m";
+    pub const BRIGHT_YELLOW = "\x1b[93m";
+    pub const BRIGHT_BLUE = "\x1b[94m";
+    pub const BRIGHT_MAGENTA = "\x1b[95m";
+    pub const BRIGHT_CYAN = "\x1b[96m";
+    pub const BRIGHT_WHITE = "\x1b[97m";
+
+    // Bold
+    pub const BOLD = "\x1b[1m";
+    pub const DIM = "\x1b[2m";
+
+    /// Get color for log level
+    pub fn forLevel(level: Level) []const u8 {
+        return switch (level) {
+            .trace => BRIGHT_BLACK, // Gray
+            .debug => CYAN, // Cyan
+            .info => GREEN, // Green
+            .warn => YELLOW, // Yellow
+            .err => RED, // Red
+            .fatal => BOLD ++ BRIGHT_RED, // Bold Red
+        };
+    }
+
+    /// Get level name with color
+    pub fn coloredLevel(level: Level, use_colors: bool) []const u8 {
+        if (!use_colors) {
+            return level.toString();
+        }
+
+        return switch (level) {
+            .trace => BRIGHT_BLACK ++ "TRACE" ++ RESET,
+            .debug => CYAN ++ "DEBUG" ++ RESET,
+            .info => GREEN ++ "INFO " ++ RESET,
+            .warn => YELLOW ++ "WARN " ++ RESET,
+            .err => RED ++ "ERROR" ++ RESET,
+            .fatal => BOLD ++ BRIGHT_RED ++ "FATAL" ++ RESET,
+        };
+    }
+};
+
+// ============================================================================
 // Console Writer
 // ============================================================================
 
@@ -258,6 +320,7 @@ pub fn ConsoleWriter(comptime WriterType: type) type {
         underlying_writer: WriterType,
         allocator: Allocator,
         mutex: std.Thread.Mutex = .{},
+        use_colors: bool = true, // Enable colors by default
 
         const Self = @This();
 
@@ -265,6 +328,16 @@ pub fn ConsoleWriter(comptime WriterType: type) type {
             return .{
                 .allocator = allocator,
                 .underlying_writer = underlying,
+                .use_colors = true,
+            };
+        }
+
+        /// Initialize with color control
+        pub fn initWithColors(allocator: Allocator, underlying: WriterType, use_colors: bool) Self {
+            return .{
+                .allocator = allocator,
+                .underlying_writer = underlying,
+                .use_colors = use_colors,
             };
         }
 
@@ -291,11 +364,23 @@ pub fn ConsoleWriter(comptime WriterType: type) type {
 
             // Format: [LEVEL] timestamp message key1=value1 key2=value2
             const w = buf.writer(self.allocator);
-            try w.print("[{s}] {} {s}", .{
-                record.level.toString(),
-                record.timestamp,
-                record.message,
-            });
+
+            // Apply color to entire log line if colors are enabled
+            if (self.use_colors) {
+                const color = AnsiColors.forLevel(record.level);
+                try w.print("{s}[{s}] {} {s}", .{
+                    color,
+                    record.level.toString(),
+                    record.timestamp,
+                    record.message,
+                });
+            } else {
+                try w.print("[{s}] {} {s}", .{
+                    record.level.toString(),
+                    record.timestamp,
+                    record.message,
+                });
+            }
 
             for (record.fields) |field| {
                 try w.print(" {s}=", .{field.key});
@@ -306,6 +391,11 @@ pub fn ConsoleWriter(comptime WriterType: type) type {
                     .float => |f| try w.print("{d}", .{f}),
                     .bool => |b| try w.print("{}", .{b}),
                 }
+            }
+
+            // Reset color at the end of the line
+            if (self.use_colors) {
+                try w.writeAll(AnsiColors.RESET);
             }
 
             try buf.append(self.allocator, '\n');
@@ -608,7 +698,7 @@ test "Logger basic" {
     var fbs = std.io.fixedBufferStream(&buf);
 
     const WriterType = @TypeOf(fbs.writer());
-    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
+    var console = ConsoleWriter(WriterType).initWithColors(std.testing.allocator, fbs.writer(), false);
     defer console.deinit();
 
     var log = Logger.init(std.testing.allocator, console.writer(), .info);
@@ -625,7 +715,7 @@ test "Logger with fields" {
     var fbs = std.io.fixedBufferStream(&buf);
 
     const WriterType = @TypeOf(fbs.writer());
-    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
+    var console = ConsoleWriter(WriterType).initWithColors(std.testing.allocator, fbs.writer(), false);
     var log = Logger.init(std.testing.allocator, console.writer(), .debug);
     defer log.deinit();
 
@@ -640,7 +730,7 @@ test "Logger level filtering" {
     var fbs = std.io.fixedBufferStream(&buf);
 
     const WriterType = @TypeOf(fbs.writer());
-    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
+    var console = ConsoleWriter(WriterType).initWithColors(std.testing.allocator, fbs.writer(), false);
     var log = Logger.init(std.testing.allocator, console.writer(), .warn);
     defer log.deinit();
 
@@ -680,7 +770,7 @@ test "StdLogWriter bridge" {
     var fbs = std.io.fixedBufferStream(&buf);
 
     const WriterType = @TypeOf(fbs.writer());
-    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
+    var console = ConsoleWriter(WriterType).initWithColors(std.testing.allocator, fbs.writer(), false);
     var log = Logger.init(std.testing.allocator, console.writer(), .debug);
     defer log.deinit();
 
@@ -701,7 +791,7 @@ test "StdLogWriter with formatting" {
     var fbs = std.io.fixedBufferStream(&buf);
 
     const WriterType = @TypeOf(fbs.writer());
-    var console = ConsoleWriter(WriterType).init(std.testing.allocator, fbs.writer());
+    var console = ConsoleWriter(WriterType).initWithColors(std.testing.allocator, fbs.writer(), false);
     var log = Logger.init(std.testing.allocator, console.writer(), .debug);
     defer log.deinit();
 
