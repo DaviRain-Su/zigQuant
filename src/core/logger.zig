@@ -141,19 +141,41 @@ pub const Logger = struct {
     }
 
     /// Log a message with fields
-    pub fn log(self: *Logger, level: Level, msg: []const u8, fields: anytype) !void {
+    pub fn log(self: *Logger, level: Level, comptime msg: []const u8, fields: anytype) !void {
         // Fast path: level filtering (zero allocation)
         if (level.toInt() < self.min_level.toInt()) {
             return;
         }
 
-        // Convert fields to Field array
-        const field_array = try self.convertFields(fields);
-        defer self.allocator.free(field_array);
+        // Check if fields is a tuple (for printf-style formatting) or struct (for structured logging)
+        const FieldsType = @TypeOf(fields);
+        const fields_info = @typeInfo(FieldsType);
+
+        const formatted_msg = blk: {
+            if (fields_info == .@"struct" and fields_info.@"struct".is_tuple) {
+                // Printf-style: format the message with the tuple values
+                break :blk try std.fmt.allocPrint(self.allocator, msg, fields);
+            } else {
+                // Structured logging: use message as-is
+                break :blk try self.allocator.dupe(u8, msg);
+            }
+        };
+        defer self.allocator.free(formatted_msg);
+
+        // For structured logging, convert fields to Field array
+        const field_array = blk: {
+            if (fields_info == .@"struct" and !fields_info.@"struct".is_tuple) {
+                break :blk try self.convertFields(fields);
+            } else {
+                // For printf-style, no additional fields
+                break :blk &[_]Field{};
+            }
+        };
+        defer if (field_array.len > 0) self.allocator.free(field_array);
 
         const record = LogRecord{
             .level = level,
-            .message = msg,
+            .message = formatted_msg,
             .timestamp = std.time.milliTimestamp(),
             .fields = field_array,
         };
@@ -188,27 +210,27 @@ pub const Logger = struct {
     }
 
     /// Convenience methods
-    pub fn trace(self: *Logger, msg: []const u8, fields: anytype) !void {
+    pub fn trace(self: *Logger, comptime msg: []const u8, fields: anytype) !void {
         try self.log(.trace, msg, fields);
     }
 
-    pub fn debug(self: *Logger, msg: []const u8, fields: anytype) !void {
+    pub fn debug(self: *Logger, comptime msg: []const u8, fields: anytype) !void {
         try self.log(.debug, msg, fields);
     }
 
-    pub fn info(self: *Logger, msg: []const u8, fields: anytype) !void {
+    pub fn info(self: *Logger, comptime msg: []const u8, fields: anytype) !void {
         try self.log(.info, msg, fields);
     }
 
-    pub fn warn(self: *Logger, msg: []const u8, fields: anytype) !void {
+    pub fn warn(self: *Logger, comptime msg: []const u8, fields: anytype) !void {
         try self.log(.warn, msg, fields);
     }
 
-    pub fn err(self: *Logger, msg: []const u8, fields: anytype) !void {
+    pub fn err(self: *Logger, comptime msg: []const u8, fields: anytype) !void {
         try self.log(.err, msg, fields);
     }
 
-    pub fn fatal(self: *Logger, msg: []const u8, fields: anytype) !void {
+    pub fn fatal(self: *Logger, comptime msg: []const u8, fields: anytype) !void {
         try self.log(.fatal, msg, fields);
     }
 };

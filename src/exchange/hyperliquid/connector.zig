@@ -90,15 +90,14 @@ pub const HyperliquidConnector = struct {
             .ws = null, // Will be initialized when connect() is called with WebSocket enabled
         };
 
-        // Initialize signer if private key is provided (api_secret contains hex-encoded private key)
-        if (config.api_secret.len > 0) {
-            self.signer = try self.initializeSigner(config.api_secret);
-        }
+        // NOTE: Signer initialization is deferred to first use (lazy loading)
+        // This prevents blocking on entropy/crypto initialization at startup
+        // Signer will be initialized on-demand when needed for trading operations
 
         // Now initialize APIs with stable pointer to self.http_client
         self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
 
-        // Pass signer pointer to ExchangeAPI
+        // Pass signer pointer to ExchangeAPI (will be null initially, initialized on first trade)
         const signer_ptr = if (self.signer) |*s| s else null;
         self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, signer_ptr, logger);
 
@@ -157,6 +156,7 @@ pub const HyperliquidConnector = struct {
         .cancelOrder = cancelOrder,
         .cancelAllOrders = cancelAllOrders,
         .getOrder = getOrder,
+        .getOpenOrders = getOpenOrders,
         .getBalance = getBalance,
         .getPositions = getPositions,
     };
@@ -315,6 +315,9 @@ pub const HyperliquidConnector = struct {
     fn createOrder(ptr: *anyopaque, request: OrderRequest) anyerror!Order {
         const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
+        // Ensure signer is initialized (lazy loading on first trade)
+        try self.ensureSigner();
+
         // Validate order request
         try request.validate();
 
@@ -391,10 +394,8 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("cancelOrder called: {d}", .{order_id}) catch {};
 
-        // Check if signer is available
-        if (self.signer == null) {
-            return error.SignerRequired;
-        }
+        // Ensure signer is initialized (lazy loading)
+        try self.ensureSigner();
 
         // Rate limit
         self.rate_limiter.wait();
@@ -436,11 +437,8 @@ pub const HyperliquidConnector = struct {
     fn cancelAllOrders(ptr: *anyopaque, pair: ?TradingPair) anyerror!u32 {
         const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
 
-        // Require signer for authentication
-        if (self.signer == null) {
-            self.logger.err("Cannot cancel orders: signer not configured", .{}) catch {};
-            return error.SignerRequired;
-        }
+        // Ensure signer is initialized (lazy loading)
+        try self.ensureSigner();
 
         // Rate limiting
         self.rate_limiter.wait();
@@ -580,6 +578,93 @@ pub const HyperliquidConnector = struct {
         return error.OrderNotFound;
     }
 
+    fn getOpenOrders(ptr: *anyopaque, pair: ?TradingPair) anyerror![]Order {
+        const self: *HyperliquidConnector = @ptrCast(@alignCast(ptr));
+
+        self.logger.debug("getOpenOrders called", .{}) catch {};
+
+        // Ensure signer is initialized (lazy loading)
+        try self.ensureSigner();
+
+        // Rate limiting
+        self.rate_limiter.wait();
+
+        // Get user's open orders
+        const user_address = self.signer.?.address;
+        const parsed_orders = try self.info_api.getOpenOrders(user_address);
+        defer parsed_orders.deinit();
+
+        // Count how many orders match the filter
+        var count: usize = 0;
+        for (parsed_orders.value) |open_order| {
+            if (pair) |p| {
+                // Filter by pair if specified
+                if (std.mem.eql(u8, open_order.coin, p.base)) {
+                    count += 1;
+                }
+            } else {
+                count += 1;
+            }
+        }
+
+        // Allocate array for result
+        var orders = try self.allocator.alloc(Order, count);
+        errdefer self.allocator.free(orders);
+
+        // Convert all matching orders
+        var idx: usize = 0;
+        for (parsed_orders.value) |open_order| {
+            // Check if this order matches the filter
+            if (pair) |p| {
+                if (!std.mem.eql(u8, open_order.coin, p.base)) {
+                    continue;
+                }
+            }
+
+            // Convert to unified Order format
+            const side: Side = if (std.mem.eql(u8, open_order.side, "B")) .buy else .sell;
+            const price = try hl_types.parsePrice(open_order.limitPx);
+            const amount = try hl_types.parsePrice(open_order.sz);
+            const filled_amount = blk: {
+                const orig_sz = try hl_types.parsePrice(open_order.origSz);
+                break :blk orig_sz.sub(amount);
+            };
+
+            // Create TradingPair (Hyperliquid uses USDC as quote)
+            const order_pair = TradingPair{
+                .base = open_order.coin,
+                .quote = "USDC",
+            };
+
+            // Convert orderType string to OrderType enum
+            const order_type: OrderType = if (std.mem.eql(u8, open_order.orderType, "Market"))
+                .market
+            else
+                .limit;
+
+            const created_at = Timestamp.fromMillis(@intCast(open_order.timestamp));
+
+            orders[idx] = Order{
+                .exchange_order_id = open_order.oid,
+                .pair = order_pair,
+                .side = side,
+                .order_type = order_type,
+                .price = price,
+                .amount = amount,
+                .filled_amount = filled_amount,
+                .status = .open,
+                .created_at = created_at,
+                .updated_at = created_at,
+                .avg_fill_price = null,
+            };
+
+            idx += 1;
+        }
+
+        self.logger.info("Retrieved {d} open orders", .{count}) catch {};
+        return orders;
+    }
+
     // ========================================================================
     // Account Operations (Info API - Phase D)
     // ========================================================================
@@ -589,10 +674,8 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("getBalance called", .{}) catch {};
 
-        // Check if signer is available (we need the user address)
-        if (self.signer == null) {
-            return error.SignerRequired;
-        }
+        // Ensure signer is initialized (lazy loading)
+        try self.ensureSigner();
 
         // Rate limit
         self.rate_limiter.wait();
@@ -635,11 +718,8 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("getPositions called", .{}) catch {};
 
-        // Require signer for authentication (need user address)
-        if (self.signer == null) {
-            self.logger.err("Cannot get positions: signer not configured", .{}) catch {};
-            return error.SignerRequired;
-        }
+        // Ensure signer is initialized (lazy loading)
+        try self.ensureSigner();
 
         // Rate limiting
         self.rate_limiter.wait();
@@ -798,6 +878,26 @@ pub const HyperliquidConnector = struct {
 
     /// Initialize signer from private key hex string
     ///
+    /// Ensure signer is initialized (lazy initialization)
+    /// Only initializes if not already initialized and credentials are available
+    fn ensureSigner(self: *HyperliquidConnector) !void {
+        // Already initialized
+        if (self.signer != null) return;
+
+        // No credentials provided
+        if (self.config.api_secret.len == 0) {
+            return error.NoCredentials;
+        }
+
+        // Initialize signer now
+        self.logger.info("Lazy-initializing signer for trading operations...", .{}) catch {};
+        self.signer = try self.initializeSigner(self.config.api_secret);
+
+        // Update ExchangeAPI with the new signer
+        const signer_ptr = if (self.signer) |*s| s else null;
+        self.exchange_api.signer = signer_ptr;
+    }
+
     /// @param private_key_hex: Private key as hex string (with or without 0x prefix)
     /// @return Initialized Signer
     fn initializeSigner(self: *HyperliquidConnector, private_key_hex: []const u8) !Signer {

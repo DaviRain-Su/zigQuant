@@ -26,8 +26,11 @@ const PositionTracker = zigQuant.PositionTracker;
 pub const CLI = struct {
     allocator: std.mem.Allocator,
     config: Config.AppConfig,
+    config_parsed: std.json.Parsed(zigQuant.AppConfig), // Store parsed config for cleanup
+    console_writer: zigQuant.ConsoleWriter(std.fs.File),
     logger: Logger,
     registry: ExchangeRegistry,
+    connector: ?*HyperliquidConnector = null, // Store connector for cleanup
     order_manager: ?OrderManager = null,
     position_tracker: ?PositionTracker = null,
     stdout_buffer: []u8,
@@ -58,16 +61,7 @@ pub const CLI = struct {
             std.debug.print("Failed to parse config from '{s}': {}\n", .{ path, err });
             return error.ConfigLoadFailed;
         };
-        // Don't deinit here - we need the config throughout the CLI lifetime
-        const config = config_parsed.value;
-
-        // Create logger
-        const ConsoleWriterType = zigQuant.ConsoleWriter(std.fs.File);
-        var console_writer = ConsoleWriterType.init(allocator, std.fs.File.stderr());
-        const logger = Logger.init(allocator, console_writer.writer(), .info);
-
-        // Create exchange registry
-        const registry = ExchangeRegistry.init(allocator, logger);
+        errdefer config_parsed.deinit();
 
         // Allocate buffers for stdout/stderr
         const stdout_buffer = try allocator.alloc(u8, 4096);
@@ -75,16 +69,27 @@ pub const CLI = struct {
         const stderr_buffer = try allocator.alloc(u8, 4096);
         errdefer allocator.free(stderr_buffer);
 
+        // Initialize struct with basic fields first
         self.* = .{
             .allocator = allocator,
-            .config = config,
-            .logger = logger,
-            .registry = registry,
+            .config = config_parsed.value,
+            .config_parsed = config_parsed,
+            .console_writer = undefined, // Will initialize next
+            .logger = undefined, // Will initialize after console_writer
+            .registry = undefined, // Will initialize after logger
             .stdout_buffer = stdout_buffer,
             .stderr_buffer = stderr_buffer,
             .stdout = std.fs.File.stdout().writer(stdout_buffer),
             .stderr = std.fs.File.stderr().writer(stderr_buffer),
         };
+
+        // Now initialize console_writer, logger, and registry
+        const ConsoleWriterType = zigQuant.ConsoleWriter(std.fs.File);
+        self.console_writer = ConsoleWriterType.init(allocator, std.fs.File.stderr());
+        self.logger = Logger.init(allocator, self.console_writer.writer(), .info);
+
+        // Create exchange registry
+        self.registry = ExchangeRegistry.init(allocator, self.logger);
 
         return self;
     }
@@ -97,9 +102,15 @@ pub const CLI = struct {
             om.deinit();
         }
         self.registry.deinit();
+        // Destroy connector if it was created
+        if (self.connector) |connector| {
+            connector.destroy();
+        }
         self.logger.deinit();
         self.allocator.free(self.stdout_buffer);
         self.allocator.free(self.stderr_buffer);
+        // Free config_parsed arena
+        self.config_parsed.deinit();
         self.allocator.destroy(self);
     }
 
@@ -118,6 +129,8 @@ pub const CLI = struct {
             exchange_config,
             self.logger,
         );
+        // Store connector for cleanup
+        self.connector = connector;
 
         // Register exchange
         const exchange = connector.interface();
@@ -353,8 +366,49 @@ pub const CLI = struct {
     fn cmdOrders(self: *CLI, _: []const []const u8) !void {
         try format.printHeader(&self.stdout.interface, "Open Orders");
 
-        // TODO: Implement getOpenOrders through IExchange
-        try (&self.stdout.interface).writeAll("  Feature not yet implemented\n\n");
+        const exchange = try self.registry.getExchange();
+        const orders = try exchange.getOpenOrders(null); // Get all open orders
+        defer self.allocator.free(orders);
+
+        if (orders.len == 0) {
+            try (&self.stdout.interface).writeAll("  No open orders\n\n");
+            return;
+        }
+
+        // Print header
+        try (&self.stdout.interface).writeAll("  ID        | Pair      | Side | Type   | Price      | Amount     | Filled\n");
+        try (&self.stdout.interface).writeAll("  ──────────┼───────────┼──────┼────────┼────────────┼────────────┼────────\n");
+
+        for (orders) |order| {
+            const price_str = if (order.price) |p|
+                try format.formatPrice(self.allocator, p.toFloat())
+            else
+                try self.allocator.dupe(u8, "MARKET");
+            defer self.allocator.free(price_str);
+
+            const amount_str = try format.formatQuantity(self.allocator, order.amount.toFloat());
+            defer self.allocator.free(amount_str);
+            const filled_str = try format.formatQuantity(self.allocator, order.filled_amount.toFloat());
+            defer self.allocator.free(filled_str);
+
+            const side_str = @tagName(order.side);
+            const type_str = @tagName(order.order_type);
+
+            const order_id = order.exchange_order_id orelse 0;
+
+            try (&self.stdout.interface).print("  {d:<9} | {s:<4}-{s:<4} | {s:<4} | {s:<6} | ${s:<9} | {s:<10} | {s}\n", .{
+                order_id,
+                order.pair.base,
+                order.pair.quote,
+                side_str,
+                type_str,
+                price_str,
+                amount_str,
+                filled_str,
+            });
+        }
+
+        try (&self.stdout.interface).writeAll("\n");
     }
 
     // ========================================================================

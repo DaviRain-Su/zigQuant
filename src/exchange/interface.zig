@@ -89,6 +89,9 @@ pub const IExchange = struct {
         /// Get order status by exchange order ID
         getOrder: *const fn (ptr: *anyopaque, order_id: u64) anyerror!Order,
 
+        /// Get all open orders (optionally filtered by trading pair)
+        getOpenOrders: *const fn (ptr: *anyopaque, pair: ?TradingPair) anyerror![]Order,
+
         // ====================================================================
         // Account Operations
         // ====================================================================
@@ -152,6 +155,11 @@ pub const IExchange = struct {
     /// Get order
     pub fn getOrder(self: IExchange, order_id: u64) !Order {
         return self.vtable.getOrder(self.ptr, order_id);
+    }
+
+    /// Get open orders
+    pub fn getOpenOrders(self: IExchange, pair: ?TradingPair) ![]Order {
+        return self.vtable.getOpenOrders(self.ptr, pair);
     }
 
     /// Get balance

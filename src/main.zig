@@ -57,6 +57,11 @@ pub fn main() !void {
 
     cli.executeCommand(command_args) catch |err| {
         try format.printError(&cli.stderr.interface, "Command failed: {s}", .{@errorName(err)});
+        cli.stderr.interface.flush() catch {};
         std.process.exit(1);
     };
+
+    // Flush output buffers before exiting
+    cli.stdout.interface.flush() catch {};
+    cli.stderr.interface.flush() catch {};
 }

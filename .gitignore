@@ -3,3 +3,5 @@ zig-out
 
 # Integration test credentials (DO NOT COMMIT)
 tests/integration/test_config.json
+
+config.test.json
