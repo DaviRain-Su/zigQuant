@@ -65,7 +65,7 @@ pub const AllMidsResponse = std.StringHashMap([]const u8);
 /// Asset metadata
 pub const AssetMeta = struct {
     name: []const u8,
-    sz_decimals: u8,
+    szDecimals: ?u8 = null,
 };
 
 /// Universe metadata response

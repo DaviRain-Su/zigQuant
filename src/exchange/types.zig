@@ -306,6 +306,12 @@ pub const Orderbook = struct {
     asks: []OrderbookLevel, // Sorted lowest to highest
     timestamp: Timestamp,
 
+    /// Free allocated memory
+    pub fn deinit(self: Orderbook, allocator: std.mem.Allocator) void {
+        allocator.free(self.bids);
+        allocator.free(self.asks);
+    }
+
     /// Get best bid
     pub fn getBestBid(self: Orderbook) ?OrderbookLevel {
         return if (self.bids.len > 0) self.bids[0] else null;

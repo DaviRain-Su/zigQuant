@@ -192,6 +192,85 @@ pub fn build(b: *std.Build) void {
     const ws_integration_step = b.step("test-ws", "Run WebSocket integration test (requires network)");
     ws_integration_step.dependOn(&run_ws_integration_test.step);
 
+    // ========================================================================
+    // Examples
+    // ========================================================================
+
+    // Example 1: Core Basics
+    const example_core = b.addExecutable(.{
+        .name = "example-core",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/01_core_basics.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_core);
+    const run_example_core = b.addRunArtifact(example_core);
+    const example_core_step = b.step("run-example-core", "Run core modules example");
+    example_core_step.dependOn(&run_example_core.step);
+
+    // Example 2: WebSocket Streaming
+    const example_websocket = b.addExecutable(.{
+        .name = "example-websocket",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/02_websocket_stream.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_websocket);
+    const run_example_websocket = b.addRunArtifact(example_websocket);
+    const example_websocket_step = b.step("run-example-websocket", "Run WebSocket streaming example (requires network)");
+    example_websocket_step.dependOn(&run_example_websocket.step);
+
+    // Example 3: HTTP Market Data
+    const example_http = b.addExecutable(.{
+        .name = "example-http",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/03_http_market_data.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_http);
+    const run_example_http = b.addRunArtifact(example_http);
+    const example_http_step = b.step("run-example-http", "Run HTTP market data example (requires network)");
+    example_http_step.dependOn(&run_example_http.step);
+
+    // Example 4: Exchange Connector
+    const example_connector = b.addExecutable(.{
+        .name = "example-connector",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/04_exchange_connector.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_connector);
+    const run_example_connector = b.addRunArtifact(example_connector);
+    const example_connector_step = b.step("run-example-connector", "Run exchange connector example (requires network)");
+    example_connector_step.dependOn(&run_example_connector.step);
+
+    // Run all examples
+    const examples_step = b.step("run-examples", "Run all examples");
+    examples_step.dependOn(&run_example_core.step);
+    examples_step.dependOn(&run_example_websocket.step);
+    examples_step.dependOn(&run_example_http.step);
+    examples_step.dependOn(&run_example_connector.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means

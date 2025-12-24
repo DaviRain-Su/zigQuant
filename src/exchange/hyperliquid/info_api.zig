@@ -109,7 +109,7 @@ pub const InfoAPI = struct {
             types.L2BookResponse,
             self.allocator,
             response_body,
-            .{ .allocate = .alloc_always },
+            .{ .allocate = .alloc_always, .ignore_unknown_fields = true },
         );
 
         return parsed;
@@ -117,8 +117,8 @@ pub const InfoAPI = struct {
 
     /// Get asset metadata
     ///
-    /// @return MetaResponse with universe data
-    pub fn getMeta(self: *InfoAPI) !types.MetaResponse {
+    /// @return Parsed MetaResponse (caller must call deinit())
+    pub fn getMeta(self: *InfoAPI) !std.json.Parsed(types.MetaResponse) {
         self.logger.debug("Fetching meta", .{}) catch {};
 
         // Prepare request
@@ -127,22 +127,21 @@ pub const InfoAPI = struct {
             "{{\"type\":\"meta\"}}",
             .{},
         );
+        defer self.allocator.free(request_json);
 
         // Send request
         const response_body = try self.http_client.postInfo(request_json);
         defer self.allocator.free(response_body);
 
-        // Parse response
+        // Parse response (caller must call deinit() on returned Parsed object)
         const parsed = try std.json.parseFromSlice(
             types.MetaResponse,
             self.allocator,
             response_body,
-            .{ .allocate = .alloc_always },
+            .{ .allocate = .alloc_always, .ignore_unknown_fields = true },
         );
-        defer parsed.deinit();
 
-        // Note: Caller must free the response fields
-        return parsed.value;
+        return parsed;
     }
 
     /// Get user state (balances and positions)
@@ -158,6 +157,7 @@ pub const InfoAPI = struct {
             "{{\"type\":\"clearinghouseState\",\"user\":\"{s}\"}}",
             .{user},
         );
+        defer self.allocator.free(request_json);
 
         // Send request
         const response_body = try self.http_client.postInfo(request_json);
@@ -168,7 +168,7 @@ pub const InfoAPI = struct {
             types.UserStateResponse,
             self.allocator,
             response_body,
-            .{ .allocate = .alloc_always },
+            .{ .allocate = .alloc_always, .ignore_unknown_fields = true },
         );
         defer parsed.deinit();
 

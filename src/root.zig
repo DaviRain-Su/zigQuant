@@ -19,7 +19,7 @@ pub const hyperliquid_connector = @import("exchange/hyperliquid/connector.zig");
 
 // Hyperliquid modules
 pub const hyperliquid = struct {
-    pub const HyperliquidClient = @import("exchange/hyperliquid/http.zig").HyperliquidClient;
+    pub const HyperliquidClient = @import("exchange/hyperliquid/http.zig").HttpClient;
     pub const HyperliquidWS = @import("exchange/hyperliquid/websocket.zig").HyperliquidWS;
     pub const InfoAPI = @import("exchange/hyperliquid/info_api.zig").InfoAPI;
     pub const ExchangeAPI = @import("exchange/hyperliquid/exchange_api.zig").ExchangeAPI;
