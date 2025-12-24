@@ -324,15 +324,14 @@ pub const MessageHandler = struct {
     }
 
     fn parseError(self: *MessageHandler, root: std.json.Value) !Message {
-        _ = self;
         const error_obj = root.object.get("error").?.object;
         const code = if (error_obj.get("code")) |c| @as(i32, @intCast(c.integer)) else -1;
-        const msg = if (error_obj.get("message")) |m| m.string else "Unknown error";
+        const msg_str = if (error_obj.get("message")) |m| m.string else "Unknown error";
 
         return Message{
             .error_msg = .{
                 .code = code,
-                .msg = msg,
+                .msg = try self.allocator.dupe(u8, msg_str),
             },
         };
     }
@@ -347,7 +346,9 @@ test "MessageHandler: parse subscription response" {
 
     var handler = MessageHandler.init(allocator);
 
-    const raw = "{\"method\":\"subscribe\",\"subscription\":{\"type\":\"allMids\"}}";
+    const raw =
+        \\{"channel":"subscriptionResponse","data":{"method":"subscribe","subscription":{"type":"allMids"}}}
+    ;
     const msg = try handler.parse(raw);
     defer msg.deinit(allocator);
 
@@ -366,4 +367,258 @@ test "MessageHandler: parse unknown message" {
     defer msg.deinit(allocator);
 
     try std.testing.expect(msg == .unknown);
+}
+
+test "MessageHandler: parse allMids" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"allMids","data":{"mids":{"BTC":"50000.5","ETH":"3000.25"}}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .allMids);
+    try std.testing.expectEqual(@as(usize, 2), msg.allMids.mids.len);
+
+    // Check that coins are present (order may vary due to HashMap)
+    var found_btc = false;
+    var found_eth = false;
+    for (msg.allMids.mids) |mid| {
+        if (std.mem.eql(u8, mid.coin, "BTC")) {
+            found_btc = true;
+            try std.testing.expect(mid.mid.value == 50000_500000000000000000);
+        } else if (std.mem.eql(u8, mid.coin, "ETH")) {
+            found_eth = true;
+            try std.testing.expect(mid.mid.value == 3000_250000000000000000);
+        }
+    }
+    try std.testing.expect(found_btc);
+    try std.testing.expect(found_eth);
+}
+
+test "MessageHandler: parse l2Book" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"l2Book","data":{"coin":"ETH","time":1234567890,"levels":[[{"px":"3000.0","sz":"1.5","n":2},{"px":"2999.0","sz":"2.0","n":1}],[{"px":"3001.0","sz":"1.0","n":1},{"px":"3002.0","sz":"0.5","n":1}]]}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .l2Book);
+    try std.testing.expectEqualStrings("ETH", msg.l2Book.coin);
+    try std.testing.expectEqual(@as(i64, 1234567890), msg.l2Book.timestamp);
+
+    // Check bids
+    try std.testing.expectEqual(@as(usize, 2), msg.l2Book.levels.bids.len);
+    try std.testing.expect(msg.l2Book.levels.bids[0].px.value == 3000_000000000000000000);
+    try std.testing.expect(msg.l2Book.levels.bids[0].sz.value == 1_500000000000000000);
+    try std.testing.expectEqual(@as(u32, 2), msg.l2Book.levels.bids[0].n);
+
+    // Check asks
+    try std.testing.expectEqual(@as(usize, 2), msg.l2Book.levels.asks.len);
+    try std.testing.expect(msg.l2Book.levels.asks[0].px.value == 3001_000000000000000000);
+    try std.testing.expect(msg.l2Book.levels.asks[0].sz.value == 1_000000000000000000);
+}
+
+test "MessageHandler: parse trades" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"trades","data":[{"coin":"ETH","side":"A","px":"3000.0","sz":"1.5","time":1234567890,"hash":"0xabc123"},{"coin":"ETH","side":"B","px":"2999.5","sz":"2.0","time":1234567891,"hash":"0xdef456"}]}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .trades);
+    try std.testing.expectEqualStrings("ETH", msg.trades.coin);
+    try std.testing.expectEqual(@as(usize, 2), msg.trades.trades.len);
+
+    // First trade
+    try std.testing.expectEqualStrings("A", msg.trades.trades[0].side);
+    try std.testing.expect(msg.trades.trades[0].px.value == 3000_000000000000000000);
+    try std.testing.expect(msg.trades.trades[0].sz.value == 1_500000000000000000);
+    try std.testing.expectEqual(@as(i64, 1234567890), msg.trades.trades[0].time);
+    try std.testing.expectEqualStrings("0xabc123", msg.trades.trades[0].hash);
+
+    // Second trade
+    try std.testing.expectEqualStrings("B", msg.trades.trades[1].side);
+    try std.testing.expect(msg.trades.trades[1].px.value == 2999_500000000000000000);
+}
+
+test "MessageHandler: parse user data" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"user","data":{"assetPositions":[{"position":{"coin":"USDC","positionValue":"10000.0","marginUsed":"0.0"}},{"position":{"coin":"ETH","positionValue":"5000.0","marginUsed":"500.0"}}],"marginSummary":{"accountValue":"15000.0","totalNtlPos":"5000.0","totalRawUsd":"10000.0","totalMarginUsed":"500.0"},"withdrawable":"9500.0"}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .user);
+
+    // Check asset positions
+    try std.testing.expectEqual(@as(usize, 2), msg.user.assetPositions.len);
+    try std.testing.expectEqualStrings("USDC", msg.user.assetPositions[0].coin);
+    try std.testing.expect(msg.user.assetPositions[0].total.value == 10000_000000000000000000);
+
+    try std.testing.expectEqualStrings("ETH", msg.user.assetPositions[1].coin);
+    try std.testing.expect(msg.user.assetPositions[1].total.value == 5000_000000000000000000);
+    try std.testing.expect(msg.user.assetPositions[1].hold.value == 500_000000000000000000);
+
+    // Check margin summary
+    try std.testing.expect(msg.user.marginSummary.accountValue.value == 15000_000000000000000000);
+    try std.testing.expect(msg.user.marginSummary.totalNtlPos.value == 5000_000000000000000000);
+    try std.testing.expect(msg.user.marginSummary.totalRawUsd.value == 10000_000000000000000000);
+    try std.testing.expect(msg.user.marginSummary.totalMarginUsed.value == 500_000000000000000000);
+    try std.testing.expect(msg.user.marginSummary.withdrawable.value == 9500_000000000000000000);
+}
+
+test "MessageHandler: parse orderUpdate" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"orderUpdates","data":{"order":{"oid":12345,"coin":"ETH","side":"B","limitPx":"3000.0","sz":"1.0","timestamp":1234567890,"origSz":"1.5"},"status":"open","statusTimestamp":1234567890,"user":"0xabc123"}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .orderUpdate);
+    try std.testing.expectEqual(@as(u64, 12345), msg.orderUpdate.order.oid);
+    try std.testing.expectEqualStrings("ETH", msg.orderUpdate.order.coin);
+    try std.testing.expectEqualStrings("B", msg.orderUpdate.order.side);
+    try std.testing.expect(msg.orderUpdate.order.limitPx.value == 3000_000000000000000000);
+    try std.testing.expect(msg.orderUpdate.order.sz.value == 1_000000000000000000);
+    try std.testing.expectEqual(@as(i64, 1234567890), msg.orderUpdate.order.timestamp);
+    try std.testing.expect(msg.orderUpdate.order.origSz.value == 1_500000000000000000);
+    try std.testing.expectEqualStrings("open", msg.orderUpdate.order.status);
+}
+
+test "MessageHandler: parse userFill" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"userFills","data":{"coin":"ETH","px":"3000.0","sz":"1.0","side":"B","time":1234567890,"oid":12345,"tid":67890,"fee":"3.0","feeToken":"USDC","closedPnl":"100.5"}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .userFill);
+    try std.testing.expectEqualStrings("ETH", msg.userFill.coin);
+    try std.testing.expect(msg.userFill.px.value == 3000_000000000000000000);
+    try std.testing.expect(msg.userFill.sz.value == 1_000000000000000000);
+    try std.testing.expectEqualStrings("B", msg.userFill.side);
+    try std.testing.expectEqual(@as(i64, 1234567890), msg.userFill.time);
+    try std.testing.expectEqual(@as(u64, 12345), msg.userFill.oid);
+    try std.testing.expectEqual(@as(u64, 67890), msg.userFill.tid);
+    try std.testing.expect(msg.userFill.fee.value == 3_000000000000000000);
+    try std.testing.expectEqualStrings("USDC", msg.userFill.feeToken);
+    try std.testing.expect(msg.userFill.closedPnl.value == 100_500000000000000000);
+}
+
+test "MessageHandler: parse userFill without feeToken" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"userFills","data":{"coin":"ETH","px":"3000.0","sz":"1.0","side":"B","time":1234567890,"oid":12345,"tid":67890,"fee":"3.0","closedPnl":"0.0"}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .userFill);
+    try std.testing.expectEqualStrings("USDC", msg.userFill.feeToken); // Default value
+}
+
+test "MessageHandler: parse error" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"error":{"code":400,"message":"Invalid request"}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .error_msg);
+    try std.testing.expectEqual(@as(i32, 400), msg.error_msg.code);
+    try std.testing.expectEqualStrings("Invalid request", msg.error_msg.msg);
+}
+
+test "MessageHandler: parse subscription response with coin" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"subscriptionResponse","data":{"method":"subscribe","subscription":{"type":"l2Book","coin":"ETH"}}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .subscriptionResponse);
+    try std.testing.expectEqualStrings("subscribe", msg.subscriptionResponse.method);
+    try std.testing.expectEqualStrings("l2Book", msg.subscriptionResponse.subscription.type);
+    try std.testing.expect(msg.subscriptionResponse.subscription.coin != null);
+    try std.testing.expectEqualStrings("ETH", msg.subscriptionResponse.subscription.coin.?);
+}
+
+test "MessageHandler: parse subscription response with user" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"subscriptionResponse","data":{"method":"subscribe","subscription":{"type":"user","user":"0xabc123"}}}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .subscriptionResponse);
+    try std.testing.expect(msg.subscriptionResponse.subscription.user != null);
+    try std.testing.expectEqualStrings("0xabc123", msg.subscriptionResponse.subscription.user.?);
+}
+
+test "MessageHandler: parse invalid JSON" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw = "not valid json {{{";
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .unknown);
+    try std.testing.expectEqualStrings(raw, msg.unknown);
+}
+
+test "MessageHandler: parse empty trades array" {
+    const allocator = std.testing.allocator;
+
+    var handler = MessageHandler.init(allocator);
+
+    const raw =
+        \\{"channel":"trades","data":[]}
+    ;
+    const msg = try handler.parse(raw);
+    defer msg.deinit(allocator);
+
+    try std.testing.expect(msg == .trades);
+    try std.testing.expectEqualStrings("UNKNOWN", msg.trades.coin);
+    try std.testing.expectEqual(@as(usize, 0), msg.trades.trades.len);
 }

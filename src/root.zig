@@ -85,14 +85,30 @@ pub const HyperliquidConnector = hyperliquid_connector.HyperliquidConnector;
 test {
     // Run tests from all modules
     std.testing.refAllDecls(@This());
+
+    // Core modules
     _ = time;
     _ = errors;
     _ = logger;
     _ = config;
     _ = decimal;
+
+    // Exchange abstraction modules
     _ = exchange_types;
     _ = exchange_interface;
     _ = exchange_registry;
     _ = exchange_symbol_mapper;
     _ = hyperliquid_connector;
+
+    // Hyperliquid implementation modules
+    _ = @import("exchange/hyperliquid/http.zig");
+    _ = @import("exchange/hyperliquid/websocket.zig");
+    _ = @import("exchange/hyperliquid/info_api.zig");
+    _ = @import("exchange/hyperliquid/exchange_api.zig");
+    _ = @import("exchange/hyperliquid/auth.zig");
+    _ = @import("exchange/hyperliquid/ws_types.zig");
+    _ = @import("exchange/hyperliquid/subscription.zig");
+    _ = @import("exchange/hyperliquid/message_handler.zig");
+    _ = @import("exchange/hyperliquid/rate_limiter.zig");
+    _ = @import("exchange/hyperliquid/types.zig");
 }

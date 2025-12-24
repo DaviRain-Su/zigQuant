@@ -134,8 +134,10 @@ pub const Message = union(enum) {
                 }
                 allocator.free(data.assetPositions);
             },
+            .error_msg => |data| {
+                allocator.free(data.msg);
+            },
             .unknown => |data| allocator.free(data),
-            else => {},
         }
     }
 };
@@ -312,4 +314,208 @@ test "Subscription: user with address JSON" {
         "{\"method\":\"subscribe\",\"subscription\":{\"type\":\"user\",\"user\":\"0x1234567890abcdef\"}}",
         json,
     );
+}
+
+test "Message: deinit allMids" {
+    const allocator = std.testing.allocator;
+
+    // Create a message with allocated data
+    var mids = try allocator.alloc(AllMidsData.MidPrice, 2);
+    mids[0] = .{
+        .coin = try allocator.dupe(u8, "BTC"),
+        .mid = Decimal.ZERO,
+    };
+    mids[1] = .{
+        .coin = try allocator.dupe(u8, "ETH"),
+        .mid = Decimal.ZERO,
+    };
+
+    const msg = Message{
+        .allMids = .{ .mids = mids },
+    };
+
+    // Should not leak when deinit is called
+    msg.deinit(allocator);
+}
+
+test "Message: deinit l2Book" {
+    const allocator = std.testing.allocator;
+
+    var bids = try allocator.alloc(L2BookData.Level, 2);
+    bids[0] = .{ .px = Decimal.ZERO, .sz = Decimal.ZERO, .n = 1 };
+    bids[1] = .{ .px = Decimal.ZERO, .sz = Decimal.ZERO, .n = 1 };
+
+    var asks = try allocator.alloc(L2BookData.Level, 2);
+    asks[0] = .{ .px = Decimal.ZERO, .sz = Decimal.ZERO, .n = 1 };
+    asks[1] = .{ .px = Decimal.ZERO, .sz = Decimal.ZERO, .n = 1 };
+
+    const msg = Message{
+        .l2Book = .{
+            .coin = try allocator.dupe(u8, "ETH"),
+            .levels = .{ .bids = bids, .asks = asks },
+            .timestamp = 0,
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit trades" {
+    const allocator = std.testing.allocator;
+
+    var trades_list = try allocator.alloc(TradesData.Trade, 2);
+    trades_list[0] = .{
+        .px = Decimal.ZERO,
+        .sz = Decimal.ZERO,
+        .side = try allocator.dupe(u8, "A"),
+        .time = 0,
+        .hash = try allocator.dupe(u8, "0xabc"),
+    };
+    trades_list[1] = .{
+        .px = Decimal.ZERO,
+        .sz = Decimal.ZERO,
+        .side = try allocator.dupe(u8, "B"),
+        .time = 0,
+        .hash = try allocator.dupe(u8, "0xdef"),
+    };
+
+    const msg = Message{
+        .trades = .{
+            .coin = try allocator.dupe(u8, "ETH"),
+            .trades = trades_list,
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit subscriptionResponse" {
+    const allocator = std.testing.allocator;
+
+    const msg = Message{
+        .subscriptionResponse = .{
+            .method = try allocator.dupe(u8, "subscribe"),
+            .subscription = .{
+                .type = try allocator.dupe(u8, "allMids"),
+                .coin = try allocator.dupe(u8, "ETH"),
+                .user = try allocator.dupe(u8, "0xabc123"),
+            },
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit subscriptionResponse with null coin and user" {
+    const allocator = std.testing.allocator;
+
+    const msg = Message{
+        .subscriptionResponse = .{
+            .method = try allocator.dupe(u8, "subscribe"),
+            .subscription = .{
+                .type = try allocator.dupe(u8, "allMids"),
+                .coin = null,
+                .user = null,
+            },
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit orderUpdate" {
+    const allocator = std.testing.allocator;
+
+    const msg = Message{
+        .orderUpdate = .{
+            .order = .{
+                .oid = 12345,
+                .coin = try allocator.dupe(u8, "ETH"),
+                .side = try allocator.dupe(u8, "B"),
+                .limitPx = Decimal.ZERO,
+                .sz = Decimal.ZERO,
+                .timestamp = 0,
+                .origSz = Decimal.ZERO,
+                .status = try allocator.dupe(u8, "open"),
+            },
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit userFill" {
+    const allocator = std.testing.allocator;
+
+    const msg = Message{
+        .userFill = .{
+            .coin = try allocator.dupe(u8, "ETH"),
+            .px = Decimal.ZERO,
+            .sz = Decimal.ZERO,
+            .side = try allocator.dupe(u8, "B"),
+            .time = 0,
+            .oid = 12345,
+            .tid = 67890,
+            .fee = Decimal.ZERO,
+            .feeToken = try allocator.dupe(u8, "USDC"),
+            .closedPnl = Decimal.ZERO,
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit user" {
+    const allocator = std.testing.allocator;
+
+    var asset_positions = try allocator.alloc(UserData.AssetPosition, 2);
+    asset_positions[0] = .{
+        .coin = try allocator.dupe(u8, "USDC"),
+        .total = Decimal.ZERO,
+        .hold = Decimal.ZERO,
+    };
+    asset_positions[1] = .{
+        .coin = try allocator.dupe(u8, "ETH"),
+        .total = Decimal.ZERO,
+        .hold = Decimal.ZERO,
+    };
+
+    const msg = Message{
+        .user = .{
+            .positions = &.{},
+            .assetPositions = asset_positions,
+            .marginSummary = .{
+                .accountValue = Decimal.ZERO,
+                .totalNtlPos = Decimal.ZERO,
+                .totalRawUsd = Decimal.ZERO,
+                .totalMarginUsed = Decimal.ZERO,
+                .withdrawable = Decimal.ZERO,
+            },
+        },
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit unknown" {
+    const allocator = std.testing.allocator;
+
+    const msg = Message{
+        .unknown = try allocator.dupe(u8, "unknown data"),
+    };
+
+    msg.deinit(allocator);
+}
+
+test "Message: deinit error_msg" {
+    const allocator = std.testing.allocator;
+
+    const msg = Message{
+        .error_msg = .{
+            .code = 400,
+            .msg = try allocator.dupe(u8, "Error message"),
+        },
+    };
+
+    msg.deinit(allocator);
 }

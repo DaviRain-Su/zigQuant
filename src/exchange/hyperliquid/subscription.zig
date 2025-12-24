@@ -169,3 +169,138 @@ test "SubscriptionManager: clear" {
     mgr.clear();
     try std.testing.expectEqual(@as(usize, 0), mgr.count());
 }
+
+test "SubscriptionManager: remove non-existent" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    try mgr.add(.{ .channel = .allMids });
+    try std.testing.expectEqual(@as(usize, 1), mgr.count());
+
+    // Try to remove a subscription that doesn't exist
+    mgr.remove(.{ .channel = .l2Book, .coin = "ETH" });
+
+    // Count should remain unchanged
+    try std.testing.expectEqual(@as(usize, 1), mgr.count());
+}
+
+test "SubscriptionManager: getAll" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    try mgr.add(.{ .channel = .allMids });
+    try mgr.add(.{ .channel = .l2Book, .coin = "ETH" });
+    try mgr.add(.{ .channel = .trades, .coin = "BTC" });
+
+    const all = mgr.getAll();
+    try std.testing.expectEqual(@as(usize, 3), all.len);
+}
+
+test "SubscriptionManager: same channel different coins" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    // Add l2Book for different coins
+    try mgr.add(.{ .channel = .l2Book, .coin = "ETH" });
+    try mgr.add(.{ .channel = .l2Book, .coin = "BTC" });
+    try mgr.add(.{ .channel = .l2Book, .coin = "SOL" });
+
+    try std.testing.expectEqual(@as(usize, 3), mgr.count());
+
+    // Remove one
+    mgr.remove(.{ .channel = .l2Book, .coin = "BTC" });
+    try std.testing.expectEqual(@as(usize, 2), mgr.count());
+}
+
+test "SubscriptionManager: user subscriptions" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    try mgr.add(.{ .channel = .user, .user = "0xabc123" });
+    try mgr.add(.{ .channel = .orderUpdates, .user = "0xabc123" });
+    try mgr.add(.{ .channel = .userFills, .user = "0xabc123" });
+
+    try std.testing.expectEqual(@as(usize, 3), mgr.count());
+}
+
+test "SubscriptionManager: duplicate with coin" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    try mgr.add(.{ .channel = .l2Book, .coin = "ETH" });
+    try mgr.add(.{ .channel = .l2Book, .coin = "ETH" }); // Duplicate
+
+    try std.testing.expectEqual(@as(usize, 1), mgr.count());
+}
+
+test "SubscriptionManager: duplicate with user" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    try mgr.add(.{ .channel = .user, .user = "0xabc123" });
+    try mgr.add(.{ .channel = .user, .user = "0xabc123" }); // Duplicate
+
+    try std.testing.expectEqual(@as(usize, 1), mgr.count());
+}
+
+test "SubscriptionManager: different users same channel" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    try mgr.add(.{ .channel = .user, .user = "0xabc123" });
+    try mgr.add(.{ .channel = .user, .user = "0xdef456" });
+
+    try std.testing.expectEqual(@as(usize, 2), mgr.count());
+}
+
+test "SubscriptionManager: clear and reuse" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    // Add some subscriptions
+    try mgr.add(.{ .channel = .allMids });
+    try mgr.add(.{ .channel = .l2Book, .coin = "ETH" });
+    try std.testing.expectEqual(@as(usize, 2), mgr.count());
+
+    // Clear
+    mgr.clear();
+    try std.testing.expectEqual(@as(usize, 0), mgr.count());
+
+    // Add again
+    try mgr.add(.{ .channel = .trades, .coin = "BTC" });
+    try std.testing.expectEqual(@as(usize, 1), mgr.count());
+}
+
+test "SubscriptionManager: complex subscription with coin and user" {
+    const allocator = std.testing.allocator;
+
+    var mgr = SubscriptionManager.init(allocator);
+    defer mgr.deinit();
+
+    // Some subscriptions may have both coin and user
+    try mgr.add(.{ .channel = .trades, .coin = "ETH", .user = "0xabc123" });
+    try mgr.add(.{ .channel = .trades, .coin = "ETH", .user = "0xdef456" });
+    try mgr.add(.{ .channel = .trades, .coin = "BTC", .user = "0xabc123" });
+
+    try std.testing.expectEqual(@as(usize, 3), mgr.count());
+
+    // Remove specific subscription
+    mgr.remove(.{ .channel = .trades, .coin = "ETH", .user = "0xabc123" });
+    try std.testing.expectEqual(@as(usize, 2), mgr.count());
+}
