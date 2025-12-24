@@ -1,19 +1,74 @@
-# ZigQuant v0.2 MVP 文档索引
+# ZigQuant 完整文档索引
 
-> 生成日期: 2025-12-23
-> 基于 Stories: v0.2-mvp
+> 最后更新: 2025-01-22
+> 覆盖: v0.1 Foundation + v0.2 MVP
 
 ## 文档统计
 
 ### 总览
 
-- **总文档数**: 21 个核心功能文档 + 已有基础文档
-- **功能模块**: 6 个主要模块
-- **Story 覆盖**: 7 个 Stories (006-012)
+- **总文档数**: 55+ 个文档
+- **功能模块**: 11 个主要模块
+- **Story 覆盖**: v0.1 Foundation (001-005) + v0.2 MVP (006-012)
 
-### 新创建的文档
+### 文档组织
 
-#### Hyperliquid 连接器 (7 个文件)
+#### V0.1 Foundation - 核心基础设施 (5个模块, 25+ 个文件)
+
+##### Decimal - 高精度数值 (6 个文件)
+- `/docs/features/decimal/README.md` - 功能概览
+- `/docs/features/decimal/api.md` - 完整 API 参考
+- `/docs/features/decimal/implementation.md` - 实现细节
+- `/docs/features/decimal/testing.md` - 测试文档
+- `/docs/features/decimal/bugs.md` - Bug 追踪
+- `/docs/features/decimal/changelog.md` - 变更日志
+
+##### Time - 时间处理 (6 个文件)
+- `/docs/features/time/README.md` - 功能概览
+- `/docs/features/time/api.md` - API 参考（Timestamp, Duration, KlineInterval）
+- `/docs/features/time/implementation.md` - ISO 8601 解析和 K线对齐算法
+- `/docs/features/time/testing.md` - 测试覆盖（25+ 测试用例）
+- `/docs/features/time/bugs.md` - Bug 追踪
+- `/docs/features/time/changelog.md` - 变更日志
+
+##### Logger - 日志系统 (9 个文件)
+- `/docs/features/logger/README.md` - 功能概览
+- `/docs/features/logger/api.md` - API 参考
+- `/docs/features/logger/implementation.md` - 实现细节
+- `/docs/features/logger/usage-guide.md` - 使用指南
+- `/docs/features/logger/std-log-bridge.md` - 标准库日志桥接
+- `/docs/features/logger/comparison.md` - 与其他日志系统对比
+- `/docs/features/logger/testing.md` - 测试文档
+- `/docs/features/logger/bugs.md` - Bug 追踪
+- `/docs/features/logger/changelog.md` - 变更日志
+
+##### Error System - 错误处理 (6 个文件)
+- `/docs/features/error-system/README.md` - 功能概览和五大错误分类
+- `/docs/features/error-system/api.md` - API 参考（ErrorContext, WrappedError, 重试机制）
+- `/docs/features/error-system/implementation.md` - 实现细节
+- `/docs/features/error-system/testing.md` - 测试文档
+- `/docs/features/error-system/bugs.md` - Bug 追踪
+- `/docs/features/error-system/changelog.md` - 变更日志
+
+##### Config - 配置管理 (6 个文件)
+- `/docs/features/config/README.md` - 功能概览
+- `/docs/features/config/api.md` - API 参考
+- `/docs/features/config/implementation.md` - 实现细节
+- `/docs/features/config/testing.md` - 测试文档
+- `/docs/features/config/bugs.md` - Bug 追踪
+- `/docs/features/config/changelog.md` - 变更日志
+
+##### Exchange Router - 交易所抽象层 (6 个文件)
+- `/docs/features/exchange-router/README.md` - 功能概览和 IExchange 接口
+- `/docs/features/exchange-router/api.md` - API 参考
+- `/docs/features/exchange-router/implementation.md` - VTable 模式实现
+- `/docs/features/exchange-router/testing.md` - 测试文档
+- `/docs/features/exchange-router/bugs.md` - Bug 追踪
+- `/docs/features/exchange-router/changelog.md` - 变更日志
+
+#### V0.2 MVP - 交易功能 (6个模块, 21+ 个文件)
+
+##### Hyperliquid 连接器 (7 个文件)
 - `/docs/features/hyperliquid-connector/README.md` - 功能概览和快速开始
 - `/docs/features/hyperliquid-connector/api-reference.md` - 完整 API 参考
 - `/docs/features/hyperliquid-connector/authentication.md` - Ed25519 认证详解
@@ -48,6 +103,19 @@
 
 #### 索引文档 (1 个文件)
 - `/docs/features/README.md` - 功能模块总索引
+
+#### 实践示例 (4 个文件)
+- `/examples/README.md` - 示例总览
+- `/examples/01_core_basics.zig` - 核心基础（Logger, Decimal, Time, Errors）
+- `/examples/02_websocket_stream.zig` - WebSocket 实时数据流
+- `/examples/03_http_market_data.zig` - HTTP 市场数据查询
+- `/examples/04_exchange_connector.zig` - 交易所抽象层使用
+
+#### 故障排查文档
+- `/docs/troubleshooting/README.md` - 故障排查总览
+- `/docs/troubleshooting/zig-0.15.2-logger-compatibility.md` - Zig 0.15.2 日志兼容性
+- `/docs/troubleshooting/quick-reference-zig-0.15.2.md` - Zig 0.15.2 快速参考
+- `/docs/troubleshooting/bufferedwriter-trap.md` - BufferedWriter 陷阱
 
 ## 文档结构
 
@@ -87,7 +155,129 @@ docs/
 
 ## 每个模块的关键内容
 
-### 1. Hyperliquid 连接器
+### V0.1 Foundation Modules
+
+#### 1. Decimal - 高精度数值
+
+**核心内容**:
+- 18位小数精度（满足金融交易需求）
+- 基于 i128 整数运算（无浮点误差）
+- 完整算术运算（加减乘除、比较）
+- 字符串解析和格式化
+- 零内存分配（除字符串操作）
+
+**Story 来源**:
+- [001-decimal.md](../stories/v0.1-foundation/001-decimal.md)
+
+**代码示例**:
+- 创建和转换 Decimal
+- 算术运算和比较
+- 字符串解析和格式化
+- 性能基准测试
+
+---
+
+#### 2. Time - 时间处理
+
+**核心内容**:
+- Timestamp（毫秒精度 Unix 时间戳）
+- Duration（时间间隔）
+- KlineInterval（K线周期枚举）
+- ISO 8601 解析和格式化
+- K线时间对齐算法
+
+**Story 来源**:
+- [002-time-utils.md](../stories/v0.1-foundation/002-time-utils.md)
+
+**代码示例**:
+- 时间戳创建和转换
+- 时间运算和比较
+- K线对齐
+- ISO 8601 处理
+
+---
+
+#### 3. Error System - 错误处理
+
+**核心内容**:
+- 五大错误分类（Network, API, Data, Business, System）
+- ErrorContext（错误上下文）
+- WrappedError（错误包装）
+- 重试机制（固定间隔和指数退避）
+- 错误工具函数
+
+**Story 来源**:
+- [003-error-system.md](../stories/v0.1-foundation/003-error-system.md)
+
+**代码示例**:
+- 错误创建和包装
+- 重试机制使用
+- 错误处理最佳实践
+
+---
+
+#### 4. Logger - 日志系统
+
+**核心内容**:
+- 六级日志（Trace, Debug, Info, Warn, Error, Fatal）
+- 多种 Writer（Console, File, JSON）
+- 结构化字段支持
+- std.log 桥接
+- 异步日志（可选）
+
+**Story 来源**:
+- [004-logger.md](../stories/v0.1-foundation/004-logger.md)
+
+**代码示例**:
+- Logger 创建和配置
+- 不同 Writer 使用
+- 结构化日志
+- 日志级别过滤
+
+---
+
+#### 5. Config - 配置管理
+
+**核心内容**:
+- JSON 配置文件
+- 类型安全的配置结构
+- 环境变量覆盖
+- 配置验证
+- 默认值处理
+
+**Story 来源**:
+- [005-config-system.md](../stories/v0.1-foundation/005-config-system.md)
+
+**代码示例**:
+- 加载配置文件
+- 环境变量覆盖
+- 配置验证
+
+---
+
+#### 6. Exchange Router - 交易所抽象层
+
+**核心内容**:
+- IExchange 接口（VTable 模式）
+- 统一数据类型（TradingPair, OrderRequest, Ticker, Orderbook）
+- ExchangeRegistry（交易所注册表）
+- SymbolMapper（符号映射）
+- Mock Exchange（测试用）
+
+**Story 来源**:
+- [Exchange Router Plan](../../../.claude/plans/sorted-crunching-sonnet.md)
+
+**代码示例**:
+- 创建和注册交易所
+- 通过接口访问交易所
+- 符号映射
+- Mock 测试
+
+---
+
+### V0.2 MVP Modules
+
+#### 7. Hyperliquid 连接器
 
 **核心内容**:
 - HTTP 和 WebSocket 客户端完整实现

@@ -57,7 +57,6 @@ Fetch market data via HTTP REST API:
 - Get market metadata
 - Fetch all mid prices
 - Get L2 orderbook with spread calculation
-- Retrieve historical candle data
 
 **Run:**
 ```bash
@@ -69,7 +68,6 @@ zig build run-example-http
 - Current prices for major coins (BTC, ETH, SOL, etc.)
 - Detailed ETH orderbook (bids/asks)
 - Spread calculation
-- Historical 1-hour candles for BTC
 
 **Note:** Requires network connection to Hyperliquid mainnet.
 
@@ -161,10 +159,24 @@ After running the examples, explore the source code:
 
 ### Logging
 
-All examples use console logging. To save logs to a file, modify the logger initialization:
+All examples use a DummyWriter for console logging. The logger setup follows this pattern:
 
 ```zig
-const file_writer = try zigQuant.logger.FileWriter.init(allocator, "example.log");
+const DummyWriter = struct {
+    fn write(_: *anyopaque, record: zigQuant.logger.LogRecord) anyerror!void {
+        const level_str = switch (record.level) {
+            .trace => "TRACE",
+            .debug => "DEBUG",
+            .info => "INFO ",
+            .warn => "WARN ",
+            .err => "ERROR",
+            .fatal => "FATAL",
+        };
+        std.debug.print("[{s}] {s}\n", .{ level_str, record.message });
+    }
+    fn flush(_: *anyopaque) anyerror!void {}
+    fn close(_: *anyopaque) void {}
+};
 ```
 
 ### Testnet
@@ -172,12 +184,15 @@ const file_writer = try zigQuant.logger.FileWriter.init(allocator, "example.log"
 To use Hyperliquid testnet instead of mainnet:
 
 ```zig
-const config = ExchangeConfig{
-    .api_url = "https://api.hyperliquid-testnet.xyz",
-    .ws_url = "wss://api.hyperliquid-testnet.xyz/ws",
-    .testnet = true,
-    // ...
+const exchange_config = ExchangeConfig{
+    .name = "hyperliquid",
+    .api_key = "",
+    .api_secret = "",
+    .testnet = true,  // Set to true for testnet
 };
+
+// For HTTP client directly:
+var http_client = HyperliquidClient.init(allocator, true, logger);  // true = testnet
 ```
 
 ### Custom Symbols
@@ -203,9 +218,9 @@ const atom_usdc = TradingPair{ .base = "ATOM", .quote = "USDC" };
 - Use `getMeta()` to list all available markets
 
 ### Memory leaks
-- All examples use `std.testing.allocator` patterns
-- Check `defer` statements for cleanup
-- Run with `--summary all` to verify
+- All examples use `std.heap.GeneralPurposeAllocator`
+- Check `defer` statements for cleanup (especially for `toString()` results)
+- Proper memory management with defer blocks for allocated strings
 
 ---
 

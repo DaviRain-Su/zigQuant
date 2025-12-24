@@ -9,7 +9,8 @@
 ## 📖 项目文档
 
 ### 核心文档
-- **[📊 项目进度](./docs/PROGRESS.md)** - 完整的项目进度跟踪和状态 ⭐
+- **[📋 文档索引](./docs/DOCUMENTATION_INDEX.md)** - 完整文档导航 ⭐
+- **[📊 项目进度](./docs/PROGRESS.md)** - 完整的项目进度跟踪和状态
 - [项目大纲](./docs/PROJECT_OUTLINE.md) - 项目愿景、阶段规划和路线图
 - [架构设计](./docs/ARCHITECTURE.md) - 系统架构和设计决策
 - [功能补充说明](./docs/FEATURES_SUPPLEMENT.md) - 各模块功能详细说明
@@ -18,16 +19,33 @@
 - [测试策略](./docs/TESTING.md) - 测试框架和覆盖率
 - [部署指南](./docs/DEPLOYMENT.md) - 生产环境部署文档
 
-### 功能文档
-- [时间模块](./docs/features/time.md) - 时间戳、K线对齐、时区处理
-- [错误系统](./docs/features/error-system.md) - 错误分类、重试策略、错误链
-- [日志系统](./docs/features/logger.md) - 结构化日志、多种输出格式
-- [配置系统](./docs/features/config.md) - 配置加载、环境变量覆盖、验证
+### V0.1 Foundation 功能文档
+- [Decimal 高精度数值](./docs/features/decimal/README.md) - 18位小数精度、零浮点误差
+- [Time 时间处理](./docs/features/time/README.md) - Timestamp、Duration、K线对齐
+- [Error System 错误处理](./docs/features/error-system/README.md) - 五大错误分类、重试机制
+- [Logger 日志系统](./docs/features/logger/README.md) - 结构化日志、多种输出格式
+- [Config 配置管理](./docs/features/config/README.md) - JSON配置、环境变量覆盖
+- [Exchange Router](./docs/features/exchange-router/README.md) - 交易所抽象层、IExchange接口
+
+### V0.2 MVP 功能文档
+- [Hyperliquid 连接器](./docs/features/hyperliquid-connector/README.md) - HTTP/WebSocket客户端、Ed25519签名
+- [Orderbook 订单簿](./docs/features/orderbook/README.md) - L2订单簿、增量更新
+- [Order System 订单系统](./docs/features/order-system/README.md) - 订单类型、生命周期
+- [Order Manager](./docs/features/order-manager/README.md) - 订单管理、状态追踪
+- [Position Tracker](./docs/features/position-tracker/README.md) - 仓位追踪、盈亏计算
+
+### 🎓 示例教程
+- **[示例总览](./examples/README.md)** - 4个完整示例
+- [Core Basics](./examples/01_core_basics.zig) - Logger、Decimal、Time基础
+- [WebSocket Stream](./examples/02_websocket_stream.zig) - 实时市场数据
+- [HTTP Market Data](./examples/03_http_market_data.zig) - REST API查询
+- [Exchange Connector](./examples/04_exchange_connector.zig) - 交易所抽象层
 
 ### 🔧 故障排查
 - **[故障排查索引](./docs/troubleshooting/README.md)** - 常见问题和解决方案
 - **[Zig 0.15.2 兼容性问题详解](./docs/troubleshooting/zig-0.15.2-logger-compatibility.md)** ⭐ - Logger 模块适配经验
 - **[Zig 0.15.2 快速参考](./docs/troubleshooting/quick-reference-zig-0.15.2.md)** - API 变更速查表
+- [BufferedWriter 陷阱](./docs/troubleshooting/bufferedwriter-trap.md) - 缓冲写入器常见问题
 
 ## 🚀 快速开始
 
@@ -56,44 +74,97 @@ zig build -Doptimize=ReleaseFast
 ### 运行示例
 
 ```bash
-# 运行所有模块演示
-zig build run
+# 运行核心基础示例
+zig build run-example-core
 
-# 查看日志输出（包含中文）
-zig build run 2>&1 | less
+# 运行 WebSocket 实时数据流示例（需要网络）
+zig build run-example-websocket
+
+# 运行 HTTP 市场数据示例（需要网络）
+zig build run-example-http
+
+# 运行交易所连接器示例（需要网络）
+zig build run-example-connector
+
+# 查看完整示例说明
+cat examples/README.md
 ```
 
 ## 📦 已实现模块
 
-### ✅ Phase 0.2: 核心工具模块
+### ✅ V0.1 Foundation: 核心基础设施（已完成）
 
-#### 时间处理 (`src/core/time.zig`)
-- ✅ 高精度时间戳（毫秒级）
+#### Decimal - 高精度数值 (`src/core/decimal.zig`)
+- ✅ 18位小数精度（满足金融交易需求）
+- ✅ 基于 i128 整数运算（无浮点误差）
+- ✅ 完整算术运算（加减乘除、比较）
+- ✅ 字符串解析和格式化
+- ✅ 零内存分配（除字符串操作）
+- ✅ 140/140 测试通过
+
+#### Time - 时间处理 (`src/core/time.zig`)
+- ✅ 高精度时间戳（毫秒级 Unix 时间戳）
 - ✅ ISO 8601 格式解析和格式化
-- ✅ K线时间对齐（1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w）
-- ✅ 时区转换和 UTC 处理
-- ✅ Duration 计算
+- ✅ K线时间对齐（1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d, 1w）
+- ✅ Duration 时间间隔计算
+- ✅ 时间比较和运算
 
-#### 错误处理 (`src/core/errors.zig`)
-- ✅ 分类错误系统（Network, API, Data, Business, System, Trading）
-- ✅ 错误上下文和链式追踪
-- ✅ 重试策略配置（固定延迟、指数退避）
-- ✅ 错误分类和可重试性判断
+#### Error System - 错误处理 (`src/core/errors.zig`)
+- ✅ 五大错误分类（Network, API, Data, Business, System）
+- ✅ ErrorContext 错误上下文
+- ✅ WrappedError 错误包装
+- ✅ 重试机制（固定间隔和指数退避）
+- ✅ 错误工具函数
 
-#### 日志系统 (`src/core/logger.zig`)
-- ✅ 6 级日志（trace, debug, info, warn, error, fatal）
+#### Logger - 日志系统 (`src/core/logger.zig`)
+- ✅ 6 级日志（Trace, Debug, Info, Warn, Error, Fatal）
+- ✅ 多种 Writer（Console, File, JSON）
 - ✅ 结构化字段支持
-- ✅ 多种输出格式（Console, JSON, File）
+- ✅ std.log 桥接
 - ✅ 线程安全设计
-- ✅ 日志级别过滤
-- ✅ std.log 桥接支持
+- ✅ 38/38 测试通过
 
-#### 配置管理 (`src/core/config.zig`)
+#### Config - 配置管理 (`src/core/config.zig`)
 - ✅ JSON 配置文件加载
 - ✅ 环境变量覆盖（ZIGQUANT_* 前缀）
 - ✅ 多交易所配置支持
 - ✅ 配置验证和类型安全
 - ✅ 敏感信息保护（sanitize）
+
+#### Exchange Router - 交易所抽象层 (`src/exchange/`)
+- ✅ IExchange 接口（VTable 模式）
+- ✅ 统一数据类型（TradingPair, OrderRequest, Ticker, Orderbook）
+- ✅ ExchangeRegistry（交易所注册表）
+- ✅ SymbolMapper（符号映射）
+
+### 🚧 V0.2 MVP: 交易功能（进行中）
+
+#### Hyperliquid 连接器 (`src/exchange/hyperliquid/`)
+- ✅ HTTP 客户端（Info API + Exchange API）
+- ✅ WebSocket 客户端（实时数据流）
+- ✅ Ed25519 签名认证
+- ✅ 速率限制（20 req/s）
+- ✅ 与 Exchange Router 集成
+
+#### Orderbook - 订单簿 (`src/trading/orderbook.zig`)
+- ✅ L2 订单簿数据结构
+- ✅ 快照和增量更新机制
+- ✅ 查询接口（最优价格、价差、深度）
+
+#### Order System - 订单系统 (`src/trading/types.zig`)
+- ✅ 订单类型定义（Limit, Market, Post-only, IOC）
+- ✅ 订单状态枚举
+- ✅ 订单生命周期
+
+#### Order Manager - 订单管理 (`src/trading/order_manager.zig`)
+- 🚧 订单提交和撤单接口
+- 🚧 订单状态追踪
+- 🚧 WebSocket 事件处理
+
+#### Position Tracker - 仓位追踪 (`src/trading/position_tracker.zig`)
+- 🚧 仓位数据结构
+- 🚧 盈亏计算
+- 🚧 账户状态同步
 
 ## 🎯 项目特色
 
@@ -150,14 +221,28 @@ zig build test -freference-trace=10
 
 ## 📈 开发进度
 
-- [x] Phase 0.2: 核心工具模块（时间、错误、日志、配置）
-- [ ] Phase 0.3: 数据结构（环形缓冲区、订单簿）
-- [ ] Phase 1: WebSocket 客户端
-- [ ] Phase 2: 交易所连接器（Binance）
-- [ ] Phase 3: 策略框架
-- [ ] Phase 4: 回测引擎
+### V0.1 Foundation（✅ 已完成）
+- [x] Decimal - 高精度数值
+- [x] Time - 时间处理
+- [x] Error System - 错误处理
+- [x] Logger - 日志系统
+- [x] Config - 配置管理
+- [x] Exchange Router - 交易所抽象层
 
-详见 [项目大纲](./docs/PROJECT_OUTLINE.md)
+### V0.2 MVP（🚧 进行中）
+- [x] Hyperliquid Connector - HTTP/WebSocket客户端
+- [x] Orderbook - L2订单簿
+- [x] Order System - 订单类型定义
+- [ ] Order Manager - 订单管理（80%）
+- [ ] Position Tracker - 仓位追踪（60%）
+- [ ] CLI - 命令行界面（20%）
+
+### 未来规划
+- [ ] V0.3: 策略框架
+- [ ] V0.4: 回测引擎
+- [ ] V1.0: 完整的量化交易系统
+
+详见 [项目大纲](./docs/PROJECT_OUTLINE.md) 和 [项目进度](./docs/PROGRESS.md)
 
 ## 🤝 贡献指南
 
@@ -198,4 +283,4 @@ zig build test -freference-trace=10
 
 ---
 
-**状态:** 🚧 活跃开发中 | **版本:** 0.2.0-alpha | **更新时间:** 2025-12-23
+**状态:** 🚧 活跃开发中 | **版本:** 0.2.0-alpha | **更新时间:** 2025-01-22
