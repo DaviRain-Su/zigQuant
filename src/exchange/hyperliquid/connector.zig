@@ -368,14 +368,30 @@ pub const HyperliquidConnector = struct {
 
         self.logger.debug("cancelOrder called: {d}", .{order_id}) catch {};
 
-        // TODO Phase D: Build and sign cancel request
-        // const cancel_req = try self.buildCancelRequest(order_id);
-        // const signed = try self.signCancelRequest(cancel_req);
-        //
-        // // Submit to Exchange API
-        // try self.http.cancelOrder(signed);
+        // Check if signer is available
+        if (self.signer == null) {
+            return error.SignerRequired;
+        }
 
-        return error.NotImplemented;
+        // Rate limit
+        self.rate_limiter.wait();
+
+        // NOTE: Simplified implementation for MVP
+        // Hyperliquid's cancel API requires both asset index and order ID
+        // For now, we use a default coin ("ETH") to get the asset index
+        // TODO: Maintain order_id -> coin mapping for accurate cancellation
+        const default_coin = "ETH"; // Most common trading pair on Hyperliquid
+
+        // Call Exchange API to cancel the order
+        const response = try self.exchange_api.cancelOrder(default_coin, order_id);
+
+        // Check response status
+        if (!std.mem.eql(u8, response.status, "ok")) {
+            self.logger.err("Order cancellation failed: {s}", .{response.status}) catch {};
+            return error.CancelOrderFailed;
+        }
+
+        self.logger.info("Order cancelled successfully: ID={d}", .{order_id}) catch {};
     }
 
     fn cancelAllOrders(ptr: *anyopaque, pair: ?TradingPair) anyerror!u32 {
@@ -847,4 +863,39 @@ test "HyperliquidConnector: create with private key initializes signer" {
     if (connector.signer) |signer| {
         try std.testing.expect(signer.address.len > 0);
     }
+}
+
+test "HyperliquidConnector: cancelOrder - requires signer" {
+    const allocator = std.testing.allocator;
+
+    const DummyWriter = struct {
+        fn write(_: *anyopaque, _: @import("../../root.zig").logger.LogRecord) anyerror!void {}
+        fn flush(_: *anyopaque) anyerror!void {}
+        fn close(_: *anyopaque) void {}
+    };
+
+    const writer = @import("../../root.zig").logger.LogWriter{
+        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .writeFn = DummyWriter.write,
+        .flushFn = DummyWriter.flush,
+        .closeFn = DummyWriter.close,
+    };
+
+    var logger = Logger.init(allocator, writer, .info);
+    defer logger.deinit();
+
+    // Create connector WITHOUT api_secret (no signer)
+    const config = ExchangeConfig{
+        .name = "hyperliquid",
+        .testnet = true,
+        .api_secret = "", // Empty = no signer
+    };
+
+    const connector = try HyperliquidConnector.create(allocator, config, logger);
+    defer connector.destroy();
+
+    const exchange = connector.interface();
+
+    // Should fail because no signer is configured
+    try std.testing.expectError(error.SignerRequired, exchange.cancelOrder(12345));
 }

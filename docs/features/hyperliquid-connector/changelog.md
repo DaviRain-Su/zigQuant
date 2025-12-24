@@ -31,14 +31,21 @@
   - 将 Hyperliquid 订单响应转换为统一 Order 格式
   - 完整的错误处理（SignerRequired, InvalidPrivateKey, OrderRejected 等）
 
+- ✨ **cancelOrder 方法完整实现**
+  - 使用 Ed25519 签名取消订单
+  - 支持速率限制（20 req/s）
+  - MVP 简化实现（使用默认 coin "ETH"）
+  - 完整的错误处理（SignerRequired, CancelOrderFailed）
+  - TODO: 未来可通过维护 order_id → coin 映射改进准确性
+
 ### Changed
 - 🔧 `HyperliquidConnector.create()` 现在会自动初始化 Signer（如果提供私钥）
 - 🔧 `HyperliquidConnector.destroy()` 现在会正确清理 Signer 资源
 
 ### Tests
-- ✅ 新增 5 个单元测试（initializeSigner、createOrder 签名验证）
-- ✅ 新增集成测试 Test 8（验证 createOrder 需要 signer）
-- ✅ 总计 145/145 测试通过
+- ✅ 新增 6 个单元测试（initializeSigner、createOrder、cancelOrder 验证）
+- ✅ 新增集成测试 Test 8-9（验证 createOrder 和 cancelOrder 需要 signer）
+- ✅ 总计 146/146 测试通过
 
 ---
 

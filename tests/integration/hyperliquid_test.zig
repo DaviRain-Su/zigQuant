@@ -207,5 +207,27 @@ pub fn main() !void {
     // // Remember to cancel the order if needed:
     // // try exchange_auth.cancelOrder(order.exchange_order_id);
 
+    // Test 9: cancelOrder (requires signer) - Framework test
+    std.debug.print("Test 9: Testing cancelOrder (without signer - should fail)...\n", .{});
+
+    // Should fail because no signer is configured
+    const cancel_result = exchange.cancelOrder(12345);
+    if (cancel_result) |_| {
+        std.debug.print("✗ Unexpected success (should require signer)\n", .{});
+        return error.UnexpectedSuccess;
+    } else |err| {
+        if (err == error.SignerRequired) {
+            std.debug.print("✓ Correctly rejected: SignerRequired\n", .{});
+        } else {
+            std.debug.print("✗ Unexpected error: {}\n", .{err});
+            return err;
+        }
+    }
+    std.debug.print("\n", .{});
+
+    // NOTE: To test actual order cancellation with auth:
+    // try exchange_auth.cancelOrder(order.exchange_order_id);
+    // std.debug.print("✓ Order cancelled successfully\n", .{});
+
     std.debug.print("=== All Integration Tests Passed! ✓ ===\n\n", .{});
 }
