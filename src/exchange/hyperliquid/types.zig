@@ -254,3 +254,33 @@ test "format price" {
     defer std.testing.allocator.free(price_str);
     try std.testing.expectEqualStrings("1234.56", price_str);
 }
+
+// ============================================================================
+// Exchange API Response Types
+// ============================================================================
+
+/// Order response from Exchange API
+pub const OrderResponse = struct {
+    status: []const u8, // "ok" or error message
+    response: ?struct {
+        type: []const u8,
+        data: ?struct {
+            statuses: []struct {
+                resting: ?struct {
+                    oid: u64, // Order ID
+                },
+            },
+        },
+    },
+};
+
+/// Cancel response from Exchange API
+pub const CancelResponse = struct {
+    status: []const u8, // "ok" or error message
+    response: ?struct {
+        type: []const u8,
+        data: ?struct {
+            statuses: [][]const u8,
+        },
+    },
+};

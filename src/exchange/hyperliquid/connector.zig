@@ -23,6 +23,8 @@ const Decimal = @import("../../root.zig").Decimal;
 const HttpClient = @import("http.zig").HttpClient;
 const RateLimiter = @import("rate_limiter.zig").RateLimiter;
 const InfoAPI = @import("info_api.zig").InfoAPI;
+const ExchangeAPI = @import("exchange_api.zig").ExchangeAPI;
+const Signer = @import("auth.zig").Signer;
 const hl_types = @import("types.zig");
 
 // Re-export types for convenience
@@ -51,6 +53,8 @@ pub const HyperliquidConnector = struct {
     http_client: HttpClient,
     rate_limiter: RateLimiter,
     info_api: InfoAPI,
+    exchange_api: ExchangeAPI,
+    signer: ?Signer, // Optional: only needed for trading
 
     // TODO Phase D.2: WebSocket client (optional)
     // ws: ?WebSocketClient,
@@ -64,7 +68,7 @@ pub const HyperliquidConnector = struct {
         const self = try allocator.create(HyperliquidConnector);
         errdefer allocator.destroy(self);
 
-        // Initialize struct fields (http_client first, then info_api gets pointer to it)
+        // Initialize struct fields (http_client first, then APIs get pointer to it)
         self.* = .{
             .allocator = allocator,
             .config = config,
@@ -73,10 +77,13 @@ pub const HyperliquidConnector = struct {
             .http_client = HttpClient.init(allocator, config.testnet, logger),
             .rate_limiter = @import("rate_limiter.zig").createHyperliquidRateLimiter(),
             .info_api = undefined, // Initialize after http_client is in place
+            .exchange_api = undefined, // Initialize after http_client is in place
+            .signer = null, // TODO: Initialize from config if private_key is provided
         };
 
-        // Now initialize info_api with stable pointer to self.http_client
+        // Now initialize APIs with stable pointer to self.http_client
         self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
+        self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, null, logger);
 
         return self;
     }
@@ -285,28 +292,28 @@ pub const HyperliquidConnector = struct {
             symbol,
         }) catch {};
 
-        // TODO Phase D: Build and sign order request
-        // const hl_order = try self.buildHyperliquidOrder(request);
-        // const signed = try self.signOrder(hl_order);
-        //
-        // // Submit to Exchange API /exchange endpoint
-        // const response = try self.http.placeOrder(signed);
-        //
-        // // Convert response to unified Order format
-        // return Order{
-        //     .exchange_order_id = response.oid,
-        //     .client_order_id = request.client_order_id,
-        //     .pair = request.pair,
-        //     .side = request.side,
-        //     .order_type = request.order_type,
-        //     .status = .pending,
-        //     .amount = request.amount,
-        //     .price = request.price,
-        //     .filled_amount = Decimal.ZERO,
-        //     .created_at = Timestamp.now(),
-        //     .updated_at = Timestamp.now(),
-        // };
+        // Convert unified OrderRequest to Hyperliquid format
+        const price_str = try hl_types.formatPrice(self.allocator, request.price orelse Decimal.ZERO);
+        defer self.allocator.free(price_str);
 
+        const size_str = try hl_types.formatSize(self.allocator, request.amount);
+        defer self.allocator.free(size_str);
+
+        const hl_request = hl_types.OrderRequest{
+            .coin = symbol,
+            .is_buy = request.side == .buy,
+            .sz = size_str,
+            .limit_px = price_str,
+            .order_type = .{ .limit = .{ .tif = "Gtc" } },
+            .reduce_only = false,
+        };
+
+        // Call Exchange API (note: signing is stub for now)
+        const response = try self.exchange_api.placeOrder(hl_request);
+        _ = response;
+
+        // NOTE: This won't work until signing is implemented
+        // For now, return NotImplemented
         return error.NotImplemented;
     }
 
