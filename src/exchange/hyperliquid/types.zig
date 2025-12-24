@@ -118,7 +118,6 @@ pub const MarginSummary = struct {
     totalMarginUsed: []const u8,
     totalNtlPos: []const u8,
     totalRawUsd: []const u8,
-    withdrawable: []const u8,
 };
 
 /// User state response

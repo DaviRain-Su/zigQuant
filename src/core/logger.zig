@@ -241,9 +241,38 @@ fn valueFromAny(value: anytype) !Value {
                     }
                 }
             }
-            @compileError("Unsupported pointer type: " ++ @typeName(T));
+            // For other pointer types, return type name
+            return Value{ .string = "<" ++ @typeName(T) ++ ">" };
         },
-        else => @compileError("Unsupported type for logging: " ++ @typeName(T)),
+        .optional => {
+            // Handle optional values
+            if (value) |v| {
+                // Recursively convert the unwrapped value
+                return try valueFromAny(v);
+            } else {
+                return Value{ .string = "null" };
+            }
+        },
+        .error_union => {
+            // Handle error unions by trying to unwrap the value
+            if (value) |v| {
+                return try valueFromAny(v);
+            } else |_| {
+                return Value{ .string = "<error>" };
+            }
+        },
+        .@"enum" => {
+            // Handle enums by converting to string
+            return Value{ .string = @tagName(value) };
+        },
+        .@"struct", .@"union", .@"fn", .error_set, .@"opaque" => {
+            // For complex types, return type name as placeholder
+            return Value{ .string = "<" ++ @typeName(T) ++ ">" };
+        },
+        else => {
+            // For any other types, return type name
+            return Value{ .string = "<" ++ @typeName(T) ++ ">" };
+        },
     };
 }
 

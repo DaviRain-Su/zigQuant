@@ -147,8 +147,8 @@ pub const InfoAPI = struct {
     /// Get user state (balances and positions)
     ///
     /// @param user: User address
-    /// @return UserStateResponse
-    pub fn getUserState(self: *InfoAPI, user: []const u8) !types.UserStateResponse {
+    /// @return Parsed UserStateResponse (caller must call deinit())
+    pub fn getUserState(self: *InfoAPI, user: []const u8) !std.json.Parsed(types.UserStateResponse) {
         self.logger.debug("Fetching user state for {s}", .{user}) catch {};
 
         // Prepare request
@@ -170,10 +170,9 @@ pub const InfoAPI = struct {
             response_body,
             .{ .allocate = .alloc_always, .ignore_unknown_fields = true },
         );
-        defer parsed.deinit();
 
-        // Note: Caller must free the response fields
-        return parsed.value;
+        // Note: Caller must call parsed.deinit()
+        return parsed;
     }
 
     /// Get user's open orders

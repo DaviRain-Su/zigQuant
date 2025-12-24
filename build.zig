@@ -159,10 +159,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
 
     // Integration tests - requires network access
-    const integration_test = b.addExecutable(.{
-        .name = "hyperliquid-integration-test",
+    const integration_test = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/hyperliquid_test.zig"),
+            .root_source_file = b.path("tests/integration/hyperliquid_integration_test.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -172,7 +171,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_integration_test = b.addRunArtifact(integration_test);
-    const integration_step = b.step("test-integration", "Run integration tests (requires network)");
+    const integration_step = b.step("test-integration", "Run integration tests (requires network and API credentials)");
     integration_step.dependOn(&run_integration_test.step);
 
     // WebSocket integration test - requires network access

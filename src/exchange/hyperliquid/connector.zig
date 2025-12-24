@@ -549,7 +549,7 @@ pub const HyperliquidConnector = struct {
                 else
                     .limit;
 
-                self.logger.info("Order found: ID={d}, {s}-{s}, {s}, Price={}, Amount={}", .{
+                self.logger.info("Order found: ID={d}, {s}-{s}, {s}, Price={d}, Amount={d}", .{
                     order_id,
                     pair.base,
                     pair.quote,
@@ -601,7 +601,8 @@ pub const HyperliquidConnector = struct {
         const user_address = self.signer.?.address;
 
         // Query user state from Info API
-        const user_state = try self.info_api.getUserState(user_address);
+        const parsed = try self.info_api.getUserState(user_address);
+        defer parsed.deinit();
 
         // Hyperliquid returns cross margin account data
         // For now, we return a single USDC balance (Hyperliquid's quote currency)
@@ -609,9 +610,9 @@ pub const HyperliquidConnector = struct {
         errdefer self.allocator.free(balances);
 
         // Parse account values from string to Decimal
-        const account_value = try hl_types.parsePrice(user_state.crossMarginSummary.accountValue);
-        const withdrawable = try hl_types.parsePrice(user_state.crossMarginSummary.withdrawable);
-        const margin_used = try hl_types.parsePrice(user_state.crossMarginSummary.totalMarginUsed);
+        const account_value = try hl_types.parsePrice(parsed.value.crossMarginSummary.accountValue);
+        const withdrawable = try hl_types.parsePrice(parsed.value.withdrawable);
+        const margin_used = try hl_types.parsePrice(parsed.value.crossMarginSummary.totalMarginUsed);
 
         balances[0] = Balance{
             .asset = "USDC", // Hyperliquid uses USDC as collateral
@@ -620,7 +621,7 @@ pub const HyperliquidConnector = struct {
             .locked = margin_used,
         };
 
-        self.logger.info("Balance retrieved: total={}, available={}, locked={}", .{
+        self.logger.info("Balance retrieved: total={d}, available={d}, locked={d}", .{
             account_value.toFloat(),
             withdrawable.toFloat(),
             margin_used.toFloat(),
@@ -645,13 +646,14 @@ pub const HyperliquidConnector = struct {
 
         // Get user state from Info API
         const user_address = self.signer.?.address;
-        const user_state = try self.info_api.getUserState(user_address);
+        const parsed = try self.info_api.getUserState(user_address);
+        defer parsed.deinit();
 
         // Parse positions from assetPositions array
-        var positions_list = try std.ArrayList(Position).initCapacity(self.allocator, user_state.assetPositions.len);
+        var positions_list = try std.ArrayList(Position).initCapacity(self.allocator, parsed.value.assetPositions.len);
         errdefer positions_list.deinit(self.allocator);
 
-        for (user_state.assetPositions) |asset_pos| {
+        for (parsed.value.assetPositions) |asset_pos| {
             // Parse position size (szi)
             const size_str = asset_pos.position.szi;
             const size_value = try hl_types.parsePrice(size_str);
@@ -695,7 +697,7 @@ pub const HyperliquidConnector = struct {
 
         const positions = try positions_list.toOwnedSlice(self.allocator);
 
-        self.logger.info("Positions retrieved: {} positions", .{positions.len}) catch {};
+        self.logger.info("Positions retrieved: {d} positions", .{positions.len}) catch {};
 
         return positions;
     }

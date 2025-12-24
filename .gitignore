@@ -1,2 +1,5 @@
 zig-out
 .zig-cache
+
+# Integration test credentials (DO NOT COMMIT)
+tests/integration/test_config.json

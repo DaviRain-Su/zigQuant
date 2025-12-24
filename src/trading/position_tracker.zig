@@ -270,7 +270,7 @@ pub const PositionTracker = struct {
         defer self.mutex.unlock();
 
         var list = try std.ArrayList(*Position).initCapacity(self.allocator, self.positions.count());
-        errdefer list.deinit();
+        errdefer list.deinit(self.allocator);
 
         var iter = self.positions.valueIterator();
         while (iter.next()) |pos| {
