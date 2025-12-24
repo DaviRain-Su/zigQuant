@@ -69,6 +69,7 @@ pub const JSONWriter = logger.JSONWriter;
 pub const StdLogWriter = logger.StdLogWriter;
 
 // Re-export config types
+pub const Config = config;
 pub const AppConfig = config.AppConfig;
 pub const ServerConfig = config.ServerConfig;
 pub const ExchangeConfig = config.ExchangeConfig;
