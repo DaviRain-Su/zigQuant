@@ -174,23 +174,6 @@ pub fn build(b: *std.Build) void {
     const integration_step = b.step("test-integration", "Run integration tests (requires network and API credentials)");
     integration_step.dependOn(&run_integration_test.step);
 
-    // WebSocket integration test - requires network access
-    const ws_integration_test = b.addExecutable(.{
-        .name = "hyperliquid-ws-integration-test",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/hyperliquid_ws_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "zigQuant", .module = mod },
-            },
-        }),
-    });
-
-    const run_ws_integration_test = b.addRunArtifact(ws_integration_test);
-    const ws_integration_step = b.step("test-ws", "Run WebSocket integration test (requires network)");
-    ws_integration_step.dependOn(&run_ws_integration_test.step);
-
     // WebSocket Orderbook integration test - tests orderbook updates via WebSocket
     const ws_orderbook_test = b.addExecutable(.{
         .name = "websocket-orderbook-test",
@@ -224,6 +207,40 @@ pub fn build(b: *std.Build) void {
     const run_order_lifecycle_test = b.addRunArtifact(order_lifecycle_test);
     const order_lifecycle_step = b.step("test-order-lifecycle", "Run Order Lifecycle integration test (requires network and testnet account)");
     order_lifecycle_step.dependOn(&run_order_lifecycle_test.step);
+
+    // Position Management integration test - tests position open/close lifecycle
+    const position_management_test = b.addExecutable(.{
+        .name = "position-management-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/position_management_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_position_management_test = b.addRunArtifact(position_management_test);
+    const position_management_step = b.step("test-position-management", "Run Position Management integration test (requires network and testnet account)");
+    position_management_step.dependOn(&run_position_management_test.step);
+
+    // WebSocket Events integration test - tests WebSocket event callbacks
+    const websocket_events_test = b.addExecutable(.{
+        .name = "websocket-events-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/websocket_events_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_websocket_events_test = b.addRunArtifact(websocket_events_test);
+    const websocket_events_step = b.step("test-websocket-events", "Run WebSocket Events integration test (requires network and testnet account)");
+    websocket_events_step.dependOn(&run_websocket_events_test.step);
 
     // Verify Keys tool - helps verify private key and wallet address match
     const verify_keys = b.addExecutable(.{

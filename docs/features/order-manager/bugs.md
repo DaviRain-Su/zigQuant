@@ -135,7 +135,104 @@ pub fn deinit(self: *Order) void {
 
 ## 已修复的 Bug
 
-### Bug #4: client_order_id 内存管理问题 (use-after-free)
+### Bug #4: InvalidOrderResponse - Market IOC 订单响应解析失败
+
+**状态**: Resolved ✅
+**严重性**: High
+**发现日期**: 2025-12-25
+**修复日期**: 2025-12-25
+**相关**: Position Management 集成测试
+
+**描述**:
+Market IOC 订单在立即成交后，响应格式为 `{"filled":{"totalSz":"0.001","avgPx":"88307.0","oid":45567444257}}`，但代码只处理了 `{"resting":...}` 格式，导致返回 `InvalidOrderResponse` 错误。
+
+**实际情况**:
+- 订单成功提交并成交（status=filled）
+- 响应包含 filled 对象而非 resting 对象
+- 代码解析失败返回 InvalidOrderResponse 错误
+
+**预期行为**:
+- 解析 filled 订单响应
+- 提取 order ID、filled amount 和 avg price
+- 返回 status=.filled 的 Order 对象
+
+**解决方案**:
+在 `connector.zig` 中修改响应解析逻辑，处理both "resting" 和 "filled" 状态：
+
+```zig
+const OrderResult = struct {
+    order_id: u64,
+    status: OrderStatus,
+    filled_amount: Decimal,
+    avg_fill_price: ?Decimal,
+};
+
+const order_result = blk: {
+    const resp = response.response;
+    if (resp.data) |data| {
+        if (data.statuses.len > 0) {
+            const status = data.statuses[0];
+
+            // Check for resting (open) order
+            if (status.resting) |resting| {
+                break :blk OrderResult{
+                    .order_id = resting.oid,
+                    .status = OrderStatus.open,
+                    .filled_amount = Decimal.ZERO,
+                    .avg_fill_price = null,
+                };
+            }
+
+            // Check for filled order (market IOC orders)
+            if (status.filled) |filled| {
+                const filled_amount = try hl_types.parseSize(filled.totalSz);
+                const avg_price = try hl_types.parsePrice(filled.avgPx);
+                break :blk OrderResult{
+                    .order_id = filled.oid,
+                    .status = OrderStatus.filled,
+                    .filled_amount = filled_amount,
+                    .avg_fill_price = avg_price,
+                };
+            }
+        }
+    }
+    return error.InvalidOrderResponse;
+};
+```
+
+**修改位置**:
+- `src/exchange/hyperliquid/connector.zig`:430-470 - 响应解析逻辑
+
+**测试验证**:
+```bash
+$ zig build test-position-management
+```
+
+输出：
+```
+Phase 4: Opening position (market buy)
+✓ Market buy order submitted
+  Order ID: 45567444257
+  Status: filled
+  Filled: 0.001 / 0.001
+
+✅ ALL TESTS PASSED
+✅ No memory leaks
+```
+
+**影响范围**:
+- 所有 Market IOC 订单
+- Position Management 集成测试
+- OrderManager 订单状态跟踪
+
+**关键学习点**:
+1. **响应格式多样性**: Hyperliquid API 根据订单类型返回不同格式（resting vs filled）
+2. **立即成交**: IOC 限价单若立即成交，返回 filled 状态而非 resting
+3. **健壮性**: 需要处理所有可能的响应格式，避免假阴性错误
+
+---
+
+### Bug #5: client_order_id 内存管理问题 (use-after-free)
 
 **状态**: Resolved ✅
 **严重性**: High

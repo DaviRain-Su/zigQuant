@@ -35,6 +35,7 @@ const Message = ws_types.Message;
 const TradingPair = types.TradingPair;
 const Side = types.Side;
 const OrderType = types.OrderType;
+const OrderStatus = types.OrderStatus;
 const OrderRequest = types.OrderRequest;
 const Order = types.Order;
 const Ticker = types.Ticker;
@@ -330,14 +331,63 @@ pub const HyperliquidConnector = struct {
             symbol,
         }) catch {};
 
-        // Convert unified OrderRequest to Hyperliquid format
-        const price_str = try hl_types.formatPrice(self.allocator, request.price orelse Decimal.ZERO);
+        // Handle market orders: Hyperliquid doesn't support true market orders
+        // Instead, use aggressive IOC limit orders with 5% slippage
+        const order_price: Decimal = if (request.order_type == .market) blk: {
+            // Get current market price from Info API
+            var mids = try self.info_api.getAllMids();
+            defer {
+                // Free all duped strings in the HashMap
+                var iter = mids.iterator();
+                while (iter.next()) |entry| {
+                    self.allocator.free(entry.key_ptr.*);
+                    self.allocator.free(entry.value_ptr.*);
+                }
+                mids.deinit();
+            }
+
+            const price_str = mids.get(symbol) orelse return error.SymbolNotFound;
+            const current_price = try hl_types.parsePrice(price_str);
+
+            // Apply 5% slippage for aggressive execution
+            // Buy: price * 1.05 (pay more to ensure fill)
+            // Sell: price * 0.95 (accept less to ensure fill)
+            const slippage = try Decimal.fromString("0.05"); // 5%
+            const one = Decimal.ONE;
+
+            const aggressive_price_raw = if (request.side == .buy)
+                current_price.mul(one.add(slippage)) // Buy: +5%
+            else
+                current_price.mul(one.sub(slippage)); // Sell: -5%
+
+            // Round price to match BTC tick size (whole numbers for BTC)
+            // For buy orders: round up to ensure fill
+            // For sell orders: round down to ensure fill
+            const price_float = aggressive_price_raw.toFloat();
+            const price_rounded = if (request.side == .buy)
+                @ceil(price_float) // Buy: round up
+            else
+                @floor(price_float); // Sell: round down
+
+            const aggressive_price = Decimal.fromInt(@as(i64, @intFromFloat(price_rounded)));
+
+            self.logger.debug("Market order → IOC limit: current={d}, aggressive={d} (rounded from {d})", .{
+                current_price.toFloat(),
+                aggressive_price.toFloat(),
+                price_float,
+            }) catch {};
+
+            break :blk aggressive_price;
+        } else request.price orelse return error.LimitOrderRequiresPrice;
+
+        const price_str = try hl_types.formatPrice(self.allocator, order_price);
         defer self.allocator.free(price_str);
 
         const size_str = try hl_types.formatSize(self.allocator, request.amount);
         defer self.allocator.free(size_str);
 
         // Convert order type and time-in-force
+        // Market orders become IOC limit orders
         const hl_order_type = switch (request.order_type) {
             .limit => hl_types.HyperliquidOrderType{
                 .limit = .{
@@ -350,7 +400,9 @@ pub const HyperliquidConnector = struct {
                 },
             },
             .market => hl_types.HyperliquidOrderType{
-                .market = .{},
+                .limit = .{
+                    .tif = "Ioc", // Market orders always use IOC
+                },
             },
         };
 
@@ -376,34 +428,65 @@ pub const HyperliquidConnector = struct {
             return error.OrderRejected;
         }
 
-        // Extract order ID from response
-        const order_id = blk: {
+        // Extract order ID and status from response
+        // Handle both "resting" (open) and "filled" (immediately executed) orders
+        const OrderResult = struct {
+            order_id: u64,
+            status: OrderStatus,
+            filled_amount: Decimal,
+            avg_fill_price: ?Decimal,
+        };
+
+        const order_result = blk: {
             const resp = response.response;
             if (resp.data) |data| {
                 if (data.statuses.len > 0) {
-                    if (data.statuses[0].resting) |resting| {
-                        break :blk resting.oid;
+                    const status = data.statuses[0];
+
+                    // Check for resting (open) order
+                    if (status.resting) |resting| {
+                        break :blk OrderResult{
+                            .order_id = resting.oid,
+                            .status = OrderStatus.open,
+                            .filled_amount = Decimal.ZERO,
+                            .avg_fill_price = null,
+                        };
+                    }
+
+                    // Check for filled order (market IOC orders)
+                    if (status.filled) |filled| {
+                        const filled_amount = try hl_types.parseSize(filled.totalSz);
+                        const avg_price = try hl_types.parsePrice(filled.avgPx);
+                        break :blk OrderResult{
+                            .order_id = filled.oid,
+                            .status = OrderStatus.filled,
+                            .filled_amount = filled_amount,
+                            .avg_fill_price = avg_price,
+                        };
                     }
                 }
             }
             return error.InvalidOrderResponse;
         };
 
-        self.logger.info("Order placed successfully: ID={d}", .{order_id}) catch {};
+        self.logger.info("Order placed successfully: ID={d}, status={s}", .{
+            order_result.order_id,
+            @tagName(order_result.status),
+        }) catch {};
 
         // Convert to unified Order format
         const now = Timestamp.now();
         return Order{
-            .exchange_order_id = order_id,
+            .exchange_order_id = order_result.order_id,
             .client_order_id = null,
             .pair = request.pair,
             .side = request.side,
             .order_type = request.order_type,
-            .status = .pending, // Initial status
+            .status = order_result.status,
             .amount = request.amount,
             .price = request.price,
-            .filled_amount = Decimal.ZERO,
-            .avg_fill_price = null,
+            .filled_amount = order_result.filled_amount,
+            .avg_fill_price = order_result.avg_fill_price,
             .created_at = now,
             .updated_at = now,
         };
@@ -703,8 +786,10 @@ pub const HyperliquidConnector = struct {
         // Rate limit
         self.rate_limiter.wait();
 
-        // Get user address from signer
-        const user_address = self.signer.?.address;
+        // IMPORTANT: Use api_key (main account address), not signer address!
+        // api_key = main account with funds
+        // signer.address = API wallet for signing (authorized to trade on behalf of main account)
+        const user_address = self.config.api_key;
 
         // Query user state from Info API
         const parsed = try self.info_api.getUserState(user_address);
@@ -747,8 +832,10 @@ pub const HyperliquidConnector = struct {
         // Rate limiting
         self.rate_limiter.wait();
 
-        // Get user state from Info API
-        const user_address = self.signer.?.address;
+        // IMPORTANT: Use api_key (main account address), not signer address!
+        // api_key = main account with funds
+        // signer.address = API wallet for signing (authorized to trade on behalf of main account)
+        const user_address = self.config.api_key;
         const parsed = try self.info_api.getUserState(user_address);
         defer parsed.deinit();
 
