@@ -43,6 +43,9 @@ pub const strategy_risk = @import("strategy/risk.zig");
 pub const strategy_executor = @import("strategy/executor.zig");
 pub const strategy_context = @import("strategy/context.zig");
 
+// Built-in strategies
+pub const strategy_dual_ma = @import("strategy/builtin/dual_ma.zig");
+
 // Indicator modules
 pub const indicator_interface = @import("strategy/indicators/interface.zig");
 pub const indicator_utils = @import("strategy/indicators/utils.zig");
@@ -91,6 +94,9 @@ pub const MarketDataProvider = strategy_market_data.MarketDataProvider;
 pub const RiskManager = strategy_risk.RiskManager;
 pub const OrderExecutor = strategy_executor.OrderExecutor;
 pub const StrategyContext = strategy_context.StrategyContext;
+
+// Re-export built-in strategies
+pub const DualMAStrategy = strategy_dual_ma.DualMAStrategy;
 
 // Re-export indicator types
 pub const IIndicator = indicator_interface.IIndicator;
@@ -211,6 +217,7 @@ test {
     _ = strategy_risk;
     _ = strategy_executor;
     _ = strategy_context;
+    _ = strategy_dual_ma;
 
     // Indicator modules
     _ = indicator_interface;
