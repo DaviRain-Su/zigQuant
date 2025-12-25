@@ -37,6 +37,11 @@ pub const candles = @import("market/candles.zig");
 pub const strategy_signal = @import("strategy/signal.zig");
 pub const strategy_types = @import("strategy/types.zig");
 pub const strategy_interface = @import("strategy/interface.zig");
+pub const strategy_position_manager = @import("strategy/position_manager.zig");
+pub const strategy_market_data = @import("strategy/market_data.zig");
+pub const strategy_risk = @import("strategy/risk.zig");
+pub const strategy_executor = @import("strategy/executor.zig");
+pub const strategy_context = @import("strategy/context.zig");
 
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
@@ -68,6 +73,13 @@ pub const StrategyConfig = strategy_types.StrategyConfig;
 pub const MinimalROI = strategy_types.MinimalROI;
 pub const TrailingStopConfig = strategy_types.TrailingStopConfig;
 pub const IStrategy = strategy_interface.IStrategy;
+pub const StrategyPosition = strategy_position_manager.StrategyPosition;
+pub const PositionStatus = strategy_position_manager.PositionStatus;
+pub const PositionManager = strategy_position_manager.PositionManager;
+pub const MarketDataProvider = strategy_market_data.MarketDataProvider;
+pub const RiskManager = strategy_risk.RiskManager;
+pub const OrderExecutor = strategy_executor.OrderExecutor;
+pub const StrategyContext = strategy_context.StrategyContext;
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
@@ -171,6 +183,11 @@ test {
     _ = strategy_signal;
     _ = strategy_types;
     _ = strategy_interface;
+    _ = strategy_position_manager;
+    _ = strategy_market_data;
+    _ = strategy_risk;
+    _ = strategy_executor;
+    _ = strategy_context;
 
     // Trading modules
     _ = order_store;

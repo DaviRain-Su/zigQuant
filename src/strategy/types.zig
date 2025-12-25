@@ -222,6 +222,10 @@ pub const StrategyConfig = struct {
     /// Optional trailing stop configuration
     trailing_stop: ?TrailingStopConfig,
 
+    /// Risk management configuration
+    max_open_trades: u32, // Maximum number of concurrent positions
+    stake_amount: Decimal, // Amount to stake per position
+
     /// Allocator for memory management
     allocator: std.mem.Allocator,
 
@@ -234,6 +238,8 @@ pub const StrategyConfig = struct {
         parameters: []const StrategyParameter,
         minimal_roi: ?[]const MinimalROI,
         trailing_stop: ?TrailingStopConfig,
+        max_open_trades: u32,
+        stake_amount: Decimal,
     ) !StrategyConfig {
         // Validate metadata
         try metadata.validate();
@@ -272,6 +278,8 @@ pub const StrategyConfig = struct {
             .parameters = params_copy,
             .minimal_roi = roi_copy,
             .trailing_stop = trailing_stop,
+            .max_open_trades = max_open_trades,
+            .stake_amount = stake_amount,
             .allocator = allocator,
         };
     }
@@ -476,6 +484,8 @@ test "StrategyConfig: initialization and cleanup" {
         &parameters,
         &roi,
         trailing_stop,
+        3, // max_open_trades
+        Decimal.fromInt(1000), // stake_amount
     );
     defer config.deinit();
 
@@ -484,6 +494,7 @@ test "StrategyConfig: initialization and cleanup" {
     try std.testing.expect(config.minimal_roi != null);
     try std.testing.expectEqual(@as(usize, 2), config.minimal_roi.?.len);
     try std.testing.expect(config.trailing_stop != null);
+    try std.testing.expectEqual(@as(u32, 3), config.max_open_trades);
 }
 
 test "StrategyConfig: parameter lookup" {
@@ -512,6 +523,8 @@ test "StrategyConfig: parameter lookup" {
         &parameters,
         null,
         null,
+        5, // max_open_trades
+        Decimal.fromInt(500), // stake_amount
     );
     defer config.deinit();
 
@@ -556,6 +569,8 @@ test "StrategyConfig: no memory leak" {
         &parameters,
         null,
         null,
+        3, // max_open_trades
+        Decimal.fromInt(1000), // stake_amount
     );
     defer config.deinit();
 
