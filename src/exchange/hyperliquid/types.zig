@@ -79,6 +79,28 @@ pub const MetaResponse = struct {
     universe: []AssetMeta,
 };
 
+/// Asset context (pricing information)
+pub const AssetCtx = struct {
+    funding: ?[]const u8 = null, // Funding rate
+    openInterest: ?[]const u8 = null, // Open interest
+    prevDayPx: ?[]const u8 = null, // Previous day price
+    dayNtlVlm: ?[]const u8 = null, // Day notional volume
+    premium: ?[]const u8 = null, // Premium
+    oraclePx: ?[]const u8 = null, // Oracle price (spot price from multiple exchanges)
+    markPx: ?[]const u8 = null, // Mark price (used for margining, liquidations)
+    midPx: ?[]const u8 = null, // Mid price (from Hyperliquid orderbook)
+    impactPxs: ?[2][]const u8 = null, // Impact prices [bid, ask]
+};
+
+/// Meta and asset contexts response
+/// Returns a 2-element array: [{universe: [...]}, [{...}, ...]]
+pub const MetaAndAssetCtxsResponse = struct {
+    // First element: metadata
+    universe: []AssetMeta,
+};
+
+pub const MetaAndAssetCtxsArray = [2]std.json.Value;
+
 /// L2 orderbook level
 pub const L2Level = struct {
     px: []const u8, // Price as string
@@ -171,7 +193,8 @@ pub const MarketOrderParams = struct {
 
 /// Order request (for single order placement)
 pub const OrderRequest = struct {
-    coin: []const u8,
+    asset_index: u64, // Asset index from meta (e.g., 3 for BTC, 0 for SOL)
+    coin: []const u8, // Coin symbol (for logging)
     is_buy: bool,
     sz: []const u8, // Size as string
     limit_px: []const u8, // Limit price as string
@@ -200,6 +223,7 @@ pub const CancelRequest = struct {
 pub const OrderStatus = struct {
     resting: ?RestingOrder = null,
     filled: ?FilledOrder = null,
+    @"error": ?[]const u8 = null, // Error message if order was rejected
 };
 
 /// Resting (open) order
@@ -285,17 +309,16 @@ test "format price" {
 // Exchange API Response Types
 // ============================================================================
 
-/// Order response from Exchange API
+/// Order response from Exchange API (success case only)
+///
+/// Format: {"status":"ok","response":{"type":"order","data":{"statuses":[...]}}}
+/// Error responses are handled separately in exchange_api.zig
 pub const OrderResponse = struct {
-    status: []const u8, // "ok" or error message
-    response: ?struct {
+    status: []const u8, // Should be "ok"
+    response: struct {
         type: []const u8,
         data: ?struct {
-            statuses: []struct {
-                resting: ?struct {
-                    oid: u64, // Order ID
-                },
-            },
+            statuses: []OrderStatus, // Use OrderStatus type which includes error field
         },
     },
 };

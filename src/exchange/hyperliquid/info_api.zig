@@ -144,6 +144,36 @@ pub const InfoAPI = struct {
         return parsed;
     }
 
+    /// Get asset metadata and contexts (includes mark price, oracle price)
+    ///
+    /// Returns a JSON Value with array format: [{universe: [...]}, [{...}, ...]]
+    /// @return Parsed JSON Value (caller must call deinit())
+    pub fn getMetaAndAssetCtxs(self: *InfoAPI) !std.json.Parsed(std.json.Value) {
+        self.logger.debug("Fetching meta and asset contexts", .{}) catch {};
+
+        // Prepare request
+        const request_json = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"type\":\"metaAndAssetCtxs\"}}",
+            .{},
+        );
+        defer self.allocator.free(request_json);
+
+        // Send request
+        const response_body = try self.http_client.postInfo(request_json);
+        defer self.allocator.free(response_body);
+
+        // Parse response as dynamic JSON (array of [meta, contexts])
+        const parsed = try std.json.parseFromSlice(
+            std.json.Value,
+            self.allocator,
+            response_body,
+            .{ .allocate = .alloc_always },
+        );
+
+        return parsed;
+    }
+
     /// Get user state (balances and positions)
     ///
     /// @param user: User address

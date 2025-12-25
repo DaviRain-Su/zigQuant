@@ -54,12 +54,40 @@ export ZIGQUANT_TEST_API_SECRET="你的私钥十六进制（不带0x前缀）"
 
 3. **重要**: `test_config.json` 已在 `.gitignore` 中，不会被提交到 git
 
+### 验证配置
+
+运行验证工具确保私钥和钱包地址匹配：
+
+```bash
+zig build verify-keys
+```
+
+**输出示例**:
+```
+✅ MATCH: Private key and address are correctly paired
+
+You can use this configuration for Hyperliquid testnet.
+Make sure the wallet 0x0c219488e878b66d9e098ed59ab714c5c29eb0df exists on testnet and has USDC balance.
+```
+
+如果显示不匹配，工具会告诉你如何修复。
+
 ## 运行测试
 
 ### 运行所有集成测试
 
 ```bash
 zig build test-integration
+```
+
+### 运行单个集成测试
+
+```bash
+# WebSocket 订单簿测试
+zig build test-ws-orderbook
+
+# 订单生命周期测试（需要账户和余额）
+zig build test-order-lifecycle
 ```
 
 ### 测试列表
@@ -92,6 +120,33 @@ zig build test-integration
 
 #### 6. **完整交易流程测试**
 - ⚠️ 下单 → 撤单流程（注释掉，需手动启用）
+
+#### 7. **订单生命周期测试** (`test-order-lifecycle`)
+- ✅ 创建 Hyperliquid Connector
+- ✅ 创建 OrderManager
+- ✅ 提交限价订单（远离市场价，避免成交）
+- ✅ 查询订单状态
+- ✅ 取消订单
+- ✅ 验证订单已取消
+- ✅ 验证订单不在活跃订单列表中
+
+**运行命令**:
+```bash
+zig build test-order-lifecycle
+```
+
+**测试流程**:
+1. Phase 1: 创建 Hyperliquid Connector 并连接
+2. Phase 2: 创建 OrderManager
+3. Phase 3: 提交限价买单（ETH @ $1000，远低于市价）
+4. Phase 4: 查询订单状态（等待 2 秒）
+5. Phase 5: 取消订单
+6. Phase 6: 验证订单状态为 `cancelled`
+7. Phase 7: 验证订单不在活跃订单列表中
+
+**前置要求**:
+- Hyperliquid testnet 账户
+- 账户中有足够的 USDC 余额（用于下单保证金）
 
 ## 测试输出示例
 

@@ -337,13 +337,34 @@ pub const HyperliquidConnector = struct {
         const size_str = try hl_types.formatSize(self.allocator, request.amount);
         defer self.allocator.free(size_str);
 
+        // Convert order type and time-in-force
+        const hl_order_type = switch (request.order_type) {
+            .limit => hl_types.HyperliquidOrderType{
+                .limit = .{
+                    .tif = switch (request.time_in_force) {
+                        .gtc => "Gtc",
+                        .ioc => "Ioc",
+                        .alo => "Alo",
+                        .fok => return error.UnsupportedTimeInForce, // Hyperliquid doesn't support FOK
+                    },
+                },
+            },
+            .market => hl_types.HyperliquidOrderType{
+                .market = .{},
+            },
+        };
+
+        // Look up asset index for the coin
+        const asset_index = try self.getAssetIndex(symbol);
+
         const hl_request = hl_types.OrderRequest{
+            .asset_index = asset_index,
             .coin = symbol,
             .is_buy = request.side == .buy,
             .sz = size_str,
             .limit_px = price_str,
-            .order_type = .{ .limit = .{ .tif = "Gtc" } },
-            .reduce_only = false,
+            .order_type = hl_order_type,
+            .reduce_only = request.reduce_only,
         };
 
         // Call Exchange API (with signing)
@@ -357,12 +378,11 @@ pub const HyperliquidConnector = struct {
 
         // Extract order ID from response
         const order_id = blk: {
-            if (response.response) |resp| {
-                if (resp.data) |data| {
-                    if (data.statuses.len > 0) {
-                        if (data.statuses[0].resting) |resting| {
-                            break :blk resting.oid;
-                        }
+            const resp = response.response;
+            if (resp.data) |data| {
+                if (data.statuses.len > 0) {
+                    if (data.statuses[0].resting) |resting| {
+                        break :blk resting.oid;
                     }
                 }
             }
@@ -401,7 +421,8 @@ pub const HyperliquidConnector = struct {
         self.rate_limiter.wait();
 
         // Query open orders to find the coin for this order_id
-        const user_address = self.signer.?.address;
+        // IMPORTANT: Use api_key (main account), not signer address (API wallet)
+        const user_address = self.config.api_key;
         const open_orders = try self.info_api.getOpenOrders(user_address);
         defer open_orders.deinit();
 
@@ -519,7 +540,8 @@ pub const HyperliquidConnector = struct {
         self.rate_limiter.wait();
 
         // Get user's open orders
-        const user_address = self.signer.?.address;
+        // IMPORTANT: Use api_key (main account), not signer address (API wallet)
+        const user_address = self.config.api_key;
         const parsed_orders = try self.info_api.getOpenOrders(user_address);
         defer parsed_orders.deinit();
 
@@ -590,7 +612,8 @@ pub const HyperliquidConnector = struct {
         self.rate_limiter.wait();
 
         // Get user's open orders
-        const user_address = self.signer.?.address;
+        // IMPORTANT: Use api_key (main account), not signer address (API wallet)
+        const user_address = self.config.api_key;
         const parsed_orders = try self.info_api.getOpenOrders(user_address);
         defer parsed_orders.deinit();
 
@@ -880,7 +903,7 @@ pub const HyperliquidConnector = struct {
     ///
     /// Ensure signer is initialized (lazy initialization)
     /// Only initializes if not already initialized and credentials are available
-    fn ensureSigner(self: *HyperliquidConnector) !void {
+    pub fn ensureSigner(self: *HyperliquidConnector) !void {
         // Already initialized
         if (self.signer != null) return;
 
@@ -921,8 +944,8 @@ pub const HyperliquidConnector = struct {
             return error.InvalidPrivateKey;
         };
 
-        // Initialize signer
-        const signer = try Signer.init(self.allocator, private_key_bytes);
+        // Initialize signer (with testnet flag for phantom agent)
+        const signer = try Signer.init(self.allocator, private_key_bytes, self.config.testnet);
 
         self.logger.info("Initialized signer with address: {s}", .{signer.address}) catch {};
 

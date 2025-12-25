@@ -9,6 +9,7 @@ const std = @import("std");
 const HttpClient = @import("http.zig").HttpClient;
 const types = @import("types.zig");
 const auth = @import("auth.zig");
+const msgpack = @import("msgpack.zig");
 const Logger = @import("../../core/logger.zig").Logger;
 
 // ============================================================================
@@ -54,32 +55,82 @@ pub const ExchangeAPI = struct {
             order_request.coin,
         }) catch {};
 
-        // Construct order action
+        // Build msgpack order for signing
+        const msgpack_order_type: msgpack.OrderType = if (order_request.order_type.limit != null)
+            .{ .limit = .{ .tif = order_request.order_type.limit.?.tif } }
+        else if (order_request.order_type.market != null)
+            .{ .market = .{} }
+        else
+            return error.UnsupportedOrderType;
+
+        const msgpack_order = msgpack.OrderRequest{
+            .a = order_request.asset_index,
+            .b = order_request.is_buy,
+            .p = order_request.limit_px,
+            .s = order_request.sz,
+            .r = order_request.reduce_only,
+            .t = msgpack_order_type,
+        };
+
+        const orders = [_]msgpack.OrderRequest{msgpack_order};
+        const action_msgpack = try msgpack.packOrderAction(
+            self.allocator,
+            &orders,
+            "na",
+        );
+        defer self.allocator.free(action_msgpack);
+
+        self.logger.debug("Msgpack action size: {d} bytes", .{action_msgpack.len}) catch {};
+
+        // Msgpack-encoded action ready for signing
+
+        // Generate nonce (must be same for signing and request!)
+        const nonce = @as(u64, @intCast(std.time.milliTimestamp()));
+
+        // Sign the msgpack-encoded action (with phantom agent)
+        const signature = try self.signer.?.signAction(action_msgpack, nonce);
+        defer self.allocator.free(signature.r);
+        defer self.allocator.free(signature.s);
+
+        // Construct order action JSON for request body
+        const order_type_json = if (order_request.order_type.limit != null) blk: {
+            const tif = order_request.order_type.limit.?.tif;
+            break :blk try std.fmt.allocPrint(
+                self.allocator,
+                \\{{"limit":{{"tif":"{s}"}}}}
+                ,
+                .{tif},
+            );
+        } else if (order_request.order_type.market != null) blk: {
+            break :blk try self.allocator.dupe(u8, "{\"market\":{}}");
+        } else {
+            return error.UnsupportedOrderType;
+        };
+        defer self.allocator.free(order_type_json);
+
         const action_json = try std.fmt.allocPrint(
             self.allocator,
-            \\{{"type":"order","orders":[{{"a":{d},"b":true,"p":"{s}","s":"{s}","r":false,"t":{{"limit":{{"tif":"Gtc"}}}}}}],"grouping":"na"}}
+            \\{{"type":"order","orders":[{{"a":{d},"b":{s},"p":"{s}","s":"{s}","r":{s},"t":{s}}}],"grouping":"na"}}
             ,
             .{
-                0, // asset index (TODO: lookup from coin)
+                order_request.asset_index,
+                if (order_request.is_buy) "true" else "false",
                 order_request.limit_px,
                 order_request.sz,
+                if (order_request.reduce_only) "true" else "false",
+                order_type_json,
             },
         );
         defer self.allocator.free(action_json);
 
-        // Sign the action
-        const signature = try self.signer.?.signAction(action_json);
-        defer self.allocator.free(signature.r);
-        defer self.allocator.free(signature.s);
-
-        // Construct signed request
+        // Construct signed request (use the same nonce!)
         const request_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
             ,
             .{
                 action_json,
-                std.time.milliTimestamp(),
+                nonce,
                 signature.r,
                 signature.s,
                 signature.v,
@@ -91,7 +142,33 @@ pub const ExchangeAPI = struct {
         const response_body = try self.http_client.postExchange(request_json);
         defer self.allocator.free(response_body);
 
-        // Parse response
+        // Debug: Log the raw response
+        self.logger.debug("Raw placeOrder response: {s}", .{response_body}) catch {};
+
+        // Parse response as dynamic JSON first
+        const parsed_raw = try std.json.parseFromSlice(
+            std.json.Value,
+            self.allocator,
+            response_body,
+            .{ .allocate = .alloc_always },
+        );
+        defer parsed_raw.deinit();
+
+        const root = parsed_raw.value.object;
+
+        // Check status field
+        const status = root.get("status") orelse return error.MissingStatus;
+        const status_str = status.string;
+
+        // Handle error response
+        if (std.mem.eql(u8, status_str, "err")) {
+            const response = root.get("response") orelse return error.MissingResponse;
+            const error_msg = response.string;
+            self.logger.err("Exchange API error: {s}", .{error_msg}) catch {};
+            return error.ExchangeAPIError;
+        }
+
+        // Parse success response
         const parsed = try std.json.parseFromSlice(
             types.OrderResponse,
             self.allocator,
@@ -99,6 +176,17 @@ pub const ExchangeAPI = struct {
             .{ .allocate = .alloc_always },
         );
         defer parsed.deinit();
+
+        // Check for order errors in statuses
+        if (parsed.value.response.data) |data| {
+            if (data.statuses.len > 0) {
+                const first_status = data.statuses[0];
+                if (first_status.@"error") |err_msg| {
+                    self.logger.err("Order rejected: {s}", .{err_msg}) catch {};
+                    return error.OrderRejected;
+                }
+            }
+        }
 
         return parsed.value;
     }
@@ -118,7 +206,30 @@ pub const ExchangeAPI = struct {
 
         self.logger.debug("Canceling order {d} (asset index: {d})", .{ order_id, asset_index }) catch {};
 
-        // Construct cancel action
+        // Build msgpack cancel action for signing
+        const msgpack_cancel = msgpack.CancelRequest{
+            .a = asset_index,
+            .o = order_id,
+        };
+
+        const cancels = [_]msgpack.CancelRequest{msgpack_cancel};
+        const action_msgpack = try msgpack.packCancelAction(
+            self.allocator,
+            &cancels,
+        );
+        defer self.allocator.free(action_msgpack);
+
+        self.logger.debug("Msgpack cancel action size: {d} bytes", .{action_msgpack.len}) catch {};
+
+        // Generate nonce (must be same for signing and request!)
+        const nonce = @as(u64, @intCast(std.time.milliTimestamp()));
+
+        // Sign the msgpack-encoded action (with phantom agent)
+        const signature = try self.signer.?.signAction(action_msgpack, nonce);
+        defer self.allocator.free(signature.r);
+        defer self.allocator.free(signature.s);
+
+        // Construct cancel action JSON for request body
         const action_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"type":"cancel","cancels":[{{"a":{d},"o":{d}}}]}}
@@ -130,19 +241,14 @@ pub const ExchangeAPI = struct {
         );
         defer self.allocator.free(action_json);
 
-        // Sign the action
-        const signature = try self.signer.?.signAction(action_json);
-        defer self.allocator.free(signature.r);
-        defer self.allocator.free(signature.s);
-
-        // Construct signed request
+        // Construct signed request (use the same nonce!)
         const request_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
             ,
             .{
                 action_json,
-                std.time.milliTimestamp(),
+                nonce,
                 signature.r,
                 signature.s,
                 signature.v,
@@ -198,19 +304,25 @@ pub const ExchangeAPI = struct {
         };
         defer self.allocator.free(action_json);
 
-        // Sign the action
-        const signature = try self.signer.?.signAction(action_json);
+        // TODO: Implement msgpack encoding for cancel actions
+        // For now, using JSON as placeholder (need to implement msgpack.packCancelAction)
+
+        // Generate nonce (must be same for signing and request!)
+        const nonce = @as(u64, @intCast(std.time.milliTimestamp()));
+
+        // Sign the action (TODO: should sign msgpack, not JSON)
+        const signature = try self.signer.?.signAction(action_json, nonce);
         defer self.allocator.free(signature.r);
         defer self.allocator.free(signature.s);
 
-        // Construct signed request
+        // Construct signed request (use the same nonce!)
         const request_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
             ,
             .{
                 action_json,
-                std.time.milliTimestamp(),
+                nonce,
                 signature.r,
                 signature.s,
                 signature.v,

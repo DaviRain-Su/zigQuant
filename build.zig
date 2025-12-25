@@ -208,6 +208,40 @@ pub fn build(b: *std.Build) void {
     const ws_orderbook_step = b.step("test-ws-orderbook", "Run WebSocket Orderbook integration test (requires network)");
     ws_orderbook_step.dependOn(&run_ws_orderbook_test.step);
 
+    // Order Lifecycle integration test - tests complete order lifecycle (submit, query, cancel)
+    const order_lifecycle_test = b.addExecutable(.{
+        .name = "order-lifecycle-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/order_lifecycle_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_order_lifecycle_test = b.addRunArtifact(order_lifecycle_test);
+    const order_lifecycle_step = b.step("test-order-lifecycle", "Run Order Lifecycle integration test (requires network and testnet account)");
+    order_lifecycle_step.dependOn(&run_order_lifecycle_test.step);
+
+    // Verify Keys tool - helps verify private key and wallet address match
+    const verify_keys = b.addExecutable(.{
+        .name = "verify-keys",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/verify_keys.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigeth", .module = zigeth.module("zigeth") },
+            },
+        }),
+    });
+
+    const run_verify_keys = b.addRunArtifact(verify_keys);
+    const verify_keys_step = b.step("verify-keys", "Verify that private key and wallet address in test config match");
+    verify_keys_step.dependOn(&run_verify_keys.step);
+
     // ========================================================================
     // Examples
     // ========================================================================

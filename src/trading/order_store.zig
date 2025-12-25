@@ -74,6 +74,9 @@ pub const OrderStore = struct {
         const client_id_key = try self.allocator.dupe(u8, client_order_id);
         errdefer self.allocator.free(client_id_key);
 
+        // Point Order.client_order_id to the duplicated key (single source of truth)
+        order_ptr.client_order_id = client_id_key;
+
         try self.orders_by_client_id.put(client_id_key, order_ptr);
 
         // Add to exchange_order_id index if present

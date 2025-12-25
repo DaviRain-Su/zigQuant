@@ -100,13 +100,13 @@ pub const OrderManager = struct {
         defer self.mutex.unlock();
 
         // Generate client order ID
+        // Note: Memory is NOT freed here - ownership transfers to order_store
         const client_id_num = self.next_client_order_id.fetchAdd(1, .monotonic);
         const client_order_id = try std.fmt.allocPrint(
             self.allocator,
             "order-{d}-{d}",
             .{ std.time.milliTimestamp(), client_id_num },
         );
-        defer self.allocator.free(client_order_id);
 
         // Create order object
         const order = Order{
@@ -138,7 +138,9 @@ pub const OrderManager = struct {
         }
 
         // Store order before submission
+        // Note: order_store duplicates client_order_id, so we can free the original
         try self.order_store.add(order);
+        defer self.allocator.free(client_order_id); // Free original after duplication
 
         // Create order request
         const request = OrderRequest{
@@ -218,7 +220,11 @@ pub const OrderManager = struct {
         // Update order status
         order.status = .cancelled;
         order.updated_at = Timestamp.now();
-        try self.order_store.update(order.client_order_id);
+
+        const client_id = order.client_order_id orelse {
+            return error.MissingClientOrderId;
+        };
+        try self.order_store.update(client_id);
 
         self.logger.info("Order cancelled: exchange_id={d}", .{exchange_order_id}) catch {};
 
@@ -331,7 +337,11 @@ pub const OrderManager = struct {
         order.filled_amount = updated_order.filled_amount;
         order.avg_fill_price = updated_order.avg_fill_price;
         order.updated_at = Timestamp.now();
-        try self.order_store.update(order.client_order_id);
+
+        const client_id = order.client_order_id orelse {
+            return error.MissingClientOrderId;
+        };
+        try self.order_store.update(client_id);
 
         self.logger.info("Order status refreshed: exchange_id={d}, status={s}", .{
             exchange_order_id,
