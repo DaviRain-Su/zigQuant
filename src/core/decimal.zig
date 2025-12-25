@@ -35,6 +35,7 @@ pub const Decimal = struct {
 
     pub const ZERO: Decimal = .{ .value = 0, .scale = SCALE };
     pub const ONE: Decimal = .{ .value = MULTIPLIER, .scale = SCALE };
+    pub const NaN: Decimal = .{ .value = std.math.maxInt(i128), .scale = SCALE };
 
     // ========================================================================
     // Constructors
@@ -244,6 +245,51 @@ pub const Decimal = struct {
         };
     }
 
+    /// Calculate square root using Newton's method
+    /// Returns error for negative numbers
+    pub fn sqrt(self: Decimal) !Decimal {
+        if (self.value < 0) {
+            return error.NegativeSquareRoot;
+        }
+        if (self.value == 0) {
+            return ZERO;
+        }
+
+        // Use Newton's method: x_{n+1} = (x_n + S/x_n) / 2
+        // Initial guess: roughly half the value
+        var guess = Decimal{ .value = @divTrunc(self.value, 2), .scale = SCALE };
+
+        // If guess is too small, use a minimum
+        if (guess.value < MULTIPLIER / 100) {
+            guess.value = MULTIPLIER / 100;  // Start with at least 0.01
+        }
+
+        const two = Decimal.fromInt(2);
+
+        // Iterate until convergence (max 30 iterations)
+        var i: u8 = 0;
+        while (i < 30) : (i += 1) {
+            const prev_value = guess.value;
+
+            // Calculate self / guess
+            const div_result = try self.div(guess);
+
+            // new_guess = (guess + div_result) / 2
+            guess = try guess.add(div_result).div(two);
+
+            // Check convergence: |guess - prev_guess| < tolerance
+            const diff = if (guess.value > prev_value)
+                guess.value - prev_value
+            else
+                prev_value - guess.value;
+
+            // Tolerance: 1 unit in internal representation (very small)
+            if (diff < 10) break;
+        }
+
+        return guess;
+    }
+
     // ========================================================================
     // Comparison Operations
     // ========================================================================
@@ -276,6 +322,11 @@ pub const Decimal = struct {
     /// Check if negative
     pub fn isNegative(self: Decimal) bool {
         return self.value < 0;
+    }
+
+    /// Check if NaN (Not a Number)
+    pub fn isNaN(self: Decimal) bool {
+        return self.value == std.math.maxInt(i128);
     }
 
     /// Get absolute value

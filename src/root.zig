@@ -43,6 +43,15 @@ pub const strategy_risk = @import("strategy/risk.zig");
 pub const strategy_executor = @import("strategy/executor.zig");
 pub const strategy_context = @import("strategy/context.zig");
 
+// Indicator modules
+pub const indicator_interface = @import("strategy/indicators/interface.zig");
+pub const indicator_utils = @import("strategy/indicators/utils.zig");
+pub const indicator_sma = @import("strategy/indicators/sma.zig");
+pub const indicator_ema = @import("strategy/indicators/ema.zig");
+pub const indicator_rsi = @import("strategy/indicators/rsi.zig");
+pub const indicator_macd = @import("strategy/indicators/macd.zig");
+pub const indicator_bollinger = @import("strategy/indicators/bollinger.zig");
+
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
 pub const order_manager = @import("trading/order_manager.zig");
@@ -80,6 +89,16 @@ pub const MarketDataProvider = strategy_market_data.MarketDataProvider;
 pub const RiskManager = strategy_risk.RiskManager;
 pub const OrderExecutor = strategy_executor.OrderExecutor;
 pub const StrategyContext = strategy_context.StrategyContext;
+
+// Re-export indicator types
+pub const IIndicator = indicator_interface.IIndicator;
+pub const SMA = indicator_sma.SMA;
+pub const EMA = indicator_ema.EMA;
+pub const RSI = indicator_rsi.RSI;
+pub const MACD = indicator_macd.MACD;
+pub const MACDResult = indicator_macd.MACDResult;
+pub const BollingerBands = indicator_bollinger.BollingerBands;
+pub const BollingerResult = indicator_bollinger.BollingerResult;
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
@@ -188,6 +207,15 @@ test {
     _ = strategy_risk;
     _ = strategy_executor;
     _ = strategy_context;
+
+    // Indicator modules
+    _ = indicator_interface;
+    _ = indicator_utils;
+    _ = indicator_sma;
+    _ = indicator_ema;
+    _ = indicator_rsi;
+    _ = indicator_macd;
+    _ = indicator_bollinger;
 
     // Trading modules
     _ = order_store;
