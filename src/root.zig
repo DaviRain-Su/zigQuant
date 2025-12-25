@@ -45,6 +45,8 @@ pub const strategy_context = @import("strategy/context.zig");
 
 // Built-in strategies
 pub const strategy_dual_ma = @import("strategy/builtin/dual_ma.zig");
+pub const strategy_mean_reversion = @import("strategy/builtin/mean_reversion.zig");
+pub const strategy_breakout = @import("strategy/builtin/breakout.zig");
 
 // Indicator modules
 pub const indicator_interface = @import("strategy/indicators/interface.zig");
@@ -97,6 +99,8 @@ pub const StrategyContext = strategy_context.StrategyContext;
 
 // Re-export built-in strategies
 pub const DualMAStrategy = strategy_dual_ma.DualMAStrategy;
+pub const RSIMeanReversionStrategy = strategy_mean_reversion.RSIMeanReversionStrategy;
+pub const BollingerBreakoutStrategy = strategy_breakout.BollingerBreakoutStrategy;
 
 // Re-export indicator types
 pub const IIndicator = indicator_interface.IIndicator;
@@ -218,6 +222,8 @@ test {
     _ = strategy_executor;
     _ = strategy_context;
     _ = strategy_dual_ma;
+    _ = strategy_mean_reversion;
+    _ = strategy_breakout;
 
     // Indicator modules
     _ = indicator_interface;
