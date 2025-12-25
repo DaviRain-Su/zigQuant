@@ -79,9 +79,13 @@ pub const OrderBook = struct {
 
     /// Create a new order book
     pub fn init(allocator: Allocator, symbol: []const u8) !OrderBook {
+        // Duplicate symbol to ensure we own the memory
+        const owned_symbol = try allocator.dupe(u8, symbol);
+        errdefer allocator.free(owned_symbol);
+
         return OrderBook{
             .allocator = allocator,
-            .symbol = symbol,
+            .symbol = owned_symbol,
             .bids = try std.ArrayList(Level).initCapacity(allocator, 0),
             .asks = try std.ArrayList(Level).initCapacity(allocator, 0),
             .last_update_time = Timestamp.now(),
@@ -91,6 +95,7 @@ pub const OrderBook = struct {
 
     /// Free resources
     pub fn deinit(self: *OrderBook) void {
+        self.allocator.free(self.symbol);
         self.bids.deinit(self.allocator);
         self.asks.deinit(self.allocator);
     }
@@ -329,7 +334,10 @@ pub const OrderBookManager = struct {
         errdefer self.allocator.destroy(ob);
 
         ob.* = try OrderBook.init(self.allocator, symbol);
-        try self.orderbooks.put(symbol, ob);
+        errdefer ob.deinit();
+
+        // Use the owned symbol from OrderBook as the HashMap key
+        try self.orderbooks.put(ob.symbol, ob);
 
         return ob;
     }

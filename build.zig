@@ -191,6 +191,23 @@ pub fn build(b: *std.Build) void {
     const ws_integration_step = b.step("test-ws", "Run WebSocket integration test (requires network)");
     ws_integration_step.dependOn(&run_ws_integration_test.step);
 
+    // WebSocket Orderbook integration test - tests orderbook updates via WebSocket
+    const ws_orderbook_test = b.addExecutable(.{
+        .name = "websocket-orderbook-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/websocket_orderbook_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_ws_orderbook_test = b.addRunArtifact(ws_orderbook_test);
+    const ws_orderbook_step = b.step("test-ws-orderbook", "Run WebSocket Orderbook integration test (requires network)");
+    ws_orderbook_step.dependOn(&run_ws_orderbook_test.step);
+
     // ========================================================================
     // Examples
     // ========================================================================
