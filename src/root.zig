@@ -66,6 +66,16 @@ pub const position = @import("trading/position.zig");
 pub const account = @import("trading/account.zig");
 pub const position_tracker = @import("trading/position_tracker.zig");
 
+// Backtest modules
+pub const backtest_types = @import("backtest/types.zig");
+pub const backtest_event = @import("backtest/event.zig");
+pub const backtest_executor = @import("backtest/executor.zig");
+pub const backtest_account = @import("backtest/account.zig");
+pub const backtest_position = @import("backtest/position.zig");
+pub const backtest_data_feed = @import("backtest/data_feed.zig");
+pub const backtest_engine = @import("backtest/engine.zig");
+pub const backtest_analyzer = @import("backtest/analyzer.zig");
+
 // Re-export market data types
 pub const OrderBook = orderbook.OrderBook;
 pub const OrderBookManager = orderbook.OrderBookManager;
@@ -120,6 +130,22 @@ pub const OrderManager = order_manager.OrderManager;
 pub const TradingPosition = position.Position;
 pub const Account = account.Account;
 pub const PositionTracker = position_tracker.PositionTracker;
+
+// Re-export backtest types
+pub const BacktestEngine = backtest_engine.BacktestEngine;
+pub const BacktestConfig = backtest_types.BacktestConfig;
+pub const BacktestResult = backtest_types.BacktestResult;
+pub const BacktestError = backtest_types.BacktestError;
+pub const Trade = backtest_types.Trade;
+pub const EquitySnapshot = backtest_types.EquitySnapshot;
+pub const PositionSide = backtest_types.PositionSide;
+pub const PerformanceAnalyzer = backtest_analyzer.PerformanceAnalyzer;
+pub const PerformanceMetrics = backtest_analyzer.PerformanceMetrics;
+pub const HistoricalDataFeed = backtest_data_feed.HistoricalDataFeed;
+pub const BacktestAccount = backtest_account.Account;
+pub const BacktestPosition = backtest_position.Position;
+pub const BacktestPositionManager = backtest_position.PositionManager;
+pub const BacktestOrderExecutor = backtest_executor.OrderExecutor;
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -242,4 +268,14 @@ test {
     _ = position;
     _ = account;
     _ = position_tracker;
+
+    // Backtest modules
+    _ = backtest_types;
+    _ = backtest_event;
+    _ = backtest_executor;
+    _ = backtest_account;
+    _ = backtest_position;
+    _ = backtest_data_feed;
+    _ = backtest_engine;
+    _ = backtest_analyzer;
 }

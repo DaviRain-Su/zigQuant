@@ -1,422 +1,622 @@
-# Story 020: BacktestEngine 回测引擎核心实现
+# Story 020: BacktestEngine - Implementation-Ready Specification
 
 **Story ID**: STORY-020
-**版本**: v0.3.0
-**优先级**: P0
-**工作量**: 2天
-**状态**: 待开始
-**创建时间**: 2025-12-25
+**Version**: v0.3.0
+**Priority**: P0
+**Effort**: 2 days
+**Status**: Ready for Implementation
+**Created**: 2025-12-25
+**Updated**: 2025-12-25
 
 ---
 
-## 📋 基本信息
-
-### 所属版本
-v0.3.0 - Week 2: 内置策略 + 回测引擎
-
-### 依赖关系
-- **前置依赖**:
-  - STORY-013: IStrategy 接口和核心类型
-  - STORY-014: StrategyContext 和辅助组件
-  - STORY-015: 技术指标库实现
-  - STORY-017: DualMAStrategy（用于测试）
-  - STORY-018: RSIMeanReversionStrategy（用于测试）
-  - STORY-019: BollingerBreakoutStrategy（用于测试）
-- **后置影响**:
-  - STORY-021: PerformanceAnalyzer 依赖回测结果
-  - STORY-022: GridSearchOptimizer 使用回测引擎
-  - STORY-023: CLI 策略命令使用回测引擎
+## Table of Contents
+1. [Overview](#overview)
+2. [Data Format Specifications](#data-format-specifications)
+3. [Event Loop State Machine](#event-loop-state-machine)
+4. [Component Architecture](#component-architecture)
+5. [Error Handling Strategy](#error-handling-strategy)
+6. [Integration with StrategyContext](#integration-with-strategycontext)
+7. [Concrete Configuration Examples](#concrete-configuration-examples)
+8. [Sequence Diagrams](#sequence-diagrams)
+9. [Testing Specifications](#testing-specifications)
+10. [Mock Strategies](#mock-strategies)
+11. [Implementation Checklist](#implementation-checklist)
 
 ---
 
-## 🎯 Story 描述
+## Overview
 
-### 用户故事
-作为一个**量化交易开发者**，我希望**使用回测引擎验证策略在历史数据上的表现**，以便**在实盘前评估策略的盈利能力和风险**。
+### User Story
+As a **quantitative trading developer**, I want to **use a backtest engine to validate strategies on historical data**, so that **I can evaluate profitability and risk before live trading**.
 
-### 业务价值
-- 提供策略验证的核心能力
-- 支持历史数据回放和事件驱动模拟
-- 模拟真实交易环境（订单执行、手续费、滑点）
-- 为参数优化提供基础设施
-- 降低实盘风险，提高策略成功率
+### Business Value
+- Core strategy validation capability
+- Historical data replay with event-driven simulation
+- Realistic trading environment (orders, fees, slippage)
+- Foundation for parameter optimization
+- Risk reduction through thorough pre-live testing
 
-### 技术背景
-回测引擎（Backtesting Engine）是量化交易系统的核心组件：
+### Dependencies
+**Prerequisite Stories**:
+- STORY-013: IStrategy Interface ✓
+- STORY-014: StrategyContext ✓
+- STORY-015: Technical Indicators ✓
+- STORY-017: DualMAStrategy (for testing)
+- STORY-018: RSIMeanReversionStrategy (for testing)
+- STORY-019: BollingerBreakoutStrategy (for testing)
 
-**核心功能**:
-- **历史数据回放**: 按时间顺序重放历史 K 线数据
-- **事件驱动**: 使用事件队列驱动策略执行
-- **订单模拟**: 模拟市价单、限价单的执行
-- **账户管理**: 跟踪资金、持仓、盈亏
-- **性能统计**: 记录所有交易用于后续分析
-
-**设计原则**（参考 Freqtrade/Backtrader）:
-- **事件驱动**: Market Data Event → Strategy Signal → Order Event → Fill Event
-- **向前测试**: 严格避免"未来函数"（look-ahead bias）
-- **真实模拟**: 考虑手续费、滑点、市场冲击
-- **高性能**: 支持大规模数据回测（10,000+ candles）
-
-参考实现：
-- [Freqtrade Backtesting](https://www.freqtrade.io/en/stable/backtesting/)
-- [Backtrader Engine](https://www.backtrader.com/docu/concepts/)
-- [Hummingbot Backtesting](https://hummingbot.org/academy/backtesting/)
+**Dependent Stories**:
+- STORY-021: PerformanceAnalyzer
+- STORY-022: GridSearchOptimizer
+- STORY-023: CLI Strategy Commands
 
 ---
 
-## 📝 详细需求
+## Data Format Specifications
 
-### 功能需求
+### 1. Historical Data Storage Format
 
-#### FR-020-1: 回测引擎核心（BacktestEngine）
-- **职责**: 协调整个回测流程
-- **功能**:
-  - 加载历史数据
-  - 初始化策略和账户
-  - 驱动事件循环
-  - 收集回测结果
-  - 生成性能报告
-- **接口**:
-  ```zig
-  pub fn run(
-      self: *BacktestEngine,
-      strategy: IStrategy,
-      config: BacktestConfig,
-  ) !BacktestResult
-  ```
+#### CSV Format (Primary)
+```csv
+timestamp,open,high,low,close,volume
+1704067200000,42350.50,42450.75,42200.00,42380.25,1234.56
+1704067800000,42380.25,42500.00,42350.00,42475.80,987.32
+```
 
-#### FR-020-2: 历史数据提供者（HistoricalDataFeed）
-- **职责**: 提供历史 K 线数据
-- **功能**:
-  - 从文件/数据库加载数据
-  - 支持多种时间周期（1m, 5m, 15m, 1h, 4h, 1d）
-  - 按时间顺序迭代数据
-  - 数据验证（完整性、连续性）
-- **接口**:
-  ```zig
-  pub fn load(
-      self: *HistoricalDataFeed,
-      pair: TradingPair,
-      timeframe: Timeframe,
-      start_time: Timestamp,
-      end_time: Timestamp,
-  ) !Candles
-  ```
+**Requirements**:
+- Timestamp: Unix milliseconds (i64)
+- Prices: String representation of Decimal (18 decimal places)
+- Volume: String representation of Decimal
+- Sorted ascending by timestamp (MUST be enforced)
+- No gaps in time series (validation required)
+- File naming: `{pair}_{timeframe}_{start}_{end}.csv`
+  - Example: `BTCUSDT_15m_1704067200000_1706745600000.csv`
 
-#### FR-020-3: 事件系统（Event System）
-- **事件类型**:
-  - `MarketEvent`: 新 K 线数据到达
-  - `SignalEvent`: 策略生成交易信号
-  - `OrderEvent`: 创建订单
-  - `FillEvent`: 订单成交
-- **事件队列**: FIFO 队列，严格按时间顺序处理
-- **事件分发**: 根据事件类型分发给相应处理器
+#### JSON Format (Alternative)
+```json
+{
+  "pair": "BTC/USDT",
+  "timeframe": "15m",
+  "data": [
+    {
+      "t": 1704067200000,
+      "o": "42350.50",
+      "h": "42450.75",
+      "l": "42200.00",
+      "c": "42380.25",
+      "v": "1234.56"
+    }
+  ]
+}
+```
 
-#### FR-020-4: 订单执行模拟器（OrderExecutor）
-- **订单类型**:
-  - 市价单（Market Order）: 立即按当前价格成交
-  - 限价单（Limit Order）: 价格达到时成交（未来扩展）
-- **执行逻辑**:
-  - 市价单: 使用当前 K 线的 close 价格 + 滑点
-  - 滑点计算: `fill_price = close * (1 + slippage)`（做多）
-  - 手续费: `fee = fill_price * size * commission_rate`
-- **成交确认**: 生成 FillEvent
+### 2. Data Loading Interface
 
-#### FR-020-5: 账户和持仓管理（Account & Position Manager）
-- **账户管理**:
-  - 初始资金
-  - 可用余额
-  - 冻结资金（持仓占用）
-  - 总权益（余额 + 持仓市值）
-  - 累计盈亏
-- **持仓管理**:
-  - 当前持仓（多头/空头/空仓）
-  - 持仓成本
-  - 未实现盈亏
-  - 持仓时间
-
-#### FR-020-6: 回测配置（BacktestConfig）
-- **配置项**:
-  - `pair: TradingPair` - 交易对
-  - `timeframe: Timeframe` - 时间周期
-  - `start_time: Timestamp` - 开始时间
-  - `end_time: Timestamp` - 结束时间
-  - `initial_capital: Decimal` - 初始资金
-  - `commission_rate: Decimal` - 手续费率（默认：0.001，即 0.1%）
-  - `slippage: Decimal` - 滑点（默认：0.0005，即 0.05%）
-  - `enable_short: bool` - 是否允许做空（默认：true）
-  - `max_positions: u32` - 最大同时持仓数（默认：1）
-
-#### FR-020-7: 回测结果（BacktestResult）
-- **交易记录**:
-  - 所有已完成交易的列表（Trade）
-  - 每笔交易包含: 入场时间、出场时间、入场价、出场价、方向、盈亏
-- **账户快照**:
-  - 权益曲线（Equity Curve）
-  - 每日净值
-- **基础统计**:
-  - 总交易次数
-  - 盈利/亏损交易数
-  - 总盈利/总亏损
-  - 净利润
-  - 胜率
-  - 盈亏比
-
-### 非功能需求
-
-#### NFR-020-1: 性能要求
-- **回测速度**: > 1000 candles/s（单策略）
-- **内存占用**: < 50MB（10,000 根 K 线）
-- **支持规模**: 支持至少 50,000 根 K 线的回测
-
-#### NFR-020-2: 准确性要求
-- **向前测试**: 严格避免未来函数
-- **时间精度**: 毫秒级时间戳
-- **数值精度**: 使用 Decimal 避免浮点误差
-- **成交模拟**: 真实模拟滑点和手续费
-
-#### NFR-020-3: 代码质量
-- **模块化**: 各组件职责单一，低耦合
-- **可测试**: 所有组件可独立测试
-- **可扩展**: 支持添加新的订单类型、执行逻辑
-- **文档**: 详细的架构文档和 API 文档
-
-#### NFR-020-4: 可观测性
-- **日志**: 记录关键事件（订单、成交、错误）
-- **进度**: 显示回测进度（已处理 K 线数/总数）
-- **调试**: 支持详细模式（打印所有事件）
-
----
-
-## ✅ 验收标准
-
-### AC-020-1: 回测引擎功能完整
-- [ ] 能成功加载历史数据
-- [ ] 能初始化策略并计算指标
-- [ ] 能驱动完整的事件循环
-- [ ] 能正确执行订单
-- [ ] 能生成完整的回测结果
-
-### AC-020-2: 订单执行准确性
-- [ ] 市价单立即成交
-- [ ] 成交价格考虑滑点
-- [ ] 手续费计算准确
-- [ ] 账户余额更新正确
-- [ ] 持仓状态正确
-
-### AC-020-3: 无未来函数
-- [ ] 策略只能访问当前和历史数据
-- [ ] 指标计算不使用未来数据
-- [ ] 信号生成不使用未来数据
-- [ ] 通过严格的向前测试验证
-
-### AC-020-4: 性能达标
-- [ ] 回测速度 > 1000 candles/s
-- [ ] 10,000 根 K 线回测 < 10 秒
-- [ ] 内存占用 < 50MB
-- [ ] 零内存泄漏
-
-### AC-020-5: 测试完整性
-- [ ] 单元测试覆盖率 > 85%
-- [ ] 集成测试通过
-- [ ] 端到端测试通过
-- [ ] 使用真实策略验证
-
-### AC-020-6: 结果准确性
-- [ ] 交易记录完整
-- [ ] 盈亏计算准确（手工验证）
-- [ ] 胜率计算正确
-- [ ] 权益曲线连续
-
----
-
-## 📂 涉及文件
-
-### 新建文件
-- `src/backtest/engine.zig` - 回测引擎核心（~400 行）
-- `src/backtest/data_feed.zig` - 历史数据提供者（~200 行）
-- `src/backtest/event.zig` - 事件系统（~300 行）
-- `src/backtest/executor.zig` - 订单执行器（~250 行）
-- `src/backtest/account.zig` - 账户管理（~200 行）
-- `src/backtest/position.zig` - 持仓管理（~150 行）
-- `src/backtest/types.zig` - 类型定义（~200 行）
-- `src/backtest/engine_test.zig` - 单元测试（~400 行）
-- `tests/integration/backtest_e2e_test.zig` - 端到端测试（~300 行）
-- `docs/features/backtest/architecture.md` - 架构文档
-- `docs/features/backtest/api.md` - API 文档
-
-### 修改文件
-- `src/backtest/mod.zig` - 模块导出
-- `build.zig` - 添加回测模块和测试
-- `src/strategy/context.zig` - 可能需要扩展上下文
-
-### 参考文件
-- `src/strategy/interface.zig` - 策略接口
-- `docs/v0.3.0_STRATEGY_FRAMEWORK_DESIGN.md` - 设计文档
-
----
-
-## 🔨 技术实现
-
-### 实现步骤
-
-#### Step 1: 定义核心类型（2小时）
 ```zig
-// src/backtest/types.zig
+/// Historical data feed configuration
+pub const DataFeedConfig = struct {
+    /// Data source type
+    source: DataSource,
 
-/// 回测配置
-pub const BacktestConfig = struct {
-    pair: TradingPair,
-    timeframe: Timeframe,
-    start_time: Timestamp,
-    end_time: Timestamp,
-    initial_capital: Decimal,
-    commission_rate: Decimal = try Decimal.fromFloat(0.001),  // 0.1%
-    slippage: Decimal = try Decimal.fromFloat(0.0005),        // 0.05%
-    enable_short: bool = true,
-    max_positions: u32 = 1,
-};
+    /// Base directory for CSV files
+    data_dir: []const u8,
 
-/// 交易记录
-pub const Trade = struct {
-    id: u64,
-    pair: TradingPair,
-    side: Side,  // long/short
-    entry_time: Timestamp,
-    exit_time: Timestamp,
-    entry_price: Decimal,
-    exit_price: Decimal,
-    size: Decimal,
-    pnl: Decimal,
-    pnl_percent: Decimal,
-    commission: Decimal,
-    duration_minutes: u64,
-};
+    /// Enable data validation
+    validate: bool = true,
 
-/// 回测结果
-pub const BacktestResult = struct {
-    // 基础统计
-    total_trades: u32,
-    winning_trades: u32,
-    losing_trades: u32,
+    /// Cache loaded data in memory
+    enable_cache: bool = true,
 
-    total_profit: Decimal,
-    total_loss: Decimal,
-    net_profit: Decimal,
-
-    win_rate: f64,
-    profit_factor: f64,  // total_profit / total_loss
-
-    // 详细数据
-    trades: []Trade,
-    equity_curve: []EquitySnapshot,
-
-    // 配置
-    config: BacktestConfig,
-    strategy_name: []const u8,
-
-    pub const EquitySnapshot = struct {
-        timestamp: Timestamp,
-        equity: Decimal,
-        balance: Decimal,
-        unrealized_pnl: Decimal,
+    pub const DataSource = enum {
+        csv,      // Load from CSV files
+        json,     // Load from JSON files
+        memory,   // Use in-memory test data
     };
+};
+
+/// Load historical data from CSV
+pub fn loadFromCSV(
+    allocator: std.mem.Allocator,
+    file_path: []const u8,
+) !Candles {
+    var file = try std.fs.cwd().openFile(file_path, .{});
+    defer file.close();
+
+    var buffered = std.io.bufferedReader(file.reader());
+    var reader = buffered.reader();
+
+    var candles = Candles.init(allocator);
+    errdefer candles.deinit();
+
+    var line_buf: [1024]u8 = undefined;
+    var line_num: usize = 0;
+
+    while (try reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+        line_num += 1;
+
+        // Skip header
+        if (line_num == 1 and std.mem.startsWith(u8, line, "timestamp")) {
+            continue;
+        }
+
+        const candle = try parseCSVLine(line, line_num);
+        try candles.append(candle);
+    }
+
+    return candles;
+}
+
+fn parseCSVLine(line: []const u8, line_num: usize) !Candle {
+    var iter = std.mem.split(u8, line, ",");
+
+    const timestamp_str = iter.next() orelse return error.MissingTimestamp;
+    const open_str = iter.next() orelse return error.MissingOpen;
+    const high_str = iter.next() orelse return error.MissingHigh;
+    const low_str = iter.next() orelse return error.MissingLow;
+    const close_str = iter.next() orelse return error.MissingClose;
+    const volume_str = iter.next() orelse return error.MissingVolume;
+
+    return Candle{
+        .timestamp = try Timestamp.fromUnixMillis(
+            try std.fmt.parseInt(i64, timestamp_str, 10)
+        ),
+        .open = try Decimal.fromString(open_str),
+        .high = try Decimal.fromString(high_str),
+        .low = try Decimal.fromString(low_str),
+        .close = try Decimal.fromString(close_str),
+        .volume = try Decimal.fromString(volume_str),
+    };
+}
+```
+
+### 3. Data Validation Requirements
+
+```zig
+/// Validate candle data integrity
+pub fn validateCandles(candles: *const Candles) !void {
+    if (candles.data.len == 0) {
+        return error.EmptyDataset;
+    }
+
+    // Check each candle's OHLCV consistency
+    for (candles.data) |candle| {
+        try candle.validate(); // From candles.zig
+    }
+
+    // Check time series continuity
+    for (1..candles.data.len) |i| {
+        const prev = candles.data[i - 1];
+        const curr = candles.data[i];
+
+        // Must be sorted ascending
+        if (curr.timestamp.unix <= prev.timestamp.unix) {
+            std.log.err("Candles not sorted at index {}: {} <= {}", .{
+                i, curr.timestamp.unix, prev.timestamp.unix
+            });
+            return error.DataNotSorted;
+        }
+
+        // Check for reasonable gaps (optional, based on timeframe)
+        // For 15m data, gap should be exactly 900000ms (15 minutes)
+        // Allow some tolerance for exchange downtime
+    }
+}
+```
+
+---
+
+## Event Loop State Machine
+
+### State Diagram
+
+```
+┌─────────────┐
+│   INITIAL   │
+└──────┬──────┘
+       │
+       │ 1. Load Data
+       ▼
+┌─────────────────┐
+│  DATA_LOADED    │
+└──────┬──────────┘
+       │
+       │ 2. Calculate Indicators
+       ▼
+┌──────────────────┐
+│ INDICATORS_READY │
+└──────┬───────────┘
+       │
+       │ 3. Enter Event Loop
+       ▼
+┌────────────────────────────────────────────┐
+│          EVENT LOOP (per candle)           │
+│                                            │
+│  ┌─────────────────────────────────────┐  │
+│  │ 1. UPDATE_POSITION                  │  │
+│  │    - Update unrealized P&L          │  │
+│  │    - Update equity                  │  │
+│  └──────┬──────────────────────────────┘  │
+│         │                                  │
+│         ▼                                  │
+│  ┌─────────────────────────────────────┐  │
+│  │ 2. SNAPSHOT_EQUITY                  │  │
+│  │    - Record equity curve point      │  │
+│  └──────┬──────────────────────────────┘  │
+│         │                                  │
+│         ▼                                  │
+│  ┌─────────────────────────────────────┐  │
+│  │ 3. CHECK_EXIT                       │  │
+│  │    - If has position:               │  │
+│  │      • Generate exit signal         │  │
+│  │      • If signal → EXECUTE_EXIT     │  │
+│  │      • Else → CHECK_ENTRY           │  │
+│  │    - If no position → CHECK_ENTRY   │  │
+│  └──────┬──────────────────────────────┘  │
+│         │                                  │
+│         ▼                                  │
+│  ┌─────────────────────────────────────┐  │
+│  │ 4. CHECK_ENTRY                      │  │
+│  │    - If no position:                │  │
+│  │      • Generate entry signal        │  │
+│  │      • If signal → EXECUTE_ENTRY    │  │
+│  │    - If has position → skip         │  │
+│  └──────┬──────────────────────────────┘  │
+│         │                                  │
+│         ▼                                  │
+│  ┌─────────────────────────────────────┐  │
+│  │ 5. ADVANCE_CANDLE                   │  │
+│  │    - Move to next candle            │  │
+│  │    - If more candles → loop         │  │
+│  │    - If done → FINALIZE             │  │
+│  └─────────────────────────────────────┘  │
+│                                            │
+└────────────────────────────────────────────┘
+       │
+       │ All candles processed
+       ▼
+┌─────────────────┐
+│    FINALIZE     │
+│ - Close open    │
+│   positions     │
+│ - Calculate     │
+│   statistics    │
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│    COMPLETE     │
+└─────────────────┘
+```
+
+### State Transitions
+
+```zig
+pub const BacktestState = enum {
+    initial,
+    data_loaded,
+    indicators_ready,
+    running,
+    finalizing,
+    complete,
+    error_state,
+};
+
+pub const BacktestEngine = struct {
+    state: BacktestState,
+
+    /// Execute state machine
+    pub fn run(self: *BacktestEngine, strategy: IStrategy, config: BacktestConfig) !BacktestResult {
+        try self.transitionTo(.initial);
+
+        // 1. Load data
+        const candles = try self.loadData(config);
+        try self.transitionTo(.data_loaded);
+
+        // 2. Calculate indicators
+        try strategy.populateIndicators(&candles);
+        try self.transitionTo(.indicators_ready);
+
+        // 3. Run event loop
+        try self.transitionTo(.running);
+        try self.eventLoop(strategy, &candles, config);
+
+        // 4. Finalize
+        try self.transitionTo(.finalizing);
+        const result = try self.finalize(strategy, config);
+
+        try self.transitionTo(.complete);
+        return result;
+    }
+
+    fn transitionTo(self: *BacktestEngine, new_state: BacktestState) !void {
+        const valid = switch (self.state) {
+            .initial => new_state == .data_loaded,
+            .data_loaded => new_state == .indicators_ready,
+            .indicators_ready => new_state == .running,
+            .running => new_state == .finalizing or new_state == .error_state,
+            .finalizing => new_state == .complete or new_state == .error_state,
+            .complete => false, // Terminal state
+            .error_state => false, // Terminal state
+        };
+
+        if (!valid) {
+            return error.InvalidStateTransition;
+        }
+
+        self.logger.debug("State transition: {} -> {}", .{self.state, new_state});
+        self.state = new_state;
+    }
 };
 ```
 
-#### Step 2: 实现事件系统（3小时）
+---
+
+## Component Architecture
+
+### High-Level Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      BacktestEngine                          │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │              Event Loop Coordinator                    │  │
+│  │  - State management                                    │  │
+│  │  - Event sequencing                                    │  │
+│  │  - Progress tracking                                   │  │
+│  └─────┬────────────────────────────────────────────┬─────┘  │
+│        │                                            │         │
+│  ┌─────▼──────────┐                       ┌────────▼─────┐   │
+│  │ DataFeed       │                       │ OrderExecutor│   │
+│  │ - Load CSV     │                       │ - Market     │   │
+│  │ - Validate     │                       │ - Limit      │   │
+│  │ - Cache        │                       │ - Slippage   │   │
+│  └────────────────┘                       └──────────────┘   │
+│                                                               │
+│  ┌────────────────┐                       ┌──────────────┐   │
+│  │ AccountManager │                       │ PositionMgr  │   │
+│  │ - Balance      │                       │ - Track P&L  │   │
+│  │ - Equity       │                       │ - Open/Close │   │
+│  │ - Commissions  │                       │ - Exposure   │   │
+│  └────────────────┘                       └──────────────┘   │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │              Result Aggregator                          │ │
+│  │  - Collect trades                                       │ │
+│  │  - Build equity curve                                   │ │
+│  │  - Calculate statistics                                 │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Component Details
+
+#### 1. BacktestEngine (Core Coordinator)
+
 ```zig
-// src/backtest/event.zig
+pub const BacktestEngine = struct {
+    allocator: std.mem.Allocator,
+    logger: Logger,
+    state: BacktestState,
 
-/// 事件类型
-pub const EventType = enum {
-    market,
-    signal,
-    order,
-    fill,
+    // Components
+    data_feed: HistoricalDataFeed,
+    account: Account,
+    position_manager: PositionManager,
+    executor: OrderExecutor,
+
+    // Results tracking
+    trades: std.ArrayList(Trade),
+    equity_curve: std.ArrayList(EquitySnapshot),
+
+    // Progress tracking
+    processed_candles: usize,
+    total_candles: usize,
+    start_time: i64,
+
+    pub fn init(allocator: std.mem.Allocator, config: DataFeedConfig) !BacktestEngine {
+        return BacktestEngine{
+            .allocator = allocator,
+            .logger = Logger.init("BacktestEngine"),
+            .state = .initial,
+            .data_feed = try HistoricalDataFeed.init(allocator, config),
+            .account = Account.init(Decimal.ZERO), // Will be set by config
+            .position_manager = PositionManager.init(allocator),
+            .executor = OrderExecutor.init(allocator),
+            .trades = std.ArrayList(Trade).init(allocator),
+            .equity_curve = std.ArrayList(EquitySnapshot).init(allocator),
+            .processed_candles = 0,
+            .total_candles = 0,
+            .start_time = 0,
+        };
+    }
+
+    pub fn deinit(self: *BacktestEngine) void {
+        self.data_feed.deinit();
+        self.position_manager.deinit();
+        self.trades.deinit();
+        self.equity_curve.deinit();
+    }
+};
+```
+
+#### 2. HistoricalDataFeed
+
+```zig
+pub const HistoricalDataFeed = struct {
+    allocator: std.mem.Allocator,
+    logger: Logger,
+    config: DataFeedConfig,
+
+    // Cache: key = "pair_timeframe_start_end", value = Candles
+    cache: std.StringHashMap(Candles),
+
+    pub fn init(allocator: std.mem.Allocator, config: DataFeedConfig) !HistoricalDataFeed {
+        return HistoricalDataFeed{
+            .allocator = allocator,
+            .logger = Logger.init("DataFeed"),
+            .config = config,
+            .cache = std.StringHashMap(Candles).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *HistoricalDataFeed) void {
+        var iter = self.cache.iterator();
+        while (iter.next()) |entry| {
+            entry.value_ptr.deinit();
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.cache.deinit();
+    }
+
+    pub fn load(
+        self: *HistoricalDataFeed,
+        pair: TradingPair,
+        timeframe: Timeframe,
+        start_time: Timestamp,
+        end_time: Timestamp,
+    ) !Candles {
+        // Generate cache key
+        const cache_key = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}_{s}_{d}_{d}",
+            .{ pair.toString(), @tagName(timeframe), start_time.unix, end_time.unix }
+        );
+        defer self.allocator.free(cache_key);
+
+        // Check cache
+        if (self.config.enable_cache) {
+            if (self.cache.get(cache_key)) |cached| {
+                self.logger.debug("Cache hit for {s}", .{cache_key});
+                return cached;
+            }
+        }
+
+        // Load from source
+        const candles = switch (self.config.source) {
+            .csv => try self.loadCSV(pair, timeframe, start_time, end_time),
+            .json => try self.loadJSON(pair, timeframe, start_time, end_time),
+            .memory => return error.MemorySourceNotImplemented,
+        };
+
+        // Validate
+        if (self.config.validate) {
+            try validateCandles(&candles);
+        }
+
+        // Cache
+        if (self.config.enable_cache) {
+            const key_copy = try self.allocator.dupe(u8, cache_key);
+            try self.cache.put(key_copy, candles);
+        }
+
+        return candles;
+    }
+
+    fn loadCSV(
+        self: *HistoricalDataFeed,
+        pair: TradingPair,
+        timeframe: Timeframe,
+        start_time: Timestamp,
+        end_time: Timestamp,
+    ) !Candles {
+        const filename = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}/{s}_{s}_{d}_{d}.csv",
+            .{ self.config.data_dir, pair.toString(), @tagName(timeframe),
+               start_time.unix, end_time.unix }
+        );
+        defer self.allocator.free(filename);
+
+        self.logger.info("Loading CSV: {s}", .{filename});
+        return try loadFromCSV(self.allocator, filename);
+    }
+};
+```
+
+#### 3. OrderExecutor (Backtest Mode)
+
+```zig
+pub const OrderExecutor = struct {
+    allocator: std.mem.Allocator,
+    logger: Logger,
+    next_order_id: u64,
+
+    pub fn init(allocator: std.mem.Allocator) OrderExecutor {
+        return .{
+            .allocator = allocator,
+            .logger = Logger.init("OrderExecutor"),
+            .next_order_id = 1,
+        };
+    }
+
+    /// Execute market order with slippage simulation
+    pub fn executeMarketOrder(
+        self: *OrderExecutor,
+        side: Side,
+        size: Decimal,
+        current_candle: Candle,
+        commission_rate: Decimal,
+        slippage: Decimal,
+    ) !FillEvent {
+        const order_id = self.nextOrderId();
+
+        // Calculate fill price with slippage
+        // Buy: price * (1 + slippage)
+        // Sell: price * (1 - slippage)
+        const base_price = current_candle.close;
+        const slippage_multiplier = switch (side) {
+            .buy => Decimal.ONE.add(slippage),
+            .sell => Decimal.ONE.sub(slippage),
+        };
+        const fill_price = base_price.mul(slippage_multiplier);
+
+        // Calculate commission
+        const notional = fill_price.mul(size);
+        const commission = notional.mul(commission_rate);
+
+        self.logger.debug(
+            "Order {}: {} {} @ {} (slippage: {}, commission: {})",
+            .{ order_id, @tagName(side), size, fill_price, slippage, commission }
+        );
+
+        return FillEvent{
+            .order_id = order_id,
+            .timestamp = current_candle.timestamp,
+            .side = side,
+            .fill_price = fill_price,
+            .fill_size = size,
+            .commission = commission,
+        };
+    }
+
+    fn nextOrderId(self: *OrderExecutor) u64 {
+        const id = self.next_order_id;
+        self.next_order_id += 1;
+        return id;
+    }
 };
 
-/// 基础事件
-pub const Event = union(EventType) {
-    market: MarketEvent,
-    signal: SignalEvent,
-    order: OrderEvent,
-    fill: FillEvent,
-};
-
-/// 市场事件：新 K 线到达
-pub const MarketEvent = struct {
-    timestamp: Timestamp,
-    candle: Candle,
-};
-
-/// 信号事件：策略生成信号
-pub const SignalEvent = struct {
-    timestamp: Timestamp,
-    signal: Signal,
-};
-
-/// 订单事件：创建订单
-pub const OrderEvent = struct {
-    id: u64,
-    timestamp: Timestamp,
-    pair: TradingPair,
-    side: Side,
-    type: OrderType,
-    price: Decimal,  // 限价单价格（市价单忽略）
-    size: Decimal,
-
-    pub const OrderType = enum {
-        market,
-        limit,
-    };
-};
-
-/// 成交事件：订单执行完成
 pub const FillEvent = struct {
     order_id: u64,
     timestamp: Timestamp,
+    side: Side,
     fill_price: Decimal,
     fill_size: Decimal,
     commission: Decimal,
 };
-
-/// 事件队列
-pub const EventQueue = struct {
-    allocator: std.mem.Allocator,
-    queue: std.ArrayList(Event),
-
-    pub fn init(allocator: std.mem.Allocator) EventQueue {
-        return .{
-            .allocator = allocator,
-            .queue = std.ArrayList(Event).init(allocator),
-        };
-    }
-
-    pub fn push(self: *EventQueue, event: Event) !void {
-        try self.queue.append(event);
-    }
-
-    pub fn pop(self: *EventQueue) ?Event {
-        if (self.queue.items.len == 0) return null;
-        return self.queue.orderedRemove(0);
-    }
-
-    pub fn isEmpty(self: *EventQueue) bool {
-        return self.queue.items.len == 0;
-    }
-};
 ```
 
-#### Step 3: 实现账户和持仓管理（3小时）
-```zig
-// src/backtest/account.zig
+#### 4. Account Manager
 
+```zig
 pub const Account = struct {
     initial_capital: Decimal,
-    balance: Decimal,           // 可用余额
-    equity: Decimal,            // 总权益（余额 + 持仓市值）
-    total_commission: Decimal,  // 累计手续费
+    balance: Decimal,              // Available cash
+    equity: Decimal,               // Balance + unrealized P&L
+    total_commission: Decimal,
+    realized_pnl: Decimal,
+    unrealized_pnl: Decimal,
 
     pub fn init(initial_capital: Decimal) Account {
         return .{
@@ -424,77 +624,138 @@ pub const Account = struct {
             .balance = initial_capital,
             .equity = initial_capital,
             .total_commission = Decimal.ZERO,
+            .realized_pnl = Decimal.ZERO,
+            .unrealized_pnl = Decimal.ZERO,
         };
     }
 
-    pub fn updateEquity(self: *Account, unrealized_pnl: Decimal) !void {
-        self.equity = try self.balance.add(unrealized_pnl);
+    /// Update equity with current unrealized P&L
+    pub fn updateEquity(self: *Account, unrealized_pnl: Decimal) void {
+        self.unrealized_pnl = unrealized_pnl;
+        self.equity = self.balance.add(unrealized_pnl);
+    }
+
+    /// Process buy order fill
+    pub fn processBuy(
+        self: *Account,
+        fill_price: Decimal,
+        size: Decimal,
+        commission: Decimal,
+    ) !void {
+        const cost = fill_price.mul(size);
+        const total_cost = cost.add(commission);
+
+        if (self.balance.cmp(total_cost) == .lt) {
+            return error.InsufficientBalance;
+        }
+
+        self.balance = self.balance.sub(total_cost);
+        self.total_commission = self.total_commission.add(commission);
+    }
+
+    /// Process sell order fill
+    pub fn processSell(
+        self: *Account,
+        fill_price: Decimal,
+        size: Decimal,
+        commission: Decimal,
+        pnl: Decimal,
+    ) !void {
+        const proceeds = fill_price.mul(size);
+        const net_proceeds = proceeds.sub(commission);
+
+        self.balance = self.balance.add(net_proceeds);
+        self.total_commission = self.total_commission.add(commission);
+        self.realized_pnl = self.realized_pnl.add(pnl);
+        self.unrealized_pnl = Decimal.ZERO;
     }
 };
+```
 
-// src/backtest/position.zig
+#### 5. Position Manager
 
-pub const Position = struct {
-    pair: TradingPair,
-    side: Side,
-    size: Decimal,
-    entry_price: Decimal,
-    entry_time: Timestamp,
-    unrealized_pnl: Decimal,
+```zig
+pub const PositionManager = struct {
+    allocator: std.mem.Allocator,
+    current_position: ?Position,
 
-    pub fn init(
+    pub const Position = struct {
         pair: TradingPair,
         side: Side,
         size: Decimal,
         entry_price: Decimal,
         entry_time: Timestamp,
-    ) Position {
+        current_price: Decimal,
+        unrealized_pnl: Decimal,
+
+        pub fn init(
+            pair: TradingPair,
+            side: Side,
+            size: Decimal,
+            entry_price: Decimal,
+            entry_time: Timestamp,
+        ) Position {
+            return .{
+                .pair = pair,
+                .side = side,
+                .size = size,
+                .entry_price = entry_price,
+                .entry_time = entry_time,
+                .current_price = entry_price,
+                .unrealized_pnl = Decimal.ZERO,
+            };
+        }
+
+        pub fn updatePnL(self: *Position, current_price: Decimal) void {
+            self.current_price = current_price;
+
+            // Long: (current - entry) * size
+            // Short: (entry - current) * size
+            const price_diff = switch (self.side) {
+                .buy => current_price.sub(self.entry_price),
+                .sell => self.entry_price.sub(current_price),
+            };
+
+            self.unrealized_pnl = price_diff.mul(self.size);
+        }
+
+        pub fn calculateExitPnL(self: Position, exit_price: Decimal) Decimal {
+            const price_diff = switch (self.side) {
+                .buy => exit_price.sub(self.entry_price),
+                .sell => self.entry_price.sub(exit_price),
+            };
+
+            return price_diff.mul(self.size);
+        }
+    };
+
+    pub fn init(allocator: std.mem.Allocator) PositionManager {
         return .{
-            .pair = pair,
-            .side = side,
-            .size = size,
-            .entry_price = entry_price,
-            .entry_time = entry_time,
-            .unrealized_pnl = Decimal.ZERO,
+            .allocator = allocator,
+            .current_position = null,
         };
     }
 
-    pub fn updateUnrealizedPnL(self: *Position, current_price: Decimal) !void {
-        const price_diff = if (self.side == .long)
-            try current_price.sub(self.entry_price)
-        else
-            try self.entry_price.sub(current_price);
-
-        self.unrealized_pnl = try price_diff.mul(self.size);
+    pub fn deinit(self: *PositionManager) void {
+        _ = self;
     }
 
-    pub fn calculatePnL(self: *Position, exit_price: Decimal) !Decimal {
-        const price_diff = if (self.side == .long)
-            try exit_price.sub(self.entry_price)
-        else
-            try self.entry_price.sub(exit_price);
-
-        return try price_diff.mul(self.size);
-    }
-};
-
-pub const PositionManager = struct {
-    allocator: std.mem.Allocator,
-    current_position: ?Position,
-
-    pub fn hasPosition(self: *PositionManager) bool {
+    pub fn hasPosition(self: *const PositionManager) bool {
         return self.current_position != null;
     }
 
-    pub fn getPosition(self: *PositionManager) ?Position {
-        return self.current_position;
+    pub fn getPosition(self: *PositionManager) ?*Position {
+        if (self.current_position) |*pos| {
+            return pos;
+        }
+        return null;
     }
 
-    pub fn openPosition(self: *PositionManager, pos: Position) !void {
+    pub fn openPosition(self: *PositionManager, position: Position) !void {
         if (self.current_position != null) {
-            return error.PositionAlreadyExists;
+            return error.PositionAlreadyOpen;
         }
-        self.current_position = pos;
+        self.current_position = position;
     }
 
     pub fn closePosition(self: *PositionManager) void {
@@ -503,520 +764,1263 @@ pub const PositionManager = struct {
 };
 ```
 
-#### Step 4: 实现订单执行器（3小时）
-```zig
-// src/backtest/executor.zig
+---
 
-pub const OrderExecutor = struct {
-    allocator: std.mem.Allocator,
-    logger: Logger,
+## Error Handling Strategy
+
+### Error Categories
+
+```zig
+/// Backtest engine error types
+pub const BacktestError = error{
+    // Data errors
+    EmptyDataset,
+    DataNotSorted,
+    InvalidCandleData,
+    MissingDataFile,
+
+    // State errors
+    InvalidStateTransition,
+    AlreadyRunning,
+    NotInitialized,
+
+    // Trading errors
+    InsufficientBalance,
+    PositionAlreadyOpen,
+    NoPositionToClose,
+    InvalidOrderSize,
+
+    // Configuration errors
+    InvalidTimeRange,
+    InvalidCommissionRate,
+    InvalidSlippage,
+    InvalidInitialCapital,
+
+    // Strategy errors
+    StrategyInitFailed,
+    IndicatorCalculationFailed,
+    SignalGenerationFailed,
+};
+```
+
+### Error Handling Patterns
+
+```zig
+pub fn run(
+    self: *BacktestEngine,
+    strategy: IStrategy,
     config: BacktestConfig,
-    next_order_id: u64,
+) BacktestError!BacktestResult {
+    // Validate configuration first
+    try self.validateConfig(config);
 
-    pub fn init(allocator: std.mem.Allocator, config: BacktestConfig) OrderExecutor {
-        return .{
-            .allocator = allocator,
-            .logger = Logger.init("OrderExecutor"),
-            .config = config,
-            .next_order_id = 1,
-        };
-    }
+    // State machine ensures clean error handling
+    errdefer self.state = .error_state;
 
-    /// 执行市价单
-    pub fn executeMarketOrder(
-        self: *OrderExecutor,
-        order: OrderEvent,
-        current_candle: Candle,
-    ) !FillEvent {
-        // 计算成交价格（考虑滑点）
-        const base_price = current_candle.close;
-        const slippage_factor = if (order.side == .buy)
-            try Decimal.ONE.add(self.config.slippage)
-        else
-            try Decimal.ONE.sub(self.config.slippage);
+    // Each stage handles its own errors
+    const candles = self.loadData(config) catch |err| {
+        self.logger.err("Failed to load data: {}", .{err});
+        return err;
+    };
 
-        const fill_price = try base_price.mul(slippage_factor);
+    strategy.populateIndicators(&candles) catch |err| {
+        self.logger.err("Failed to calculate indicators: {}", .{err});
+        return BacktestError.IndicatorCalculationFailed;
+    };
 
-        // 计算手续费
-        const notional = try fill_price.mul(order.size);
-        const commission = try notional.mul(self.config.commission_rate);
-
-        self.logger.info("Order executed: id={}, price={}, size={}, commission={}", .{
-            order.id, fill_price, order.size, commission,
+    // Event loop with detailed error context
+    self.eventLoop(strategy, &candles, config) catch |err| {
+        self.logger.err("Event loop failed at candle {}/{}: {}", .{
+            self.processed_candles,
+            self.total_candles,
+            err,
         });
+        return err;
+    };
 
-        return FillEvent{
-            .order_id = order.id,
-            .timestamp = order.timestamp,
-            .fill_price = fill_price,
-            .fill_size = order.size,
-            .commission = commission,
-        };
+    return try self.finalize(strategy, config);
+}
+
+fn validateConfig(self: *BacktestEngine, config: BacktestConfig) !void {
+    if (config.initial_capital.cmp(Decimal.ZERO) != .gt) {
+        return BacktestError.InvalidInitialCapital;
     }
 
-    pub fn generateOrderId(self: *OrderExecutor) u64 {
-        const id = self.next_order_id;
-        self.next_order_id += 1;
-        return id;
+    if (config.start_time.unix >= config.end_time.unix) {
+        return BacktestError.InvalidTimeRange;
     }
-};
+
+    if (config.commission_rate.isNegative()) {
+        return BacktestError.InvalidCommissionRate;
+    }
+
+    if (config.slippage.isNegative()) {
+        return BacktestError.InvalidSlippage;
+    }
+}
 ```
 
-#### Step 5: 实现历史数据提供者（2小时）
-```zig
-// src/backtest/data_feed.zig
+---
 
-pub const HistoricalDataFeed = struct {
+## Integration with StrategyContext
+
+### Context Creation for Backtest
+
+```zig
+/// Create strategy context for backtesting
+fn createBacktestContext(
     allocator: std.mem.Allocator,
-    logger: Logger,
+    config: BacktestConfig,
+) !StrategyContext {
+    // No real exchange in backtest mode
+    const exchange: ?IExchange = null;
 
-    pub fn init(allocator: std.mem.Allocator) HistoricalDataFeed {
-        return .{
-            .allocator = allocator,
-            .logger = Logger.init("DataFeed"),
-        };
-    }
+    // Create logger for strategy
+    const logger = Logger.init("Strategy");
 
-    /// 从文件加载历史数据
-    pub fn load(
-        self: *HistoricalDataFeed,
-        pair: TradingPair,
-        timeframe: Timeframe,
-        start_time: Timestamp,
-        end_time: Timestamp,
-    ) !Candles {
-        self.logger.info("Loading data: {s} {} {}-{}", .{
-            pair.toString(), timeframe, start_time, end_time,
-        });
+    // Create strategy config
+    const strategy_config = StrategyConfig{
+        .pair = config.pair,
+        .timeframe = config.timeframe,
+        .max_open_trades = config.max_positions,
+        .stake_amount = config.initial_capital,
+    };
 
-        // TODO: 从文件/数据库加载数据
-        // 临时实现：返回空数据
-        var candles = Candles.init(self.allocator);
+    // Initialize context (from STORY-014)
+    return try StrategyContext.init(
+        allocator,
+        logger,
+        strategy_config,
+        exchange,
+    );
+}
 
-        // 验证数据
-        try self.validateData(&candles);
+/// Main backtest run with context integration
+pub fn run(
+    self: *BacktestEngine,
+    strategy: IStrategy,
+    config: BacktestConfig,
+) !BacktestResult {
+    // Create context for strategy
+    var ctx = try createBacktestContext(self.allocator, config);
+    defer ctx.deinit();
 
-        self.logger.info("Loaded {} candles", .{candles.data.len});
-        return candles;
-    }
-
-    fn validateData(self: *HistoricalDataFeed, candles: *Candles) !void {
-        if (candles.data.len == 0) {
-            return error.NoData;
-        }
-
-        // 检查时间连续性
-        for (1..candles.data.len) |i| {
-            if (candles.data[i].timestamp <= candles.data[i-1].timestamp) {
-                self.logger.err("Data not sorted: index {}", .{i});
-                return error.DataNotSorted;
-            }
-        }
-    }
-};
-```
-
-#### Step 6: 实现回测引擎核心（5小时）
-```zig
-// src/backtest/engine.zig
-
-pub const BacktestEngine = struct {
-    allocator: std.mem.Allocator,
-    logger: Logger,
-    data_feed: *HistoricalDataFeed,
-
-    pub fn init(allocator: std.mem.Allocator) !BacktestEngine {
-        const data_feed = try allocator.create(HistoricalDataFeed);
-        data_feed.* = HistoricalDataFeed.init(allocator);
-
-        return .{
-            .allocator = allocator,
-            .logger = Logger.init("BacktestEngine"),
-            .data_feed = data_feed,
-        };
-    }
-
-    pub fn deinit(self: *BacktestEngine) void {
-        self.allocator.destroy(self.data_feed);
-    }
-
-    /// 运行回测
-    pub fn run(
-        self: *BacktestEngine,
-        strategy: IStrategy,
-        config: BacktestConfig,
-    ) !BacktestResult {
-        self.logger.info("Starting backtest: {s}", .{config.pair.toString()});
-
-        // 1. 加载历史数据
-        var candles = try self.data_feed.load(
-            config.pair,
-            config.timeframe,
-            config.start_time,
-            config.end_time,
-        );
-        defer candles.deinit();
-
-        // 2. 计算指标
-        self.logger.info("Calculating indicators...", .{});
-        try strategy.populateIndicators(&candles);
-
-        // 3. 初始化回测状态
-        var account = Account.init(config.initial_capital);
-        var position_mgr = PositionManager.init(self.allocator);
-        var executor = OrderExecutor.init(self.allocator, config);
-        var trades = std.ArrayList(Trade).init(self.allocator);
-        defer trades.deinit();
-        var equity_curve = std.ArrayList(BacktestResult.EquitySnapshot).init(self.allocator);
-        defer equity_curve.deinit();
-
-        // 4. 事件循环
-        self.logger.info("Running event loop: {} candles", .{candles.data.len});
-
-        for (candles.data, 0..) |candle, i| {
-            // 4.1 更新持仓未实现盈亏
-            if (position_mgr.getPosition()) |*pos| {
-                try pos.updateUnrealizedPnL(candle.close);
-                try account.updateEquity(pos.unrealized_pnl);
-            }
-
-            // 4.2 记录权益快照
-            try equity_curve.append(.{
-                .timestamp = candle.timestamp,
-                .equity = account.equity,
-                .balance = account.balance,
-                .unrealized_pnl = if (position_mgr.getPosition()) |pos|
-                    pos.unrealized_pnl else Decimal.ZERO,
-            });
-
-            // 4.3 检查出场信号
-            if (position_mgr.getPosition()) |pos| {
-                const exit_signal = try strategy.generateExitSignal(&candles, pos);
-                if (exit_signal) |sig| {
-                    try self.handleExit(&executor, &position_mgr, &account, &trades, sig, candle);
-                    continue;
-                }
-            }
-
-            // 4.4 检查入场信号（无持仓时）
-            if (!position_mgr.hasPosition()) {
-                const entry_signal = try strategy.generateEntrySignal(&candles, i);
-                if (entry_signal) |sig| {
-                    try self.handleEntry(&executor, &position_mgr, &account, sig, candle, strategy);
-                }
-            }
-
-            // 进度显示
-            if (i % 1000 == 0) {
-                self.logger.debug("Progress: {}/{}", .{i, candles.data.len});
-            }
-        }
-
-        // 5. 强制平仓（如果还有持仓）
-        if (position_mgr.getPosition()) |pos| {
-            const last_candle = candles.data[candles.data.len - 1];
-            const exit_signal = Signal{
-                .type = if (pos.side == .long) .exit_long else .exit_short,
-                .pair = pos.pair,
-                .side = if (pos.side == .long) .sell else .buy,
-                .price = last_candle.close,
-                .strength = 1.0,
-                .timestamp = last_candle.timestamp,
-                .metadata = null,
-            };
-            try self.handleExit(&executor, &position_mgr, &account, &trades, exit_signal, last_candle);
-        }
-
-        // 6. 生成回测结果
-        return try self.generateResult(config, strategy, trades.items, equity_curve.items, account);
-    }
-
-    fn handleEntry(
-        self: *BacktestEngine,
-        executor: *OrderExecutor,
-        position_mgr: *PositionManager,
-        account: *Account,
-        signal: Signal,
-        candle: Candle,
-        strategy: IStrategy,
-    ) !void {
-        // 计算仓位大小
-        const position_size = try strategy.calculatePositionSize(signal, account.*);
-
-        // 创建订单
-        const order = OrderEvent{
-            .id = executor.generateOrderId(),
-            .timestamp = signal.timestamp,
-            .pair = signal.pair,
-            .side = signal.side,
-            .type = .market,
-            .price = signal.price,
-            .size = position_size,
-        };
-
-        // 执行订单
-        const fill = try executor.executeMarketOrder(order, candle);
-
-        // 更新账户
-        const cost = try fill.fill_price.mul(fill.fill_size);
-        const total_cost = try cost.add(fill.commission);
-        account.balance = try account.balance.sub(total_cost);
-        account.total_commission = try account.total_commission.add(fill.commission);
-
-        // 开仓
-        const position = Position.init(
-            signal.pair,
-            if (signal.side == .buy) .long else .short,
-            fill.fill_size,
-            fill.fill_price,
-            signal.timestamp,
-        );
-        try position_mgr.openPosition(position);
-
-        self.logger.info("Opened position: {s} {} @ {}", .{
-            signal.pair.toString(), position.side, fill.fill_price,
-        });
-    }
-
-    fn handleExit(
-        self: *BacktestEngine,
-        executor: *OrderExecutor,
-        position_mgr: *PositionManager,
-        account: *Account,
-        trades: *std.ArrayList(Trade),
-        signal: Signal,
-        candle: Candle,
-    ) !void {
-        const position = position_mgr.getPosition().?;
-
-        // 创建订单
-        const order = OrderEvent{
-            .id = executor.generateOrderId(),
-            .timestamp = signal.timestamp,
-            .pair = signal.pair,
-            .side = signal.side,
-            .type = .market,
-            .price = signal.price,
-            .size = position.size,
-        };
-
-        // 执行订单
-        const fill = try executor.executeMarketOrder(order, candle);
-
-        // 计算盈亏
-        const pnl = try position.calculatePnL(fill.fill_price);
-        const net_pnl = try pnl.sub(fill.commission);
-
-        // 更新账户
-        const proceeds = try fill.fill_price.mul(fill.fill_size);
-        account.balance = try account.balance.add(proceeds).add(net_pnl);
-        account.total_commission = try account.total_commission.add(fill.commission);
-
-        // 记录交易
-        const duration = signal.timestamp - position.entry_time;
-        try trades.append(Trade{
-            .id = order.id,
-            .pair = position.pair,
-            .side = position.side,
-            .entry_time = position.entry_time,
-            .exit_time = signal.timestamp,
-            .entry_price = position.entry_price,
-            .exit_price = fill.fill_price,
-            .size = position.size,
-            .pnl = net_pnl,
-            .pnl_percent = try net_pnl.div(try position.entry_price.mul(position.size)),
-            .commission = fill.commission,
-            .duration_minutes = @intCast(duration / 60000),  // ms to minutes
-        });
-
-        // 平仓
-        position_mgr.closePosition();
-
-        self.logger.info("Closed position: PnL={}", .{net_pnl});
-    }
-
-    fn generateResult(
-        self: *BacktestEngine,
-        config: BacktestConfig,
-        strategy: IStrategy,
-        trades: []Trade,
-        equity_curve: []BacktestResult.EquitySnapshot,
-        account: Account,
-    ) !BacktestResult {
-        var winning_trades: u32 = 0;
-        var losing_trades: u32 = 0;
-        var total_profit = Decimal.ZERO;
-        var total_loss = Decimal.ZERO;
-
-        for (trades) |trade| {
-            if (trade.pnl.isPositive()) {
-                winning_trades += 1;
-                total_profit = try total_profit.add(trade.pnl);
-            } else {
-                losing_trades += 1;
-                total_loss = try total_loss.add(try trade.pnl.abs());
-            }
-        }
-
-        const win_rate = if (trades.len > 0)
-            @as(f64, @floatFromInt(winning_trades)) / @as(f64, @floatFromInt(trades.len))
-        else
-            0.0;
-
-        const profit_factor = if (!total_loss.isZero())
-            try total_profit.div(total_loss).toFloat()
-        else
-            0.0;
-
-        return BacktestResult{
-            .total_trades = @intCast(trades.len),
-            .winning_trades = winning_trades,
-            .losing_trades = losing_trades,
-            .total_profit = total_profit,
-            .total_loss = total_loss,
-            .net_profit = try total_profit.sub(total_loss),
-            .win_rate = win_rate,
-            .profit_factor = profit_factor,
-            .trades = try self.allocator.dupe(Trade, trades),
-            .equity_curve = try self.allocator.dupe(BacktestResult.EquitySnapshot, equity_curve),
-            .config = config,
-            .strategy_name = try self.allocator.dupe(u8, strategy.getMetadata().name),
-        };
-    }
-};
-```
-
-#### Step 7: 编写测试（4小时）
-```zig
-// src/backtest/engine_test.zig
-
-test "BacktestEngine: basic flow" {
-    const allocator = std.testing.allocator;
-
-    var engine = try BacktestEngine.init(allocator);
-    defer engine.deinit();
-
-    // 创建测试策略
-    var strategy = try DualMAStrategy.create(allocator, .{
-        .fast_period = 5,
-        .slow_period = 10,
-    });
+    // Initialize strategy with context
+    try strategy.init(ctx);
     defer strategy.deinit();
 
-    // 回测配置
+    // ... rest of backtest logic
+}
+```
+
+### Position Size Calculation Integration
+
+```zig
+/// Handle entry signal with strategy context
+fn handleEntry(
+    self: *BacktestEngine,
+    strategy: IStrategy,
+    signal: Signal,
+    candle: Candle,
+    config: BacktestConfig,
+) !void {
+    // Create account snapshot for strategy
+    const account_snapshot = Account{
+        .initial_capital = self.account.initial_capital,
+        .balance = self.account.balance,
+        .equity = self.account.equity,
+        .total_commission = self.account.total_commission,
+        .realized_pnl = self.account.realized_pnl,
+        .unrealized_pnl = self.account.unrealized_pnl,
+    };
+
+    // Let strategy calculate position size
+    const position_size = try strategy.calculatePositionSize(
+        signal,
+        account_snapshot,
+    );
+
+    // Validate size
+    if (position_size.cmp(Decimal.ZERO) != .gt) {
+        self.logger.warn("Invalid position size from strategy: {}", .{position_size});
+        return;
+    }
+
+    // Execute order
+    const fill = try self.executor.executeMarketOrder(
+        signal.side,
+        position_size,
+        candle,
+        config.commission_rate,
+        config.slippage,
+    );
+
+    // Update account
+    try self.account.processBuy(fill.fill_price, fill.fill_size, fill.commission);
+
+    // Open position
+    const position = PositionManager.Position.init(
+        signal.pair,
+        signal.side,
+        fill.fill_size,
+        fill.fill_price,
+        candle.timestamp,
+    );
+    try self.position_manager.openPosition(position);
+
+    self.logger.info("Opened position: {} {} @ {}", .{
+        @tagName(signal.side), position_size, fill.fill_price
+    });
+}
+```
+
+---
+
+## Concrete Configuration Examples
+
+### Example 1: Basic DualMA Backtest
+
+```zig
+const config = BacktestConfig{
+    .pair = TradingPair.fromString("BTC/USDT"),
+    .timeframe = .m15,  // 15-minute candles
+    .start_time = Timestamp.fromUnixMillis(1704067200000), // 2024-01-01
+    .end_time = Timestamp.fromUnixMillis(1706745600000),   // 2024-02-01
+    .initial_capital = Decimal.fromFloat(10000.0),
+    .commission_rate = Decimal.fromFloat(0.001),  // 0.1% (Binance spot)
+    .slippage = Decimal.fromFloat(0.0005),        // 0.05%
+    .enable_short = false,  // Long only
+    .max_positions = 1,
+};
+
+// Run backtest
+var engine = try BacktestEngine.init(allocator, .{
+    .source = .csv,
+    .data_dir = "./data/historical",
+    .validate = true,
+    .enable_cache = true,
+});
+defer engine.deinit();
+
+const result = try engine.run(dual_ma_strategy, config);
+defer result.deinit(allocator);
+
+std.debug.print("Total Trades: {}\n", .{result.total_trades});
+std.debug.print("Win Rate: {d:.2}%\n", .{result.win_rate * 100});
+std.debug.print("Net Profit: ${}\n", .{result.net_profit});
+```
+
+### Example 2: RSI Strategy with Shorts
+
+```zig
+const config = BacktestConfig{
+    .pair = TradingPair.fromString("ETH/USDT"),
+    .timeframe = .h1,   // 1-hour candles
+    .start_time = Timestamp.fromUnixMillis(1672531200000), // 2023-01-01
+    .end_time = Timestamp.fromUnixMillis(1704067200000),   // 2024-01-01
+    .initial_capital = Decimal.fromFloat(50000.0),
+    .commission_rate = Decimal.fromFloat(0.0005), // 0.05% (maker)
+    .slippage = Decimal.fromFloat(0.0002),        // 0.02%
+    .enable_short = true,   // Allow shorts
+    .max_positions = 1,
+};
+```
+
+### Example 3: High-Frequency Scalping
+
+```zig
+const config = BacktestConfig{
+    .pair = TradingPair.fromString("SOL/USDT"),
+    .timeframe = .m1,   // 1-minute candles
+    .start_time = Timestamp.fromUnixMillis(1704067200000),
+    .end_time = Timestamp.fromUnixMillis(1704153600000),   // 1 day
+    .initial_capital = Decimal.fromFloat(5000.0),
+    .commission_rate = Decimal.fromFloat(0.002),  // 0.2% (taker)
+    .slippage = Decimal.fromFloat(0.001),         // 0.1% (higher for HFT)
+    .enable_short = true,
+    .max_positions = 1,
+};
+```
+
+### BacktestConfig Structure
+
+```zig
+pub const BacktestConfig = struct {
+    /// Trading pair
+    pair: TradingPair,
+
+    /// Candle timeframe
+    timeframe: Timeframe,
+
+    /// Start timestamp (inclusive)
+    start_time: Timestamp,
+
+    /// End timestamp (inclusive)
+    end_time: Timestamp,
+
+    /// Initial capital in quote currency
+    initial_capital: Decimal,
+
+    /// Commission rate (0.001 = 0.1%)
+    commission_rate: Decimal,
+
+    /// Slippage rate (0.0005 = 0.05%)
+    slippage: Decimal,
+
+    /// Allow short positions
+    enable_short: bool = true,
+
+    /// Maximum simultaneous positions
+    max_positions: u32 = 1,
+
+    /// Validate configuration
+    pub fn validate(self: BacktestConfig) !void {
+        if (self.initial_capital.cmp(Decimal.ZERO) != .gt) {
+            return error.InvalidInitialCapital;
+        }
+
+        if (self.start_time.unix >= self.end_time.unix) {
+            return error.InvalidTimeRange;
+        }
+
+        if (self.commission_rate.isNegative() or
+            self.commission_rate.cmp(Decimal.fromFloat(1.0)) == .gt) {
+            return error.InvalidCommissionRate;
+        }
+
+        if (self.slippage.isNegative() or
+            self.slippage.cmp(Decimal.fromFloat(1.0)) == .gt) {
+            return error.InvalidSlippage;
+        }
+
+        if (self.max_positions == 0) {
+            return error.InvalidMaxPositions;
+        }
+    }
+};
+```
+
+---
+
+## Sequence Diagrams
+
+### 1. Entry Signal Flow
+
+```
+Strategy     BacktestEngine    PositionMgr    OrderExecutor    Account
+   │                │               │                │             │
+   │  checkEntry    │               │                │             │
+   ├───────────────>│               │                │             │
+   │                │ hasPosition?  │                │             │
+   │                ├──────────────>│                │             │
+   │                │     false     │                │             │
+   │                │<──────────────┤                │             │
+   │                │               │                │             │
+   │ generateEntry  │               │                │             │
+   │<───────────────┤               │                │             │
+   │   Signal       │               │                │             │
+   ├───────────────>│               │                │             │
+   │                │ calcPosSize   │                │             │
+   │<───────────────┤               │                │             │
+   │   size         │               │                │             │
+   ├───────────────>│               │                │             │
+   │                │               │  executeMarket │             │
+   │                │               ├───────────────>│             │
+   │                │               │   FillEvent    │             │
+   │                │               │<───────────────┤             │
+   │                │               │                │ processBuy  │
+   │                │               │                ├────────────>│
+   │                │               │                │   updated   │
+   │                │               │                │<────────────┤
+   │                │  openPosition │                │             │
+   │                ├──────────────>│                │             │
+   │                │     done      │                │             │
+   │                │<──────────────┤                │             │
+   │                │               │                │             │
+```
+
+### 2. Exit Signal Flow
+
+```
+Strategy     BacktestEngine    PositionMgr    OrderExecutor    Account
+   │                │               │                │             │
+   │  checkExit     │               │                │             │
+   ├───────────────>│               │                │             │
+   │                │ getPosition   │                │             │
+   │                ├──────────────>│                │             │
+   │                │   Position    │                │             │
+   │                │<──────────────┤                │             │
+   │                │               │                │             │
+   │ generateExit   │               │                │             │
+   │<───────────────┤               │                │             │
+   │   Signal       │               │                │             │
+   ├───────────────>│               │                │             │
+   │                │               │  executeMarket │             │
+   │                │               ├───────────────>│             │
+   │                │               │   FillEvent    │             │
+   │                │               │<───────────────┤             │
+   │                │ calculatePnL  │                │             │
+   │                ├──────────────>│                │             │
+   │                │     PnL       │                │             │
+   │                │<──────────────┤                │             │
+   │                │               │                │ processSell │
+   │                │               │                ├────────────>│
+   │                │               │                │   updated   │
+   │                │               │                │<────────────┤
+   │                │ closePosition │                │             │
+   │                ├──────────────>│                │             │
+   │                │ recordTrade   │                │             │
+   │                ├───────────────────────────────────────────>  │
+   │                │               │                │             │
+```
+
+### 3. Complete Event Loop Sequence
+
+```
+Engine          DataFeed        Strategy        PositionMgr      Account
+  │                 │               │                │              │
+  │  loadData       │               │                │              │
+  ├────────────────>│               │                │              │
+  │   Candles       │               │                │              │
+  │<────────────────┤               │                │              │
+  │                 │               │                │              │
+  │  populateIndicators             │                │              │
+  ├─────────────────────────────────>│                │              │
+  │   done          │               │                │              │
+  │<─────────────────────────────────┤                │              │
+  │                 │               │                │              │
+  │ ┌──────────────────────────────────────────────────────────┐   │
+  │ │ FOR EACH CANDLE                                          │   │
+  │ └──────────────────────────────────────────────────────────┘   │
+  │                 │               │                │              │
+  │  updatePositionPnL               │  updatePnL    │              │
+  ├─────────────────────────────────────────────────>│              │
+  │                 │               │    done        │              │
+  │<─────────────────────────────────────────────────┤              │
+  │                 │               │                │  updateEquity│
+  │  ───────────────────────────────────────────────────────────────>
+  │                 │               │                │              │
+  │  snapshotEquity │               │                │              │
+  ├───────────────────────────────────────────────────────────────> │
+  │                 │               │                │              │
+  │  checkExit/Entry│               │                │              │
+  ├─────────────────────────────────>│                │              │
+  │   Signal/null   │               │                │              │
+  │<─────────────────────────────────┤                │              │
+  │                 │               │                │              │
+  │  (if signal)    │               │                │              │
+  │  handleSignal   │               │                │              │
+  ├─────────────────────────────────────────────────>│              │
+  │                 │               │                │              │
+  │ ┌──────────────────────────────────────────────────────────┐   │
+  │ │ NEXT CANDLE                                              │   │
+  │ └──────────────────────────────────────────────────────────┘   │
+```
+
+---
+
+## Testing Specifications
+
+### Unit Test Coverage
+
+#### 1. Account Tests
+
+```zig
+test "Account: init with capital" {
+    const capital = Decimal.fromFloat(10000.0);
+    const account = Account.init(capital);
+
+    try testing.expect(account.balance.equals(capital));
+    try testing.expect(account.equity.equals(capital));
+    try testing.expect(account.total_commission.equals(Decimal.ZERO));
+}
+
+test "Account: process buy reduces balance" {
+    var account = Account.init(Decimal.fromFloat(10000.0));
+
+    const fill_price = Decimal.fromFloat(50000.0);
+    const size = Decimal.fromFloat(0.1);
+    const commission = Decimal.fromFloat(5.0);
+
+    try account.processBuy(fill_price, size, commission);
+
+    // Balance = 10000 - (50000 * 0.1) - 5 = 10000 - 5000 - 5 = 4995
+    const expected = Decimal.fromFloat(4995.0);
+    try testing.expect(account.balance.equals(expected));
+}
+
+test "Account: insufficient balance error" {
+    var account = Account.init(Decimal.fromFloat(100.0));
+
+    const fill_price = Decimal.fromFloat(50000.0);
+    const size = Decimal.fromFloat(1.0);
+    const commission = Decimal.fromFloat(50.0);
+
+    try testing.expectError(
+        error.InsufficientBalance,
+        account.processBuy(fill_price, size, commission)
+    );
+}
+
+test "Account: process sell increases balance" {
+    var account = Account.init(Decimal.fromFloat(10000.0));
+
+    // Simulate buy first
+    try account.processBuy(
+        Decimal.fromFloat(50000.0),
+        Decimal.fromFloat(0.1),
+        Decimal.fromFloat(5.0),
+    );
+
+    // Sell with profit
+    const pnl = Decimal.fromFloat(500.0);
+    try account.processSell(
+        Decimal.fromFloat(51000.0),
+        Decimal.fromFloat(0.1),
+        Decimal.fromFloat(5.1),
+        pnl,
+    );
+
+    // Balance = 4995 + (51000 * 0.1) - 5.1 = 4995 + 5100 - 5.1 = 10089.9
+    try testing.expect(account.balance.cmp(Decimal.fromFloat(10000.0)) == .gt);
+}
+```
+
+#### 2. Position Manager Tests
+
+```zig
+test "PositionManager: open and close position" {
+    const allocator = testing.allocator;
+    var pm = PositionManager.init(allocator);
+    defer pm.deinit();
+
+    try testing.expect(!pm.hasPosition());
+
+    const pos = PositionManager.Position.init(
+        TradingPair.fromString("BTC/USDT"),
+        .buy,
+        Decimal.fromFloat(0.1),
+        Decimal.fromFloat(50000.0),
+        Timestamp.now(),
+    );
+
+    try pm.openPosition(pos);
+    try testing.expect(pm.hasPosition());
+
+    pm.closePosition();
+    try testing.expect(!pm.hasPosition());
+}
+
+test "PositionManager: update unrealized PnL" {
+    const allocator = testing.allocator;
+    var pm = PositionManager.init(allocator);
+    defer pm.deinit();
+
+    var pos = PositionManager.Position.init(
+        TradingPair.fromString("BTC/USDT"),
+        .buy,
+        Decimal.fromFloat(0.1),
+        Decimal.fromFloat(50000.0),
+        Timestamp.now(),
+    );
+
+    pos.updatePnL(Decimal.fromFloat(51000.0));
+
+    // PnL = (51000 - 50000) * 0.1 = 100
+    const expected = Decimal.fromFloat(100.0);
+    try testing.expect(pos.unrealized_pnl.equals(expected));
+}
+
+test "PositionManager: calculate exit PnL for short" {
+    const pos = PositionManager.Position.init(
+        TradingPair.fromString("BTC/USDT"),
+        .sell,  // Short
+        Decimal.fromFloat(0.1),
+        Decimal.fromFloat(50000.0),
+        Timestamp.now(),
+    );
+
+    // Price drops to 49000
+    const exit_pnl = pos.calculateExitPnL(Decimal.fromFloat(49000.0));
+
+    // Short PnL = (50000 - 49000) * 0.1 = 100
+    const expected = Decimal.fromFloat(100.0);
+    try testing.expect(exit_pnl.equals(expected));
+}
+```
+
+#### 3. OrderExecutor Tests
+
+```zig
+test "OrderExecutor: market order with slippage" {
+    const allocator = testing.allocator;
+    var executor = OrderExecutor.init(allocator);
+
+    const candle = Candle{
+        .timestamp = Timestamp.now(),
+        .open = Decimal.fromFloat(50000.0),
+        .high = Decimal.fromFloat(50100.0),
+        .low = Decimal.fromFloat(49900.0),
+        .close = Decimal.fromFloat(50000.0),
+        .volume = Decimal.fromFloat(100.0),
+    };
+
+    const fill = try executor.executeMarketOrder(
+        .buy,
+        Decimal.fromFloat(0.1),
+        candle,
+        Decimal.fromFloat(0.001),  // 0.1% commission
+        Decimal.fromFloat(0.0005), // 0.05% slippage
+    );
+
+    // Buy price with slippage = 50000 * 1.0005 = 50025
+    const expected_price = Decimal.fromFloat(50025.0);
+    try testing.expect(fill.fill_price.equals(expected_price));
+
+    // Commission = 50025 * 0.1 * 0.001 = 5.0025
+    try testing.expect(fill.commission.cmp(Decimal.fromFloat(5.0)) == .gt);
+}
+```
+
+#### 4. Data Loading Tests
+
+```zig
+test "DataFeed: load CSV file" {
+    const allocator = testing.allocator;
+
+    // Create temp CSV file
+    const test_csv =
+        \\timestamp,open,high,low,close,volume
+        \\1704067200000,50000.0,50100.0,49900.0,50050.0,100.5
+        \\1704067800000,50050.0,50200.0,50000.0,50150.0,120.3
+    ;
+
+    const temp_file = "/tmp/test_data.csv";
+    try std.fs.cwd().writeFile(temp_file, test_csv);
+    defer std.fs.cwd().deleteFile(temp_file) catch {};
+
+    const candles = try loadFromCSV(allocator, temp_file);
+    defer candles.deinit();
+
+    try testing.expectEqual(@as(usize, 2), candles.data.len);
+    try testing.expect(candles.data[0].close.equals(Decimal.fromFloat(50050.0)));
+}
+
+test "DataFeed: validate sorted data" {
+    const allocator = testing.allocator;
+
+    var candles = Candles.init(allocator);
+    defer candles.deinit();
+
+    try candles.append(Candle{
+        .timestamp = Timestamp.fromUnixMillis(1000),
+        .open = Decimal.fromFloat(100.0),
+        .high = Decimal.fromFloat(101.0),
+        .low = Decimal.fromFloat(99.0),
+        .close = Decimal.fromFloat(100.5),
+        .volume = Decimal.fromFloat(10.0),
+    });
+
+    try candles.append(Candle{
+        .timestamp = Timestamp.fromUnixMillis(2000),
+        .open = Decimal.fromFloat(100.5),
+        .high = Decimal.fromFloat(102.0),
+        .low = Decimal.fromFloat(100.0),
+        .close = Decimal.fromFloat(101.0),
+        .volume = Decimal.fromFloat(12.0),
+    });
+
+    try validateCandles(&candles);
+}
+
+test "DataFeed: reject unsorted data" {
+    const allocator = testing.allocator;
+
+    var candles = Candles.init(allocator);
+    defer candles.deinit();
+
+    try candles.append(Candle{
+        .timestamp = Timestamp.fromUnixMillis(2000),
+        .open = Decimal.fromFloat(100.0),
+        .high = Decimal.fromFloat(101.0),
+        .low = Decimal.fromFloat(99.0),
+        .close = Decimal.fromFloat(100.5),
+        .volume = Decimal.fromFloat(10.0),
+    });
+
+    try candles.append(Candle{
+        .timestamp = Timestamp.fromUnixMillis(1000), // Earlier!
+        .open = Decimal.fromFloat(100.5),
+        .high = Decimal.fromFloat(102.0),
+        .low = Decimal.fromFloat(100.0),
+        .close = Decimal.fromFloat(101.0),
+        .volume = Decimal.fromFloat(12.0),
+    });
+
+    try testing.expectError(error.DataNotSorted, validateCandles(&candles));
+}
+```
+
+### Integration Test Scenarios
+
+#### IT-1: End-to-End Backtest Flow
+
+```zig
+test "Integration: Complete backtest with DualMA" {
+    const allocator = testing.allocator;
+
+    // 1. Create test data
+    var candles = try generateTestCandles(allocator, 1000);
+    defer candles.deinit();
+
+    // 2. Create mock strategy
+    var strategy = try MockDualMAStrategy.create(allocator);
+    defer strategy.deinit();
+
+    // 3. Configure backtest
     const config = BacktestConfig{
         .pair = TradingPair.fromString("BTC/USDT"),
         .timeframe = .m15,
-        .start_time = 1704067200000,  // 2024-01-01
-        .end_time = 1706745600000,    // 2024-02-01
-        .initial_capital = try Decimal.fromInt(10000),
+        .start_time = candles.data[0].timestamp,
+        .end_time = candles.data[candles.data.len - 1].timestamp,
+        .initial_capital = Decimal.fromFloat(10000.0),
+        .commission_rate = Decimal.fromFloat(0.001),
+        .slippage = Decimal.fromFloat(0.0005),
+        .enable_short = false,
+        .max_positions = 1,
     };
 
-    // 运行回测
+    // 4. Run backtest
+    var engine = try BacktestEngine.init(allocator, .{
+        .source = .memory,
+        .data_dir = "",
+        .validate = true,
+        .enable_cache = false,
+    });
+    defer engine.deinit();
+
     const result = try engine.run(strategy, config);
-    defer result.deinit();
+    defer result.deinit(allocator);
 
-    // 验证结果
-    try std.testing.expect(result.total_trades > 0);
-    try std.testing.expect(result.equity_curve.len > 0);
-}
-
-// tests/integration/backtest_e2e_test.zig
-
-test "Backtest E2E: DualMA strategy on real data" {
-    // 端到端测试...
+    // 5. Verify results
+    try testing.expect(result.total_trades > 0);
+    try testing.expect(result.equity_curve.len == candles.data.len);
+    try testing.expect(result.winning_trades + result.losing_trades == result.total_trades);
 }
 ```
 
-### 技术决策
+#### IT-2: State Machine Validation
 
-#### 决策 1: 事件驱动架构
-- **选择**: 使用事件队列驱动回测
-- **理由**: 模拟真实交易流程，易于扩展
-- **权衡**: 比直接循环复杂，但更真实
+```zig
+test "Integration: State machine transitions" {
+    const allocator = testing.allocator;
 
-#### 决策 2: 市价单立即成交
-- **选择**: 市价单使用当前 K 线收盘价成交
-- **理由**: 简化实现，大多数回测引擎也这么做
-- **权衡**: 不够精确（真实可能用下根 K 线开盘价）
+    var engine = try BacktestEngine.init(allocator, .{
+        .source = .memory,
+        .data_dir = "",
+        .validate = false,
+        .enable_cache = false,
+    });
+    defer engine.deinit();
 
-#### 决策 3: 单一持仓
-- **选择**: 同时只允许一个持仓
-- **理由**: 简化逻辑，满足大多数策略需求
-- **权衡**: 无法测试网格等多仓位策略（未来扩展）
+    try testing.expectEqual(BacktestState.initial, engine.state);
+
+    // Invalid transition should fail
+    try testing.expectError(
+        error.InvalidStateTransition,
+        engine.transitionTo(.complete)
+    );
+
+    // Valid transition should succeed
+    try engine.transitionTo(.data_loaded);
+    try testing.expectEqual(BacktestState.data_loaded, engine.state);
+}
+```
+
+#### IT-3: Memory Leak Detection
+
+```zig
+test "Integration: No memory leaks" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const leaked = gpa.deinit();
+        if (leaked == .leak) @panic("Memory leak detected!");
+    }
+    const allocator = gpa.allocator();
+
+    var engine = try BacktestEngine.init(allocator, .{
+        .source = .memory,
+        .data_dir = "",
+        .validate = true,
+        .enable_cache = true,
+    });
+    defer engine.deinit();
+
+    var strategy = try MockStrategy.create(allocator);
+    defer strategy.deinit();
+
+    const config = BacktestConfig{
+        .pair = TradingPair.fromString("BTC/USDT"),
+        .timeframe = .m15,
+        .start_time = Timestamp.fromUnixMillis(1704067200000),
+        .end_time = Timestamp.fromUnixMillis(1704153600000),
+        .initial_capital = Decimal.fromFloat(10000.0),
+        .commission_rate = Decimal.fromFloat(0.001),
+        .slippage = Decimal.fromFloat(0.0005),
+        .enable_short = false,
+        .max_positions = 1,
+    };
+
+    const result = try engine.run(strategy, config);
+    defer result.deinit(allocator);
+}
+```
+
+### Performance Tests
+
+```zig
+test "Performance: 10k candles in <10 seconds" {
+    const allocator = testing.allocator;
+
+    var candles = try generateTestCandles(allocator, 10000);
+    defer candles.deinit();
+
+    var strategy = try MockStrategy.create(allocator);
+    defer strategy.deinit();
+
+    const config = BacktestConfig{
+        .pair = TradingPair.fromString("BTC/USDT"),
+        .timeframe = .m1,
+        .start_time = candles.data[0].timestamp,
+        .end_time = candles.data[candles.data.len - 1].timestamp,
+        .initial_capital = Decimal.fromFloat(10000.0),
+        .commission_rate = Decimal.fromFloat(0.001),
+        .slippage = Decimal.fromFloat(0.0005),
+        .enable_short = false,
+        .max_positions = 1,
+    };
+
+    var engine = try BacktestEngine.init(allocator, .{
+        .source = .memory,
+        .data_dir = "",
+        .validate = false,
+        .enable_cache = true,
+    });
+    defer engine.deinit();
+
+    const start = std.time.milliTimestamp();
+    const result = try engine.run(strategy, config);
+    const end = std.time.milliTimestamp();
+    defer result.deinit(allocator);
+
+    const duration_ms = end - start;
+    const candles_per_sec = @as(f64, 10000.0) / (@as(f64, @floatFromInt(duration_ms)) / 1000.0);
+
+    std.debug.print("Processed {} candles in {}ms ({d:.0} candles/sec)\n", .{
+        10000, duration_ms, candles_per_sec
+    });
+
+    try testing.expect(duration_ms < 10000); // < 10 seconds
+    try testing.expect(candles_per_sec > 1000.0); // > 1000 candles/sec
+}
+```
 
 ---
 
-## 🧪 测试计划
+## Mock Strategies
 
-### 单元测试
+### 1. AlwaysBuyMock (Minimal Strategy)
 
-#### UT-020-1: 事件队列测试
-- 测试 push/pop 顺序
-- 测试 FIFO 特性
+```zig
+/// Minimal mock strategy that always buys on first candle
+pub const AlwaysBuyMock = struct {
+    allocator: std.mem.Allocator,
+    has_bought: bool,
 
-#### UT-020-2: 账户管理测试
-- 测试余额更新
-- 测试权益计算
+    pub fn create(allocator: std.mem.Allocator) !IStrategy {
+        const self = try allocator.create(AlwaysBuyMock);
+        self.* = .{
+            .allocator = allocator,
+            .has_bought = false,
+        };
 
-#### UT-020-3: 持仓管理测试
-- 测试开平仓
-- 测试未实现盈亏
+        return IStrategy{
+            .ptr = self,
+            .vtable = &vtable,
+        };
+    }
 
-#### UT-020-4: 订单执行测试
-- 测试市价单成交
-- 测试滑点和手续费
+    fn initImpl(ptr: *anyopaque, ctx: StrategyContext) !void {
+        _ = ptr;
+        _ = ctx;
+    }
 
-#### UT-020-5: 数据加载测试
-- 测试数据验证
-- 测试异常处理
+    fn deinitImpl(ptr: *anyopaque) void {
+        const self: *AlwaysBuyMock = @ptrCast(@alignCast(ptr));
+        self.allocator.destroy(self);
+    }
 
-### 集成测试
+    fn populateIndicatorsImpl(ptr: *anyopaque, candles: *Candles) !void {
+        _ = ptr;
+        _ = candles;
+        // No indicators needed
+    }
 
-#### IT-020-1: 完整回测流程
-- 使用 DualMA 策略
-- 验证结果合理性
+    fn generateEntrySignalImpl(
+        ptr: *anyopaque,
+        candles: *Candles,
+        index: usize,
+    ) !?Signal {
+        const self: *AlwaysBuyMock = @ptrCast(@alignCast(ptr));
 
-#### IT-020-2: 多策略测试
-- 测试 RSI 策略
-- 测试 BB 策略
+        if (!self.has_bought and index >= 10) {
+            self.has_bought = true;
 
-### 性能测试
+            return Signal{
+                .type = .entry_long,
+                .pair = TradingPair.fromString("BTC/USDT"),
+                .side = .buy,
+                .price = candles.data[index].close,
+                .strength = 1.0,
+                .timestamp = candles.data[index].timestamp,
+                .metadata = null,
+            };
+        }
 
-#### PT-020-1: 回测速度测试
-- 10,000 根 K 线
-- 目标: < 10 秒
+        return null;
+    }
+
+    fn generateExitSignalImpl(
+        ptr: *anyopaque,
+        candles: *Candles,
+        position: Position,
+    ) !?Signal {
+        _ = ptr;
+        _ = position;
+
+        // Sell after 10 candles
+        const entry_idx = for (candles.data, 0..) |c, i| {
+            if (c.timestamp.unix == position.entry_time.unix) break i;
+        } else return null;
+
+        const current_idx = candles.data.len - 1;
+
+        if (current_idx >= entry_idx + 10) {
+            return Signal{
+                .type = .exit_long,
+                .pair = position.pair,
+                .side = .sell,
+                .price = candles.data[current_idx].close,
+                .strength = 1.0,
+                .timestamp = candles.data[current_idx].timestamp,
+                .metadata = null,
+            };
+        }
+
+        return null;
+    }
+
+    fn calculatePositionSizeImpl(
+        ptr: *anyopaque,
+        signal: Signal,
+        account: Account,
+    ) !Decimal {
+        _ = ptr;
+        _ = signal;
+
+        // Use 95% of balance
+        const usable = account.balance.mul(Decimal.fromFloat(0.95));
+        return usable.div(signal.price);
+    }
+
+    fn getParametersImpl(ptr: *anyopaque) []const StrategyParameter {
+        _ = ptr;
+        return &[_]StrategyParameter{};
+    }
+
+    fn getMetadataImpl(ptr: *anyopaque) StrategyMetadata {
+        _ = ptr;
+        return StrategyMetadata{
+            .name = "AlwaysBuyMock",
+            .version = "1.0.0",
+            .author = "Test",
+            .description = "Mock strategy for testing",
+            .strategy_type = .custom,
+            .timeframe = .m15,
+            .startup_candle_count = 10,
+            .minimal_roi = MinimalROI.init(&[_]ROITarget{}),
+            .stoploss = Decimal.fromFloat(-0.1),
+            .trailing_stop = null,
+        };
+    }
+
+    const vtable = IStrategy.VTable{
+        .init = initImpl,
+        .deinit = deinitImpl,
+        .populateIndicators = populateIndicatorsImpl,
+        .generateEntrySignal = generateEntrySignalImpl,
+        .generateExitSignal = generateExitSignalImpl,
+        .calculatePositionSize = calculatePositionSizeImpl,
+        .getParameters = getParametersImpl,
+        .getMetadata = getMetadataImpl,
+    };
+};
+```
+
+### 2. RandomSignalMock (Testing Edge Cases)
+
+```zig
+/// Mock strategy that generates random signals for stress testing
+pub const RandomSignalMock = struct {
+    allocator: std.mem.Allocator,
+    rng: std.rand.DefaultPrng,
+    signal_probability: f64,
+
+    pub fn create(allocator: std.mem.Allocator, signal_probability: f64) !IStrategy {
+        const self = try allocator.create(RandomSignalMock);
+        self.* = .{
+            .allocator = allocator,
+            .rng = std.rand.DefaultPrng.init(@intCast(std.time.milliTimestamp())),
+            .signal_probability = signal_probability,
+        };
+
+        return IStrategy{
+            .ptr = self,
+            .vtable = &vtable,
+        };
+    }
+
+    fn generateEntrySignalImpl(
+        ptr: *anyopaque,
+        candles: *Candles,
+        index: usize,
+    ) !?Signal {
+        const self: *RandomSignalMock = @ptrCast(@alignCast(ptr));
+
+        if (index < 20) return null;
+
+        const roll = self.rng.random().float(f64);
+        if (roll < self.signal_probability) {
+            return Signal{
+                .type = .entry_long,
+                .pair = TradingPair.fromString("BTC/USDT"),
+                .side = .buy,
+                .price = candles.data[index].close,
+                .strength = roll,
+                .timestamp = candles.data[index].timestamp,
+                .metadata = null,
+            };
+        }
+
+        return null;
+    }
+
+    // ... other vtable implementations
+};
+```
+
+### 3. Test Data Generator
+
+```zig
+/// Generate realistic test candle data
+pub fn generateTestCandles(
+    allocator: std.mem.Allocator,
+    count: usize,
+) !Candles {
+    var candles = Candles.init(allocator);
+    errdefer candles.deinit();
+
+    var rng = std.rand.DefaultPrng.init(42); // Fixed seed for reproducibility
+    const random = rng.random();
+
+    var current_price = Decimal.fromFloat(50000.0);
+    var timestamp: i64 = 1704067200000; // 2024-01-01
+    const interval: i64 = 900000; // 15 minutes in ms
+
+    for (0..count) |_| {
+        // Random walk with trend
+        const change_pct = (random.float(f64) - 0.5) * 0.02; // ±1% max
+        const change = current_price.mul(Decimal.fromFloat(change_pct));
+        current_price = current_price.add(change);
+
+        // Generate OHLC
+        const volatility = current_price.mul(Decimal.fromFloat(0.005)); // 0.5%
+        const high = current_price.add(volatility.mul(Decimal.fromFloat(random.float(f64))));
+        const low = current_price.sub(volatility.mul(Decimal.fromFloat(random.float(f64))));
+        const open = low.add(high.sub(low).mul(Decimal.fromFloat(random.float(f64))));
+
+        const candle = Candle{
+            .timestamp = Timestamp.fromUnixMillis(timestamp),
+            .open = open,
+            .high = high,
+            .low = low,
+            .close = current_price,
+            .volume = Decimal.fromFloat(100.0 + random.float(f64) * 50.0),
+        };
+
+        try candles.append(candle);
+        timestamp += interval;
+    }
+
+    return candles;
+}
+```
 
 ---
 
-## 📊 成功指标
+## Implementation Checklist
 
-### 功能指标
-- ✅ 所有验收标准通过
-- ✅ 测试覆盖率 > 85%
+### Phase 1: Core Types (Day 1, Morning)
 
-### 性能指标
-- ✅ 回测速度 > 1000 candles/s
-- ✅ 零内存泄漏
+- [ ] Define `BacktestConfig` structure with validation
+- [ ] Define `BacktestResult` structure
+- [ ] Define `Trade` record structure
+- [ ] Define `EquitySnapshot` structure
+- [ ] Define `FillEvent` structure
+- [ ] Define `BacktestState` enum
+- [ ] Define `BacktestError` error set
+- [ ] Write unit tests for type validation
 
-### 准确性指标
-- ✅ 手工验证交易盈亏准确
-- ✅ 无未来函数
+### Phase 2: Data Loading (Day 1, Afternoon)
+
+- [ ] Implement `DataFeedConfig` structure
+- [ ] Implement `HistoricalDataFeed` with CSV loading
+- [ ] Implement `loadFromCSV` function
+- [ ] Implement `parseCSVLine` function
+- [ ] Implement `validateCandles` function
+- [ ] Implement data caching mechanism
+- [ ] Write unit tests for data loading
+- [ ] Write tests for data validation
+
+### Phase 3: Account & Position (Day 1, Evening)
+
+- [ ] Implement `Account` structure
+- [ ] Implement `Account.updateEquity`
+- [ ] Implement `Account.processBuy`
+- [ ] Implement `Account.processSell`
+- [ ] Implement `PositionManager.Position`
+- [ ] Implement `Position.updatePnL`
+- [ ] Implement `Position.calculateExitPnL`
+- [ ] Implement `PositionManager` operations
+- [ ] Write comprehensive unit tests
+
+### Phase 4: Order Execution (Day 2, Morning)
+
+- [ ] Implement `OrderExecutor` structure
+- [ ] Implement `executeMarketOrder` with slippage
+- [ ] Implement order ID generation
+- [ ] Write unit tests for execution logic
+- [ ] Test slippage calculations
+- [ ] Test commission calculations
+
+### Phase 5: Event Loop (Day 2, Afternoon)
+
+- [ ] Implement `BacktestEngine.init`
+- [ ] Implement `BacktestEngine.deinit`
+- [ ] Implement state machine with `transitionTo`
+- [ ] Implement `loadData` method
+- [ ] Implement `eventLoop` method
+- [ ] Implement `handleEntry` method
+- [ ] Implement `handleExit` method
+- [ ] Implement `finalize` method
+- [ ] Write integration tests
+
+### Phase 6: Testing & Validation (Day 2, Evening)
+
+- [ ] Create `AlwaysBuyMock` test strategy
+- [ ] Create `RandomSignalMock` test strategy
+- [ ] Implement `generateTestCandles` helper
+- [ ] Write end-to-end integration test
+- [ ] Write state machine validation test
+- [ ] Write memory leak detection test
+- [ ] Write performance test (10k candles)
+- [ ] Run all tests with coverage analysis
+
+### Phase 7: Documentation
+
+- [ ] Add doc comments to all public functions
+- [ ] Create usage examples
+- [ ] Update architecture documentation
+- [ ] Create troubleshooting guide
 
 ---
 
-## 📖 参考资料
+## Acceptance Criteria
 
-- [Freqtrade Backtesting](https://www.freqtrade.io/en/stable/backtesting/)
-- [Backtrader Documentation](https://www.backtrader.com/)
-- [Backtesting Best Practices](https://www.quantstart.com/articles/Backtesting-Systematic-Trading-Strategies-in-Python-Considerations-and-Open-Source-Frameworks/)
+### AC-1: Backtest Engine Functionality ✓
+- [ ] Successfully loads historical data from CSV
+- [ ] Initializes strategy and calculates indicators
+- [ ] Drives complete event loop through all candles
+- [ ] Correctly executes entry and exit orders
+- [ ] Generates complete BacktestResult
+
+### AC-2: Order Execution Accuracy ✓
+- [ ] Market orders execute immediately at current candle close
+- [ ] Fill price includes configured slippage
+- [ ] Commission calculated accurately
+- [ ] Account balance updated correctly after each trade
+- [ ] Position state tracks entry/exit accurately
+
+### AC-3: No Look-Ahead Bias ✓
+- [ ] Strategy only accesses current and historical data
+- [ ] Indicators calculated using only past data
+- [ ] Signals generated without future information
+- [ ] Verified through manual inspection and tests
+
+### AC-4: Performance Requirements ✓
+- [ ] Backtest speed > 1000 candles/second
+- [ ] 10,000 candle backtest completes in < 10 seconds
+- [ ] Memory usage < 50MB for 10k candles
+- [ ] Zero memory leaks (verified with GPA)
+
+### AC-5: Test Coverage ✓
+- [ ] Unit test coverage > 85%
+- [ ] Integration tests pass
+- [ ] End-to-end tests with real strategies pass
+- [ ] Performance tests pass
+
+### AC-6: Result Accuracy ✓
+- [ ] Trade records complete and accurate
+- [ ] P&L calculations verified manually
+- [ ] Win rate calculated correctly
+- [ ] Equity curve continuous and correct
 
 ---
 
-**创建时间**: 2025-12-25
-**预计开始**: Week 2 Day 4
-**预计完成**: Week 2 Day 5
+## Files to Create
+
+```
+src/backtest/
+├── engine.zig              (Core BacktestEngine, ~500 lines)
+├── types.zig               (Type definitions, ~200 lines)
+├── data_feed.zig           (HistoricalDataFeed, ~300 lines)
+├── account.zig             (Account manager, ~150 lines)
+├── position.zig            (Position manager, ~200 lines)
+├── executor.zig            (OrderExecutor, ~150 lines)
+├── engine_test.zig         (Unit tests, ~400 lines)
+└── test_helpers.zig        (Mock strategies & data, ~300 lines)
+
+tests/integration/
+└── backtest_e2e_test.zig   (Integration tests, ~300 lines)
+
+docs/features/backtest/
+├── architecture.md          (This document)
+├── api.md                   (API documentation)
+└── examples.md              (Usage examples)
+```
 
 ---
 
-Generated with Claude Code
+**Total Estimated Lines**: ~2,500 lines of implementation + tests
+
+**Implementation Time**: 2 days
+- Day 1: Core types, data loading, account/position management
+- Day 2: Event loop, order execution, testing & validation
+
+**Status**: Ready for Implementation ✓
+
+---
+
+*Created: 2025-12-25*
+*Last Updated: 2025-12-25*
+*Document Version: 2.0 (Implementation-Ready)*
