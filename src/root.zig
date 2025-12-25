@@ -46,6 +46,8 @@ pub const strategy_context = @import("strategy/context.zig");
 // Indicator modules
 pub const indicator_interface = @import("strategy/indicators/interface.zig");
 pub const indicator_utils = @import("strategy/indicators/utils.zig");
+pub const indicator_manager = @import("strategy/indicators/manager.zig");
+pub const indicator_helpers = @import("strategy/indicators/helpers.zig");
 pub const indicator_sma = @import("strategy/indicators/sma.zig");
 pub const indicator_ema = @import("strategy/indicators/ema.zig");
 pub const indicator_rsi = @import("strategy/indicators/rsi.zig");
@@ -92,6 +94,8 @@ pub const StrategyContext = strategy_context.StrategyContext;
 
 // Re-export indicator types
 pub const IIndicator = indicator_interface.IIndicator;
+pub const IndicatorManager = indicator_manager.IndicatorManager;
+pub const CacheStats = indicator_manager.CacheStats;
 pub const SMA = indicator_sma.SMA;
 pub const EMA = indicator_ema.EMA;
 pub const RSI = indicator_rsi.RSI;
@@ -211,6 +215,8 @@ test {
     // Indicator modules
     _ = indicator_interface;
     _ = indicator_utils;
+    _ = indicator_manager;
+    _ = indicator_helpers;
     _ = indicator_sma;
     _ = indicator_ema;
     _ = indicator_rsi;

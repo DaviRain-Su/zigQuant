@@ -664,3 +664,263 @@
 - 集成测试延后到功能完成后再补充
 
 你想怎么选择？
+
+🤖 关于 AI 决策支持的想法
+
+ 这是一个非常有前瞻性的想法！完全可以将LLM集成到策略框架中。让我分析几种可行的架构方案：
+
+ 方案 1: AI Strategy (独立策略类型)
+
+ 创建一个专门的 AIStrategy 实现 IStrategy 接口：
+
+ // src/strategy/ai/ai_strategy.zig
+ pub const AIStrategy = struct {
+     context: *StrategyContext,
+     llm_client: *LLMClient,  // OpenAI, Claude, etc.
+     config: AIStrategyConfig,
+
+     pub fn init(...) !*AIStrategy { ... }
+
+     pub fn toStrategy(self: *AIStrategy) IStrategy {
+         return IStrategy{ .ptr = self, .vtable = &vtable };
+     }
+
+     // 实现 IStrategy 接口
+     fn onCandleImpl(ptr: *anyopaque, candle: Candle) !?Signal {
+         const self: *AIStrategy = @ptrCast(@alignCast(ptr));
+
+         // 1. 收集市场数据
+         const market_data = try self.collectMarketData();
+
+         // 2. 构建 LLM prompt
+         const prompt = try self.buildPrompt(market_data);
+
+         // 3. 调用 LLM API
+         const llm_response = try self.llm_client.chat(prompt);
+
+         // 4. 解析 AI 决策
+         const decision = try self.parseDecision(llm_response);
+
+         // 5. 转换为 Signal
+         return try self.decisionToSignal(decision);
+     }
+ };
+
+ 方案 2: AI Advisor (辅助决策)
+
+ AI 不直接做决策，而是作为传统策略的"顾问"：
+
+ // src/strategy/ai/ai_advisor.zig
+ pub const AIAdvisor = struct {
+     llm_client: *LLMClient,
+
+     // 分析市场情绪
+     pub fn analyzeMarketSentiment(
+         self: *AIAdvisor,
+         news: []const NewsItem,
+     ) !MarketSentiment { ... }
+
+     // 优化策略参数
+     pub fn suggestParameters(
+         self: *AIAdvisor,
+         strategy_name: []const u8,
+         recent_performance: PerformanceMetrics,
+     ) !ParameterSuggestion { ... }
+
+     // 风险评估
+     pub fn assessRisk(
+         self: *AIAdvisor,
+         position: Position,
+         market_conditions: MarketConditions,
+     ) !RiskAssessment { ... }
+ };
+
+ // 在传统策略中使用 AI Advisor
+ pub const EnhancedDualMA = struct {
+     base_strategy: DualMAStrategy,
+     ai_advisor: ?*AIAdvisor,  // 可选的 AI 增强
+
+     fn onCandle(self: *EnhancedDualMA, candle: Candle) !?Signal {
+         // 1. 传统技术指标决策
+         const technical_signal = try self.base_strategy.onCandle(candle);
+
+         if (self.ai_advisor) |advisor| {
+             // 2. AI 情绪分析
+             const sentiment = try advisor.analyzeMarketSentiment(news);
+
+             // 3. 结合判断
+             if (technical_signal == .buy and sentiment == .bearish) {
+                 return null;  // AI 建议不要买入
+             }
+         }
+
+         return technical_signal;
+     }
+ };
+
+ 方案 3: Hybrid Strategy (混合决策)
+
+ 结合技术指标和AI判断：
+
+ pub const HybridStrategy = struct {
+     // 技术分析部分
+     indicators: IndicatorManager,
+     technical_rules: TechnicalRules,
+
+     // AI 分析部分
+     llm_client: *LLMClient,
+     prompt_template: []const u8,
+
+     pub fn onCandle(self: *HybridStrategy, candle: Candle) !?Signal {
+         // 1. 技术指标计算
+         const sma_20 = self.indicators.get("SMA_20");
+         const rsi = self.indicators.get("RSI_14");
+         const macd = self.indicators.get("MACD");
+
+         // 2. 准备 AI 分析的上下文
+         const context = MarketContext{
+             .price = candle.close,
+             .sma_20 = sma_20,
+             .rsi = rsi,
+             .macd = macd,
+             .volume = candle.volume,
+         };
+
+         // 3. 调用 LLM
+         const prompt = try self.formatPrompt(context);
+         const ai_decision = try self.llm_client.analyze(prompt);
+
+         // 4. 权重混合
+         const technical_score = self.technical_rules.score(context);
+         const ai_score = ai_decision.confidence;
+
+         const final_score = technical_score * 0.6 + ai_score * 0.4;
+
+         if (final_score > self.config.threshold) {
+             return Signal.buy(...);
+         }
+
+         return null;
+     }
+ };
+
+ LLM Client 抽象层设计
+
+ // src/strategy/ai/llm_interface.zig
+ pub const ILLMClient = struct {
+     ptr: *anyopaque,
+     vtable: *const VTable,
+
+     pub const VTable = struct {
+         chat: *const fn (*anyopaque, []const Message) anyerror!Response,
+         completion: *const fn (*anyopaque, []const u8) anyerror![]const u8,
+         deinit: *const fn (*anyopaque) void,
+     };
+ };
+
+ // src/strategy/ai/openai_client.zig
+ pub const OpenAIClient = struct {
+     allocator: std.mem.Allocator,
+     api_key: []const u8,
+     model: []const u8,  // "gpt-4", "gpt-3.5-turbo"
+     http_client: HttpClient,
+
+     pub fn init(...) !*OpenAIClient { ... }
+
+     pub fn toInterface(self: *OpenAIClient) ILLMClient { ... }
+
+     fn chatImpl(ptr: *anyopaque, messages: []const Message) !Response {
+         const self: *OpenAIClient = @ptrCast(@alignCast(ptr));
+
+         // 构建 OpenAI API 请求
+         const request = .{
+             .model = self.model,
+             .messages = messages,
+             .temperature = 0.7,
+         };
+
+         // HTTP POST to https://api.openai.com/v1/chat/completions
+         const response = try self.http_client.post(
+             "https://api.openai.com/v1/chat/completions",
+             request,
+         );
+
+         return try parseResponse(response);
+     }
+ };
+
+ // src/strategy/ai/claude_client.zig (Anthropic)
+ pub const ClaudeClient = struct {
+     // 类似实现...
+ };
+
+ Prompt Engineering 示例
+
+ const market_analysis_prompt =
+ \\You are a professional cryptocurrency trader analyzing market conditions.
+ \\
+ \\Current Market Data:
+ \\- Price: {price}
+ \\- SMA(20): {sma_20}
+ \\- RSI(14): {rsi}
+ \\- MACD: {macd}
+ \\- Volume: {volume}
+ \\
+ \\Recent Price Action:
+ \\{recent_candles}
+ \\
+ \\Based on technical analysis, should we:
+ \\1. BUY (enter long position)
+ \\2. SELL (exit position or enter short)
+ \\3. HOLD (do nothing)
+ \\
+ \\Respond in JSON format:
+ \\{
+ \\  "action": "BUY" | "SELL" | "HOLD",
+ \\  "confidence": 0.0-1.0,
+ \\  "reasoning": "explanation",
+ \\  "risk_level": "low" | "medium" | "high"
+ \\}
+ ;
+
+ 配置示例
+
+ {
+   "strategy": {
+     "name": "AI Enhanced Dual MA",
+     "type": "hybrid",
+     "technical": {
+       "fast_period": 10,
+       "slow_period": 20
+     },
+     "ai": {
+       "provider": "openai",
+       "model": "gpt-4-turbo",
+       "api_key_env": "OPENAI_API_KEY",
+       "weight": 0.4,
+       "enable_sentiment": true,
+       "enable_risk_assessment": true
+     }
+   }
+ }
+
+ 实现建议
+
+ 如果你想实现AI决策，我建议：
+
+ 1. 先完成 Story 016-019 (传统策略) - 建立基准
+ 2. 创建新的 Story: AI Strategy Integration
+ 3. 实现步骤:
+   - Week 1: LLM Client 抽象层 (OpenAI + Claude)
+   - Week 2: AI Advisor (辅助决策)
+   - Week 3: Hybrid Strategy (混合决策)
+   - Week 4: Prompt Engineering + 回测对比
+
+ 需要考虑的问题
+
+ 1. 延迟: LLM API 调用通常 1-3秒，不适合高频交易
+ 2. 成本: 每次决策都调用API会很贵，建议批量分析或定时调用
+ 3. 可靠性: API可能失败，需要fallback机制
+ 4. 可解释性: AI决策需要记录reasoning便于审计
+
+ 你觉得哪种方案更适合你的需求？我可以帮你设计详细的架构！
