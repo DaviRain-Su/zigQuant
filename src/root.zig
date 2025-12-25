@@ -33,6 +33,11 @@ pub const hyperliquid = struct {
 pub const orderbook = @import("market/orderbook.zig");
 pub const candles = @import("market/candles.zig");
 
+// Strategy modules
+pub const strategy_signal = @import("strategy/signal.zig");
+pub const strategy_types = @import("strategy/types.zig");
+pub const strategy_interface = @import("strategy/interface.zig");
+
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
 pub const order_manager = @import("trading/order_manager.zig");
@@ -49,6 +54,20 @@ pub const Candle = candles.Candle;
 pub const Candles = candles.Candles;
 pub const IndicatorSeries = candles.IndicatorSeries;
 pub const IndicatorValue = candles.IndicatorValue;
+
+// Re-export strategy types
+pub const Signal = strategy_signal.Signal;
+pub const SignalType = strategy_signal.SignalType;
+pub const SignalMetadata = strategy_signal.SignalMetadata;
+pub const SignalIndicatorValue = strategy_signal.IndicatorValue;
+pub const StrategyMetadata = strategy_types.StrategyMetadata;
+pub const StrategyParameter = strategy_types.StrategyParameter;
+pub const ParameterType = strategy_types.ParameterType;
+pub const ParameterValue = strategy_types.ParameterValue;
+pub const StrategyConfig = strategy_types.StrategyConfig;
+pub const MinimalROI = strategy_types.MinimalROI;
+pub const TrailingStopConfig = strategy_types.TrailingStopConfig;
+pub const IStrategy = strategy_interface.IStrategy;
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
@@ -147,6 +166,11 @@ test {
     // Market data modules
     _ = orderbook;
     _ = candles;
+
+    // Strategy modules
+    _ = strategy_signal;
+    _ = strategy_types;
+    _ = strategy_interface;
 
     // Trading modules
     _ = order_store;
