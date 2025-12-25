@@ -98,7 +98,7 @@ pub const ExchangeAPI = struct {
             break :blk try std.fmt.allocPrint(
                 self.allocator,
                 \\{{"limit":{{"tif":"{s}"}}}}
-                ,
+            ,
                 .{tif},
             );
         } else if (order_request.order_type.market != null) blk: {
@@ -111,7 +111,7 @@ pub const ExchangeAPI = struct {
         const action_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"type":"order","orders":[{{"a":{d},"b":{s},"p":"{s}","s":"{s}","r":{s},"t":{s}}}],"grouping":"na"}}
-            ,
+        ,
             .{
                 order_request.asset_index,
                 if (order_request.is_buy) "true" else "false",
@@ -127,7 +127,7 @@ pub const ExchangeAPI = struct {
         const request_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
-            ,
+        ,
             .{
                 action_json,
                 nonce,
@@ -233,7 +233,7 @@ pub const ExchangeAPI = struct {
         const action_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"type":"cancel","cancels":[{{"a":{d},"o":{d}}}]}}
-            ,
+        ,
             .{
                 asset_index,
                 order_id,
@@ -245,7 +245,7 @@ pub const ExchangeAPI = struct {
         const request_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
-            ,
+        ,
             .{
                 action_json,
                 nonce,
@@ -296,7 +296,7 @@ pub const ExchangeAPI = struct {
             break :blk try std.fmt.allocPrint(
                 self.allocator,
                 \\{{"type":"cancel","cancels":[{{"a":{d},"o":null}}]}}
-                ,
+            ,
                 .{idx},
             );
         } else blk: {
@@ -319,7 +319,7 @@ pub const ExchangeAPI = struct {
         const request_json = try std.fmt.allocPrint(
             self.allocator,
             \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
-            ,
+        ,
             .{
                 action_json,
                 nonce,
@@ -361,7 +361,7 @@ test "ExchangeAPI: initialization without signer" {
     };
 
     const writer = @import("../../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,

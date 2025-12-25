@@ -19,53 +19,53 @@ const Side = @import("../exchange/types.zig").Side;
 
 pub const Position = struct {
     allocator: std.mem.Allocator,
-    
+
     // 基础信息
-    coin: []const u8,                    // 币种名称 (e.g. "ETH")
-    
+    coin: []const u8, // 币种名称 (e.g. "ETH")
+
     // 仓位大小 (基于真实 API: szi 字段)
-    szi: Decimal,                        // 有符号仓位大小（正=多头，负=空头）
-    side: Side,                          // 方向（从 szi 推断）
-    
+    szi: Decimal, // 有符号仓位大小（正=多头，负=空头）
+    side: Side, // 方向（从 szi 推断）
+
     // 价格信息
-    entry_px: Decimal,                   // 开仓均价 (entryPx)
-    mark_price: ?Decimal,                // 标记价格（用于计算未实现盈亏）
-    liquidation_px: ?Decimal,            // 清算价格 (liquidationPx)
-    
+    entry_px: Decimal, // 开仓均价 (entryPx)
+    mark_price: ?Decimal, // 标记价格（用于计算未实现盈亏）
+    liquidation_px: ?Decimal, // 清算价格 (liquidationPx)
+
     // 杠杆 (基于真实 API: leverage {type, value, rawUsd})
     leverage: Leverage,
-    max_leverage: u32,                   // 最大杠杆 (maxLeverage)
-    
+    max_leverage: u32, // 最大杠杆 (maxLeverage)
+
     // 盈亏
-    unrealized_pnl: Decimal,             // 未实现盈亏 (unrealizedPnl)
-    realized_pnl: Decimal,               // 已实现盈亏（累计）
-    
+    unrealized_pnl: Decimal, // 未实现盈亏 (unrealizedPnl)
+    realized_pnl: Decimal, // 已实现盈亏（累计）
+
     // 保证金
-    margin_used: Decimal,                // 已用保证金 (marginUsed)
-    position_value: Decimal,             // 仓位价值 (positionValue)
-    
+    margin_used: Decimal, // 已用保证金 (marginUsed)
+    position_value: Decimal, // 仓位价值 (positionValue)
+
     // ROE (基于真实 API: returnOnEquity)
-    return_on_equity: Decimal,           // 权益回报率
-    
+    return_on_equity: Decimal, // 权益回报率
+
     // 资金费率 (基于真实 API: cumFunding)
     cum_funding: CumFunding,
-    
+
     // 时间戳
     opened_at: Timestamp,
     updated_at: Timestamp,
 
     /// 杠杆结构 (基于真实 API)
     pub const Leverage = struct {
-        type_: []const u8,               // "cross" 或 "isolated"
-        value: u32,                      // 杠杆倍数
-        raw_usd: Decimal,                // 原始 USD 价值
+        type_: []const u8, // "cross" 或 "isolated"
+        value: u32, // 杠杆倍数
+        raw_usd: Decimal, // 原始 USD 价值
     };
 
     /// 累计资金费率 (基于真实 API)
     pub const CumFunding = struct {
-        all_time: Decimal,               // 累计总额
-        since_change: Decimal,           // 自上次变动
-        since_open: Decimal,             // 自开仓
+        all_time: Decimal, // 累计总额
+        since_change: Decimal, // 自上次变动
+        since_open: Decimal, // 自开仓
     };
 
     /// 初始化仓位
@@ -139,7 +139,7 @@ pub const Position = struct {
         price: Decimal,
     ) !void {
         const abs_szi = self.szi.abs();
-        
+
         if (abs_szi.isZero()) {
             // 首次开仓
             self.entry_px = price;
@@ -170,7 +170,7 @@ pub const Position = struct {
         price: Decimal,
     ) !Decimal {
         const abs_szi = self.szi.abs();
-        
+
         if (quantity.cmp(abs_szi) == .gt) {
             return error.InvalidQuantity;
         }

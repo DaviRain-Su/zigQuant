@@ -122,7 +122,7 @@ pub const PositionTracker = struct {
             position.unrealized_pnl = ex_pos.unrealized_pnl;
             position.margin_used = ex_pos.margin_used;
             position.leverage.value = ex_pos.leverage;
-            
+
             // 计算仓位价值
             if (ex_pos.mark_price) |mp| {
                 position.position_value = ex_pos.size.mul(mp);
@@ -247,7 +247,7 @@ pub const PositionTracker = struct {
                         self.allocator.destroy(kv.value);
                     }
                     self.allocator.free(key);
-                    
+
                     self.logger.info("Position closed: {s}", .{coin}) catch {};
                 } else {
                     if (self.on_position_update) |callback| {
@@ -334,12 +334,12 @@ pub const PositionTracker = struct {
 
         const pos = try self.allocator.create(Position);
         errdefer self.allocator.destroy(pos);
-        
+
         pos.* = try Position.init(self.allocator, coin, szi);
-        
+
         const key = try self.allocator.dupe(u8, coin);
         errdefer self.allocator.free(key);
-        
+
         try self.positions.put(key, pos);
 
         return pos;
@@ -421,7 +421,7 @@ test "PositionTracker: init and deinit" {
     };
 
     const log_writer = @import("../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,

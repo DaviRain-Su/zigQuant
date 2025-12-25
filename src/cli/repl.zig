@@ -27,7 +27,7 @@ pub fn run(cli: *CLI) !void {
         // Read line character by character
         buf_pos = 0;
         while (buf_pos < buffer.len) {
-            const n = try stdin_file.read(buffer[buf_pos..buf_pos+1]);
+            const n = try stdin_file.read(buffer[buf_pos .. buf_pos + 1]);
             if (n == 0) break; // EOF
             if (buffer[buf_pos] == '\n') break;
             buf_pos += 1;

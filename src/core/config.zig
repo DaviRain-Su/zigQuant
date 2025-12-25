@@ -280,7 +280,7 @@ pub const ConfigLoader = struct {
             } else if (field_type_info == .pointer and
                 field_type_info.pointer.size == .slice)
             {
-                    const slice = @field(config.*, field.name);
+                const slice = @field(config.*, field.name);
                 for (slice, 0..) |*item, i| {
                     // Support index-based override
                     const indexed_prefix = try std.fmt.allocPrint(

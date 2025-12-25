@@ -6,7 +6,7 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-173%2F173-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
 
 ## 📖 项目文档
 
@@ -167,14 +167,16 @@ cat examples/README.md
 - ✅ 订单生命周期
 
 #### Order Manager - 订单管理 (`src/trading/order_manager.zig`)
-- 🚧 订单提交和撤单接口
-- 🚧 订单状态追踪
-- 🚧 WebSocket 事件处理
+- ✅ 订单提交和撤单接口
+- ✅ 订单状态追踪
+- ✅ WebSocket 事件处理
+- ✅ 完整集成测试通过
 
 #### Position Tracker - 仓位追踪 (`src/trading/position_tracker.zig`)
-- 🚧 仓位数据结构
-- 🚧 盈亏计算
-- 🚧 账户状态同步
+- ✅ 仓位数据结构
+- ✅ 盈亏计算
+- ✅ 账户状态同步
+- ✅ 完整集成测试通过
 
 ## 🎯 项目特色
 
@@ -246,15 +248,18 @@ zig build test -freference-trace=10
 - [x] Config - 配置管理
 - [x] Exchange Router - 交易所抽象层
 
-### V0.2 MVP（✅ 已完成 - 97%）
-- [x] Hyperliquid Connector - HTTP/WebSocket 客户端
-- [x] Orderbook - L2 订单簿
-- [x] Order System - 订单类型定义
+### V0.2 MVP（✅ 已完成 - 99%）
+- [x] Hyperliquid Connector - HTTP/WebSocket 客户端（100%）
+- [x] Orderbook - L2 订单簿（100%）
+- [x] Order System - 订单类型定义（100%）
 - [x] Order Manager - 订单管理（100%）
 - [x] Position Tracker - 仓位追踪（100%）
 - [x] CLI - 命令行界面（100%）
-- [x] **WebSocket 集成测试**（100%）✨ NEW
-- [ ] 发布文档（进行中）
+- [x] **集成测试**（100%）✨
+  - [x] WebSocket Orderbook 集成测试
+  - [x] Position Management 集成测试
+  - [x] WebSocket Events 集成测试
+- [ ] 发布文档（进行中 - README.md ✅）
 
 ### 未来规划
 - [ ] V0.3: 策略框架
@@ -302,5 +307,5 @@ zig build test -freference-trace=10
 
 ---
 
-**状态:** ✅ MVP 完成 (97%) | **版本:** 0.2.1 | **更新时间:** 2025-12-25
-**测试:** 173/173 通过 | **文档:** 114+ 文件 | **性能:** 全部达标 ✅
+**状态:** ✅ MVP 完成 (99%) | **版本:** 0.2.0 | **更新时间:** 2025-12-25
+**测试:** 173/173 单元测试 + 3/3 集成测试通过 | **文档:** 114+ 文件 | **性能:** 全部达标 ✅

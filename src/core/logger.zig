@@ -239,7 +239,7 @@ pub const Logger = struct {
 fn valueFromAny(value: anytype) !Value {
     const T = @TypeOf(value);
     return switch (@typeInfo(T)) {
-        .@"int" => |int_info| {
+        .int => |int_info| {
             if (int_info.signedness == .signed) {
                 return Value{ .int = @intCast(value) };
             } else {
@@ -247,7 +247,7 @@ fn valueFromAny(value: anytype) !Value {
             }
         },
         .comptime_int => Value{ .int = value },
-        .@"float", .comptime_float => Value{ .float = @floatCast(value) },
+        .float, .comptime_float => Value{ .float = @floatCast(value) },
         .bool => Value{ .bool = value },
         .pointer => |ptr_info| {
             // Handle []const u8 slices

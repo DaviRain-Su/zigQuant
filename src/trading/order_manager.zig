@@ -555,7 +555,7 @@ test "OrderManager: init and deinit" {
     };
 
     const log_writer = @import("../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -642,7 +642,7 @@ test "OrderManager: handleOrderUpdate" {
     };
 
     const log_writer = @import("../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -761,7 +761,7 @@ test "OrderManager: handleOrderFill" {
     };
 
     const log_writer = @import("../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,

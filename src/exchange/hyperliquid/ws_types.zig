@@ -55,22 +55,14 @@ pub const Subscription = struct {
         // Build JSON string using allocPrint
         if (self.coin) |coin| {
             if (self.user) |user| {
-                return try std.fmt.allocPrint(allocator,
-                    "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\",\"user\":\"{s}\"}}}}",
-                    .{self.channel.toString(), coin, user});
+                return try std.fmt.allocPrint(allocator, "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\",\"user\":\"{s}\"}}}}", .{ self.channel.toString(), coin, user });
             } else {
-                return try std.fmt.allocPrint(allocator,
-                    "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\"}}}}",
-                    .{self.channel.toString(), coin});
+                return try std.fmt.allocPrint(allocator, "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\"}}}}", .{ self.channel.toString(), coin });
             }
         } else if (self.user) |user| {
-            return try std.fmt.allocPrint(allocator,
-                "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\",\"user\":\"{s}\"}}}}",
-                .{self.channel.toString(), user});
+            return try std.fmt.allocPrint(allocator, "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\",\"user\":\"{s}\"}}}}", .{ self.channel.toString(), user });
         } else {
-            return try std.fmt.allocPrint(allocator,
-                "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\"}}}}",
-                .{self.channel.toString()});
+            return try std.fmt.allocPrint(allocator, "{{\"method\":\"subscribe\",\"subscription\":{{\"type\":\"{s}\"}}}}", .{self.channel.toString()});
         }
     }
 };

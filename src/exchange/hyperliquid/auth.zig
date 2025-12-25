@@ -75,7 +75,7 @@ fn computeActionHash(
     // Append nonce (8 bytes, BIG endian - matching Python's to_bytes(8, "big"))
     var nonce_bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &nonce_bytes, nonce, .big);
-    @memcpy(hash_input[action_data.len..action_data.len + 8], &nonce_bytes);
+    @memcpy(hash_input[action_data.len .. action_data.len + 8], &nonce_bytes);
 
     // Append vault flag (0x00 for None - matching Python SDK)
     hash_input[action_data.len + 8] = 0x00;

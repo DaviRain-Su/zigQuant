@@ -1108,7 +1108,7 @@ test "HyperliquidConnector: create and destroy" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1138,7 +1138,7 @@ test "HyperliquidConnector: interface" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1170,7 +1170,7 @@ test "HyperliquidConnector: connect and disconnect" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1211,7 +1211,7 @@ test "HyperliquidConnector: trading methods return NotImplemented" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1251,7 +1251,7 @@ test "HyperliquidConnector: initializeSigner - valid hex without 0x prefix" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1288,7 +1288,7 @@ test "HyperliquidConnector: initializeSigner - valid hex with 0x prefix" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1324,7 +1324,7 @@ test "HyperliquidConnector: initializeSigner - invalid length" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1356,7 +1356,7 @@ test "HyperliquidConnector: createOrder - requires signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1402,7 +1402,7 @@ test "HyperliquidConnector: create with private key initializes signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1444,7 +1444,7 @@ test "HyperliquidConnector: cancelOrder - requires signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1479,7 +1479,7 @@ test "HyperliquidConnector: getBalance - requires signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1514,7 +1514,7 @@ test "HyperliquidConnector: getPositions - requires signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1549,7 +1549,7 @@ test "HyperliquidConnector: getOrder - requires signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1584,7 +1584,7 @@ test "HyperliquidConnector: cancelAllOrders - requires signer" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -1619,7 +1619,7 @@ test "HyperliquidConnector: asset mapping - lazy initialization" {
     };
 
     const writer = @import("../../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,

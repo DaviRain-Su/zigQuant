@@ -227,22 +227,14 @@ pub const HyperliquidWS = struct {
         // Build unsubscription JSON
         const json = if (sub.coin) |coin| blk: {
             if (sub.user) |user| {
-                break :blk try std.fmt.allocPrint(self.allocator,
-                    "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\",\"user\":\"{s}\"}}}}",
-                    .{sub.channel.toString(), coin, user});
+                break :blk try std.fmt.allocPrint(self.allocator, "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\",\"user\":\"{s}\"}}}}", .{ sub.channel.toString(), coin, user });
             } else {
-                break :blk try std.fmt.allocPrint(self.allocator,
-                    "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\"}}}}",
-                    .{sub.channel.toString(), coin});
+                break :blk try std.fmt.allocPrint(self.allocator, "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\",\"coin\":\"{s}\"}}}}", .{ sub.channel.toString(), coin });
             }
         } else if (sub.user) |user| blk: {
-            break :blk try std.fmt.allocPrint(self.allocator,
-                "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\",\"user\":\"{s}\"}}}}",
-                .{sub.channel.toString(), user});
+            break :blk try std.fmt.allocPrint(self.allocator, "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\",\"user\":\"{s}\"}}}}", .{ sub.channel.toString(), user });
         } else blk: {
-            break :blk try std.fmt.allocPrint(self.allocator,
-                "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\"}}}}",
-                .{sub.channel.toString()});
+            break :blk try std.fmt.allocPrint(self.allocator, "{{\"method\":\"unsubscribe\",\"subscription\":{{\"type\":\"{s}\"}}}}", .{sub.channel.toString()});
         };
         defer self.allocator.free(json);
 
@@ -376,7 +368,7 @@ test "HyperliquidWS: initialization" {
     };
 
     const writer = @import("../../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,

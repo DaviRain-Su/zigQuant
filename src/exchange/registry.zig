@@ -269,7 +269,7 @@ fn createTestLogger(allocator: std.mem.Allocator) Logger {
     };
 
     const writer = @import("../root.zig").logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,

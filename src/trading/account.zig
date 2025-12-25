@@ -22,20 +22,20 @@ pub const Account = struct {
     cross_margin_summary: MarginSummary,
 
     // 基于真实 API: withdrawable 字段
-    withdrawable: Decimal,                  // 可提现金额
+    withdrawable: Decimal, // 可提现金额
 
     // 基于真实 API: crossMaintenanceMarginUsed
     cross_maintenance_margin_used: Decimal,
 
     // 本地追踪的盈亏（非 API 返回）
-    total_realized_pnl: Decimal,            // 总已实现盈亏（从成交累计）
+    total_realized_pnl: Decimal, // 总已实现盈亏（从成交累计）
 
     /// 保证金摘要 (基于真实 API)
     pub const MarginSummary = struct {
-        account_value: Decimal,             // 账户总价值 (accountValue)
-        total_margin_used: Decimal,         // 总已用保证金 (totalMarginUsed)
-        total_ntl_pos: Decimal,             // 总名义仓位价值 (totalNtlPos)
-        total_raw_usd: Decimal,             // 总原始 USD (totalRawUsd)
+        account_value: Decimal, // 账户总价值 (accountValue)
+        total_margin_used: Decimal, // 总已用保证金 (totalMarginUsed)
+        total_ntl_pos: Decimal, // 总名义仓位价值 (totalNtlPos)
+        total_raw_usd: Decimal, // 总原始 USD (totalRawUsd)
     };
 
     /// 初始化账户（空账户）
@@ -87,7 +87,7 @@ pub const Account = struct {
     /// 获取保证金使用率
     pub fn getMarginUsageRate(self: *const Account) ?Decimal {
         if (self.cross_margin_summary.account_value.isZero()) return null;
-        
+
         return self.cross_margin_summary.total_margin_used
             .div(self.cross_margin_summary.account_value) catch null;
     }

@@ -266,7 +266,7 @@ test "InfoAPI: initialization" {
     };
 
     const writer = @import("../../core/logger.zig").LogWriter{
-        .ptr = @constCast(@ptrCast(&struct {}{})),
+        .ptr = @ptrCast(@constCast(&struct {}{})),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
