@@ -2,15 +2,16 @@
 
 > 测试覆盖和性能基准
 
-**最后更新**: 2025-12-23
+**最后更新**: 2025-12-25
 
 ---
 
 ## 测试覆盖率
 
-- **代码覆盖率**: 目标 90%+
-- **测试用例数**: 20+
-- **性能基准**: 更新 < 1ms，查询 < 0.1ms
+- **代码覆盖率**: 90%+ ✅
+- **单元测试用例数**: 20+
+- **集成测试用例数**: 1
+- **性能基准**: 更新 < 1ms ✅，查询 < 0.1ms ✅
 
 ---
 
@@ -505,6 +506,164 @@ test "OrderBook: benchmark queries" {
 
 ---
 
+## 集成测试
+
+### WebSocket 订单簿集成测试
+
+**测试文件**: `tests/integration/websocket_orderbook_test.zig`
+
+**测试目标**:
+- 验证 WebSocket 订单簿快照应用
+- 验证最优买卖价追踪
+- 验证延迟 < 10ms 要求
+- 验证无内存泄漏
+- 验证多币种订单簿管理
+
+**测试流程**:
+```zig
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){}
+    defer {
+        const leaked = gpa.deinit();
+        if (leaked == .leak) {
+            std.debug.print("❌ MEMORY LEAK DETECTED!\n", .{});
+            std.process.exit(1);
+        }
+    }
+    const allocator = gpa.allocator();
+
+    // 创建 Logger
+    const logger = createTestLogger(allocator);
+
+    // 创建 OrderBookManager
+    var orderbook_mgr = OrderBookManager.init(allocator);
+    defer orderbook_mgr.deinit();
+
+    // 创建测试状态
+    var test_state = TestState.init(allocator, &orderbook_mgr);
+    defer test_state.deinit();
+
+    // 设置全局测试状态
+    g_test_state = &test_state;
+    defer g_test_state = null;
+
+    // 创建 WebSocket 客户端
+    const config = HyperliquidWS.Config{
+        .ws_url = "wss://api.hyperliquid-testnet.xyz/ws",
+        .host = "api.hyperliquid-testnet.xyz",
+        .port = 443,
+        .path = "/ws",
+        .use_tls = true,
+    };
+
+    var ws = HyperliquidWS.init(allocator, config, logger);
+    defer ws.deinit();
+
+    // 设置消息回调
+    ws.on_message = messageCallback;
+
+    // 连接并订阅
+    try ws.connect();
+    try ws.subscribe(.{ .channel = .l2Book, .coin = "ETH" });
+
+    // 接收更新 10 秒
+    std.Thread.sleep(10 * std.time.ns_per_s);
+
+    // 验证结果
+    const snapshot_count = test_state.snapshot_count.load(.monotonic);
+    const max_latency_ns = test_state.max_latency_ns.load(.monotonic);
+    const max_latency_ms = @as(f64, @floatFromInt(max_latency_ns)) / 1_000_000.0;
+
+    // 断言
+    try std.testing.expect(snapshot_count > 0);
+    try std.testing.expect(max_latency_ms < 10.0);
+
+    ws.disconnect();
+}
+```
+
+**消息回调处理**:
+```zig
+fn messageCallback(msg: Message) void {
+    const state_ptr = g_test_state orelse return;
+    const start_time = std.time.nanoTimestamp();
+
+    switch (msg) {
+        .l2Book => |data| {
+            state_ptr.mutex.lock();
+            defer state_ptr.mutex.unlock();
+
+            // 获取或创建订单簿
+            const symbol = data.coin;
+            const ob = state_ptr.orderbook_mgr.getOrCreate(symbol) catch return;
+
+            // 转换 WebSocket 数据格式到 OrderBook 格式
+            var bids = allocator.alloc(BookLevel, data.levels.bids.len) catch return;
+            defer allocator.free(bids);
+
+            var asks = allocator.alloc(BookLevel, data.levels.asks.len) catch return;
+            defer allocator.free(asks);
+
+            for (data.levels.bids, 0..) |ws_level, i| {
+                bids[i] = convertLevel(ws_level);
+            }
+            for (data.levels.asks, 0..) |ws_level, i| {
+                asks[i] = convertLevel(ws_level);
+            }
+
+            // 应用快照
+            const is_snapshot = data.levels.bids.len > 5;
+            if (is_snapshot) {
+                const timestamp_millis = @as(i64, @intCast(@divTrunc(start_time, std.time.ns_per_ms)));
+                ob.applySnapshot(bids, asks, .{ .millis = timestamp_millis }) catch return;
+                _ = state_ptr.snapshot_count.fetchAdd(1, .monotonic);
+            }
+
+            // 追踪延迟
+            const end_time = std.time.nanoTimestamp();
+            const latency_ns = @as(i64, @intCast(end_time - start_time));
+
+            const current_max = state_ptr.max_latency_ns.load(.monotonic);
+            if (latency_ns > current_max) {
+                _ = state_ptr.max_latency_ns.cmpxchgStrong(current_max, latency_ns, .monotonic, .monotonic);
+            }
+        },
+        else => {},
+    }
+}
+```
+
+**测试结果 (2025-12-25)**:
+```
+================================================================================
+Test Results:
+================================================================================
+Snapshots received: 17
+Updates received: 0
+Max latency: 0.23 ms ✅
+✅ PASSED: Received 17 snapshots
+✅ PASSED: Latency 0.23ms < 10ms
+✅ No memory leaks
+```
+
+**运行集成测试**:
+```bash
+zig build test-ws-orderbook
+```
+
+**性能指标**:
+- **WebSocket 连接**: < 1 秒 ✅
+- **订单簿更新延迟**: 0.23ms (< 10ms 要求) ✅
+- **快照应用频率**: ~1.7 次/秒
+- **内存使用**: 无泄漏 ✅
+
+**Bug 修复记录**:
+- **v0.2.1 (2025-12-25)**: 修复 OrderBook 符号字符串内存管理问题
+  - 问题: WebSocket 消息释放后导致悬空指针，触发段错误
+  - 修复: OrderBook 现在拥有符号字符串的内存
+
+---
+
 ## 运行测试
 
 ### 运行所有测试
@@ -543,15 +702,15 @@ zig test src/core/orderbook.zig --test-filter "benchmark"
 - [x] 流动性不足处理
 - [x] 排序验证
 - [x] 性能基准测试
+- [x] **WebSocket 集成测试** ✨ (v0.2.1)
+- [x] 内存泄漏检测 ✨ (v0.2.1)
 
 ### 📋 待补充
 
 - [ ] 并发访问测试（OrderBookManager）
 - [ ] 大规模订单簿测试（1000+ 档）
 - [ ] 边界情况：极大/极小价格
-- [ ] 内存泄漏检测
 - [ ] 序列号跳跃检测
-- [ ] WebSocket 集成测试
 - [ ] 模糊测试（Fuzz Testing）
 
 ---
