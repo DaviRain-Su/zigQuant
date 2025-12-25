@@ -86,15 +86,15 @@ zigquant/
 
 ```markdown
 ## v0.2 - MVP
-**核心目标**: 能够连接 Binance，执行一次完整交易
+**核心目标**: 能够连接 Hyperliquid，执行一次完整交易
 
 **Stories**:
-- [ ] stories/v0.2-mvp/001-binance-http.md
+- [ ] stories/v0.2-mvp/001-hyperliquid-http.md
 - [ ] stories/v0.2-mvp/002-orderbook.md
 - [ ] ...
 
 **交付物**:
-- ✅ 连接 Binance
+- ✅ 连接 Hyperliquid
 - ✅ 下单功能
 - ✅ 余额查询
 ```
@@ -138,8 +138,8 @@ cp stories/templates/story-template.md \
 Story 开始时，创建对应的 feature 文档：
 
 ```bash
-mkdir -p docs/features/binance-connector
-cd docs/features/binance-connector
+mkdir -p docs/features/hyperliquid-connector
+cd docs/features/hyperliquid-connector
 
 # 创建文档文件
 touch README.md implementation.md api.md testing.md bugs.md

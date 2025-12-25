@@ -537,7 +537,241 @@ $ zig test src/exchange/hyperliquid/http_test.zig --summary all
 - [ ] 高频订阅/取消订阅测试
 - [ ] 网络故障模拟测试
 - [ ] 并发请求测试
-- [ ] 内存泄漏测试
+
+---
+
+## 订单生命周期集成测试
+
+### 测试概述
+
+**文件**: `tests/integration/order_lifecycle_test.zig`
+**目的**: 验证完整的订单生命周期（下单 → 查询 → 撤单）
+**状态**: ✅ 全部通过（2025-12-25）
+
+### 测试阶段
+
+完整的订单生命周期包含 8 个阶段：
+
+#### Phase 1: 连接 Hyperliquid testnet
+```zig
+try connector.connect();
+try std.testing.expect(connector.connected);
+```
+- 验证可以成功连接到 testnet
+- 检查连接状态为 `true`
+
+#### Phase 2: 获取 BTC 市场信息
+```zig
+// 获取 meta（asset index 映射）
+const meta_parsed = try connector.info_api.getMeta();
+defer meta_parsed.deinit();
+
+// 获取 oracle price
+const oracle_price = try connector.info_api.getOraclePrice("BTC");
+```
+- 获取 BTC 的 asset index（index = 3）
+- 获取 oracle price 作为参考价格（避免"价格偏离 80%"错误）
+
+#### Phase 3: 查询初始账户状态
+```zig
+const initial_balance = try order_manager.getBalance();
+const initial_positions = try order_manager.getPositions();
+```
+- 记录初始余额（USDC）
+- 记录初始持仓（应为空）
+
+#### Phase 4: 下单
+```zig
+const order_request = types.OrderRequest{
+    .pair = .{ .base = "BTC", .quote = "USDC" },
+    .side = .buy,
+    .order_type = .{ .limit = .{ .price = oracle_price, .tif = .gtc } },
+    .amount = "0.001",  // 0.001 BTC
+};
+
+const order = try order_manager.submitOrder(order_request);
+```
+- 使用 oracle price 作为限价（确保不会偏离太远）
+- 下单 0.001 BTC（testnet 小额订单）
+- 验证 `exchange_order_id` 存在
+
+**关键修复**:
+- ✅ 使用动态 asset index（Bug #1 修复）
+- ✅ 使用 msgpack 签名（Bug #4 修复）
+
+#### Phase 5: 验证订单成功提交
+```zig
+try std.testing.expect(order.exchange_order_id != null);
+std.debug.print("Order ID: {d}\n", .{order.exchange_order_id.?});
+```
+- 检查订单有 exchange_order_id
+- 状态应为 `resting`（挂单中）
+
+#### Phase 6: 撤单
+```zig
+try order_manager.cancelOrder(order.client_order_id);
+```
+- 使用 `client_order_id` 撤销订单
+- 验证撤单成功
+
+**关键修复**:
+- ✅ 使用正确的账户地址查询订单（Bug #2 修复）
+- ✅ 使用 msgpack 编码撤单请求（Bug #4 修复）
+
+#### Phase 7: 验证订单已撤销
+```zig
+const final_order = try order_manager.getOrder(order.client_order_id);
+try std.testing.expectEqual(types.OrderStatus.cancelled, final_order.status);
+```
+- 从内部状态查询订单（已取消的订单不在 `openOrders` 中）
+- 验证状态为 `cancelled`
+
+#### Phase 8: 查询最终账户状态
+```zig
+const final_balance = try order_manager.getBalance();
+const final_positions = try order_manager.getPositions();
+```
+- 验证余额未变化（订单未成交）
+- 验证持仓仍为空
+
+### 测试结果
+
+```
+=== Order Lifecycle Integration Test ===
+
+Phase 1: Connecting to Hyperliquid testnet...
+✓ Connected
+
+Phase 2: Getting BTC market info...
+✓ BTC asset index: 3
+✓ Oracle price: $87366.40
+
+Phase 3: Checking initial account state...
+✓ Initial balance: 999.00 USDC
+✓ Initial positions: 0
+
+Phase 4: Placing BTC order...
+✓ Order submitted: OID 45564725639
+
+Phase 5: Verifying order was accepted...
+✓ Order confirmed with exchange_order_id
+
+Phase 6: Cancelling order...
+✓ Cancel request sent
+
+Phase 7: Verifying order is cancelled...
+✓ Order status: cancelled
+
+Phase 8: Checking final account state...
+✓ Final balance: 999.00 USDC
+✓ Final positions: 0
+
+✅ ALL TESTS PASSED
+✅ No memory leaks
+```
+
+### 修复的关键 Bug
+
+本测试验证了以下 4 个关键 bug 的修复：
+
+1. **Bug #1: Asset index hardcoded to 0**
+   - 测试验证：BTC 使用正确的 asset index 3
+   - 修复位置：`connector.zig` + `types.zig`
+
+2. **Bug #2: Querying wrong account address**
+   - 测试验证：可以正确查询订单状态
+   - 修复位置：`connector.zig` getOrder/getOpenOrders
+
+3. **Bug #3: client_order_id memory leak**
+   - 测试验证：内存泄漏检测 0 leaks
+   - 修复位置：`order_manager.zig` + `order_store.zig`
+
+4. **Bug #4: Cancel order msgpack encoding**
+   - 测试验证：撤单成功（不再返回错误地址）
+   - 修复位置：`msgpack.zig` + `exchange_api.zig`
+
+### 性能指标
+
+在 testnet 环境下的测试性能：
+
+| 阶段 | 操作 | 延迟 |
+|------|------|------|
+| Phase 2 | 获取市场信息 | ~150ms |
+| Phase 3 | 查询账户状态 | ~100ms |
+| Phase 4 | 下单 | ~250ms |
+| Phase 6 | 撤单 | ~200ms |
+| Phase 7 | 查询订单状态 | ~100ms |
+| **总计** | **完整生命周期** | **~800ms** |
+
+### 运行测试
+
+```bash
+# 构建并运行订单生命周期测试
+$ zig build test-order-lifecycle
+
+# 输出包含详细日志
+$ zig build test-order-lifecycle 2>&1 | grep -E "(Phase|✓|✅)"
+```
+
+### 内存泄漏检测
+
+测试使用 `GeneralPurposeAllocator` 进行内存泄漏检测：
+
+```zig
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+defer {
+    const leaked = gpa.deinit();
+    if (leaked == .leak) {
+        std.debug.print("❌ MEMORY LEAK DETECTED\n", .{});
+    } else {
+        std.debug.print("✅ No memory leaks\n", .{});
+    }
+}
+```
+
+**结果**: ✅ 0 泄漏
+
+### MessagePack 编码验证
+
+测试验证了 MessagePack 编码的正确性：
+
+```zig
+// 下单 msgpack 编码
+const msgpack_order = msgpack.OrderRequest{
+    .a = 3,             // BTC asset index
+    .b = true,          // buy
+    .p = "87366.40",    // oracle price (字符串)
+    .s = "0.001",       // size (字符串)
+    .r = false,         // reduce_only
+    .t = .{ .limit = .{ .tif = "Gtc" } },
+};
+
+// 撤单 msgpack 编码
+const msgpack_cancel = msgpack.CancelRequest{
+    .a = 3,             // BTC asset index
+    .o = order_id,      // order ID
+};
+```
+
+**验证点**:
+- ✅ 字段顺序正确（a, b, p, s, r, t）
+- ✅ 价格和数量使用字符串格式
+- ✅ msgpack 二进制编码正确
+- ✅ EIP-712 签名验证通过
+
+### 测试覆盖的功能
+
+本测试覆盖了以下核心功能：
+
+- ✅ **Exchange Router**: IExchange 接口调用
+- ✅ **Hyperliquid Connector**: 完整的 REST API 集成
+- ✅ **Info API**: getMeta, getOraclePrice, getUserState, getOpenOrders
+- ✅ **Exchange API**: placeOrder, cancelOrder
+- ✅ **Order Manager**: submitOrder, getOrder, cancelOrder
+- ✅ **Position Tracker**: getBalance, getPositions
+- ✅ **MessagePack**: packOrderAction, packCancelAction
+- ✅ **EIP-712 Auth**: Keccak-256 + Ed25519 签名
+- ✅ **内存管理**: 无泄漏，正确的所有权转移
 
 ---
 
@@ -612,4 +846,4 @@ Test 5: Getting ETH-USDC orderbook (depth=5)...
 
 ---
 
-*Last updated: 2025-12-24*
+*Last updated: 2025-12-25*

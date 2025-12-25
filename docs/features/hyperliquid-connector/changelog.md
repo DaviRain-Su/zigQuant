@@ -2,7 +2,7 @@
 
 > 版本历史和更新记录
 
-**最后更新**: 2025-01-24
+**最后更新**: 2025-12-25
 
 ---
 
@@ -13,6 +13,123 @@
 - [ ] 添加连接池支持
 - [ ] 实现批量 API 请求
 - [ ] 支持 HTTP/2
+- [ ] 完善 `cancelAllOrders()` msgpack 签名（目前使用 JSON 签名）
+
+---
+
+## [0.2.5] - 2025-12-25
+
+### 🎉 重大突破：完整订单生命周期集成测试通过
+
+本次发布完成了 Hyperliquid 订单生命周期的完整实现，修复了 4 个关键 bug，新增 MessagePack 编码器，实现了从下单→查询→撤单的完整流程。
+
+### Added
+- ✨ **MessagePack 编码器**（`src/exchange/hyperliquid/msgpack.zig`）
+  - 实现 MessagePack 格式编码（Hyperliquid 要求）
+  - 支持编码：Map, Array, String, Boolean, Uint
+  - 新增 `packOrderAction()` - 编码下单请求
+  - 新增 `packCancelAction()` - 编码撤单请求
+  - 包含完整的单元测试（6 个测试用例）
+  - 符合 MessagePack 规范（https://msgpack.org/）
+
+- ✅ **订单生命周期集成测试**（`tests/integration/order_lifecycle_test.zig`）
+  - Phase 1: 连接 Hyperliquid testnet
+  - Phase 2: 获取 BTC 市场信息（meta + oracle price）
+  - Phase 3: 查询初始账户状态（balance + positions）
+  - Phase 4: 下单（使用 oracle price 避免价格偏差过大）
+  - Phase 5: 验证订单成功提交（检查 exchange_order_id）
+  - Phase 6: 撤单
+  - Phase 7: 验证订单已撤销
+  - Phase 8: 查询最终账户状态
+  - ✅ 所有阶段通过
+  - ✅ 无内存泄漏（0 leaks）
+
+### Fixed
+- 🐛 **Bug #1: Asset index hardcoded to 0** (Critical)
+  - 问题：所有订单都被提交到 SOL 市场（index 0），导致"价格偏离 80%"错误
+  - 修复：在 `types.zig` 添加 `asset_index` 字段，在 `connector.zig` 动态查询 asset index
+  - 影响：所有下单操作
+  - 位置：
+    - `src/exchange/hyperliquid/types.zig`:66 - 添加 `asset_index` 字段
+    - `src/exchange/hyperliquid/connector.zig`:387 - 查询 asset index
+    - `src/exchange/hyperliquid/exchange_api.zig`:67 - 使用 `asset_index`
+
+- 🐛 **Bug #2: Querying wrong account address** (High)
+  - 问题：查询订单时使用 API wallet 地址而非主账户地址，导致返回空结果
+  - 修复：在查询操作中使用 `self.config.api_key`（主账户地址）
+  - 影响：`getOrder()`, `getOpenOrders()`, 间接影响 `cancelOrder()`
+  - Hyperliquid 双地址系统：
+    - **主账户地址** (api_key): 持有资产和订单
+    - **API wallet 地址** (signer.address): 用于签名操作
+  - 位置：
+    - `src/exchange/hyperliquid/connector.zig`:489 - `getOrder()`
+    - `src/exchange/hyperliquid/connector.zig`:604 - `getOpenOrders()`
+    - `src/exchange/hyperliquid/connector.zig`:428 - `cancelOrder()` 注释
+
+- 🐛 **Bug #3: client_order_id memory leak** (High)
+  - 问题：`order_manager.zig` 过早释放 `client_order_id`，导致 `Order` 指向已释放内存（悬空指针）
+  - 修复：
+    - `order_manager.zig`: 延后释放，让 `order_store` 先完成 key 复制
+    - `order_store.zig`: `dupe` key 并统一 `Order.client_order_id` 指针
+  - 影响：所有使用 `client_order_id` 的操作
+  - 位置：
+    - `src/trading/order_manager.zig`:192-202 - 调整释放时机
+    - `src/trading/order_store.zig`:41-49 - 统一指针
+
+- 🐛 **Bug #4: Cancel order msgpack encoding** (Critical)
+  - 问题：`cancelOrder()` 签名 JSON 字符串而非 msgpack 数据，导致签名验证失败
+  - 现象：每次返回不同的错误地址 "User or API Wallet does not exist: 0xXXXXXXXX"
+  - 修复：
+    - 新增 `msgpack.zig` 中的 `CancelRequest` 和 `packCancelAction()`
+    - 在 `exchange_api.zig` 中使用 msgpack 编码后签名
+  - 影响：`cancelOrder()` 撤单操作
+  - 位置：
+    - `src/exchange/hyperliquid/msgpack.zig`:226-276 - 新增 cancel action 编码
+    - `src/exchange/hyperliquid/exchange_api.zig`:210-222 - 使用 msgpack 签名
+
+### Changed
+- 🔧 `ExchangeAPI.placeOrder()` 现在使用动态 asset index 而非硬编码
+- 🔧 `Connector.createOrder()` 调用 `getAssetIndex()` 查询 asset index
+- 🔧 `OrderManager.submitOrder()` 调整内存管理策略（延后释放 client_order_id）
+- 🔧 `OrderStore.add()` 统一 client_order_id 指针管理
+
+### Tests
+- ✅ 新增完整的订单生命周期集成测试（8 个阶段）
+- ✅ 新增 MessagePack 编码器单元测试（6 个测试用例）
+- ✅ 所有集成测试通过（testnet 验证）
+- ✅ 内存泄漏检测：0 leaks
+
+### Technical Highlights
+- 📐 **MessagePack 编码**：完全符合 Hyperliquid 签名要求
+  - 固定字段顺序：`{"type": ..., "orders": [...], "grouping": ...}`
+  - 固定订单字段顺序：`{a, b, p, s, r, t}`
+  - 固定取消字段顺序：`{a, o}`
+
+- 🔐 **EIP-712 签名**：完整的 Keccak-256 + Phantom Agent 签名流程
+  - Phantom Agent: `{"source": "b", "connectionId": keccak256(nonce)}`
+  - 签名数据：msgpack(action)
+  - 签名算法：Ed25519
+
+- 🏗️ **双地址架构**：正确区分主账户和 API wallet
+  - 查询操作：使用主账户地址（api_key）
+  - 签名操作：使用 API wallet（signer.address）
+
+### Performance
+- ⚡ 订单提交延迟：~200-300ms（testnet）
+- ⚡ 订单查询延迟：~100-150ms（testnet）
+- ⚡ 撤单延迟：~200-250ms（testnet）
+- 💾 内存使用：稳定，无泄漏
+
+### Documentation
+- 📝 更新 `bugs.md`：记录所有 4 个修复的 bug
+- 📝 更新 `changelog.md`：详细版本变更记录
+- 📝 代码注释：添加关键逻辑说明
+
+### Commit
+- 🔖 Commit hash: `40355bd`
+- 📦 Files changed: 11 files
+- ➕ Insertions: 1353
+- ➖ Deletions: 68
 
 ---
 
