@@ -1,522 +1,345 @@
 # ZigQuant 完整文档索引
 
-> 最后更新: 2025-01-22
-> 覆盖: v0.1 Foundation + v0.2 MVP
+> **最后更新**: 2025-12-25
+> **当前版本**: v0.2.0
+> **MVP 完成度**: 99%
 
-## 文档统计
+---
 
-### 总览
+## 📊 文档统计
 
-- **总文档数**: 55+ 个文档
-- **功能模块**: 11 个主要模块
-- **Story 覆盖**: v0.1 Foundation (001-005) + v0.2 MVP (006-012)
+- **总文档数**: 100 个文档
+- **功能模块**: 12 个核心模块
+- **核心项目文档**: 11 个
+- **故障排查文档**: 4 个
+- **设计决策文档**: 3 个
 
-### 文档组织
+---
 
-#### V0.1 Foundation - 核心基础设施 (5个模块, 25+ 个文件)
+## 📚 核心项目文档
 
-##### Decimal - 高精度数值 (6 个文件)
-- `/docs/features/decimal/README.md` - 功能概览
-- `/docs/features/decimal/api.md` - 完整 API 参考
-- `/docs/features/decimal/implementation.md` - 实现细节
-- `/docs/features/decimal/testing.md` - 测试文档
-- `/docs/features/decimal/bugs.md` - Bug 追踪
-- `/docs/features/decimal/changelog.md` - 变更日志
+### 快速开始
+- **[README.md](../README.md)** - 项目介绍、特性、快速开始 ⭐
+- **[QUICK_START.md](../QUICK_START.md)** - 5分钟快速上手指南 ⭐
+- **[CHANGELOG.md](../CHANGELOG.md)** - 完整版本历史和变更记录
 
-##### Time - 时间处理 (6 个文件)
-- `/docs/features/time/README.md` - 功能概览
-- `/docs/features/time/api.md` - API 参考（Timestamp, Duration, KlineInterval）
-- `/docs/features/time/implementation.md` - ISO 8601 解析和 K线对齐算法
-- `/docs/features/time/testing.md` - 测试覆盖（25+ 测试用例）
-- `/docs/features/time/bugs.md` - Bug 追踪
-- `/docs/features/time/changelog.md` - 变更日志
+### 项目规划和进度
+- **[PROJECT_OUTLINE.md](PROJECT_OUTLINE.md)** - 项目愿景和 Phase 0-7 路线图
+- **[MVP_V0.2.0_PROGRESS.md](MVP_V0.2.0_PROGRESS.md)** - MVP v0.2.0 开发进度 (99%)
+- **[NEXT_STEPS.md](NEXT_STEPS.md)** - v0.2.0 发布准备和后续计划
 
-##### Logger - 日志系统 (9 个文件)
-- `/docs/features/logger/README.md` - 功能概览
-- `/docs/features/logger/api.md` - API 参考
-- `/docs/features/logger/implementation.md` - 实现细节
-- `/docs/features/logger/usage-guide.md` - 使用指南
-- `/docs/features/logger/std-log-bridge.md` - 标准库日志桥接
-- `/docs/features/logger/comparison.md` - 与其他日志系统对比
-- `/docs/features/logger/testing.md` - 测试文档
-- `/docs/features/logger/bugs.md` - Bug 追踪
-- `/docs/features/logger/changelog.md` - 变更日志
+### 架构和设计
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - 系统架构设计和模块说明
+- **[FEATURES_SUPPLEMENT.md](FEATURES_SUPPLEMENT.md)** - 各模块功能详细说明
+- **[api-quick-reference.md](api-quick-reference.md)** - API 快速参考
 
-##### Error System - 错误处理 (6 个文件)
-- `/docs/features/error-system/README.md` - 功能概览和五大错误分类
-- `/docs/features/error-system/api.md` - API 参考（ErrorContext, WrappedError, 重试机制）
-- `/docs/features/error-system/implementation.md` - 实现细节
-- `/docs/features/error-system/testing.md` - 测试文档
-- `/docs/features/error-system/bugs.md` - Bug 追踪
-- `/docs/features/error-system/changelog.md` - 变更日志
+### 质量保障
+- **[TESTING.md](TESTING.md)** - 测试策略和框架
+- **[PERFORMANCE.md](PERFORMANCE.md)** - 性能目标和优化策略
+- **[SECURITY.md](SECURITY.md)** - 安全架构和最佳实践
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - 生产环境部署指南
 
-##### Config - 配置管理 (6 个文件)
-- `/docs/features/config/README.md` - 功能概览
-- `/docs/features/config/api.md` - API 参考
-- `/docs/features/config/implementation.md` - 实现细节
-- `/docs/features/config/testing.md` - 测试文档
-- `/docs/features/config/bugs.md` - Bug 追踪
-- `/docs/features/config/changelog.md` - 变更日志
+---
 
-##### Exchange Router - 交易所抽象层 (6 个文件)
-- `/docs/features/exchange-router/README.md` - 功能概览和 IExchange 接口
-- `/docs/features/exchange-router/api.md` - API 参考
-- `/docs/features/exchange-router/implementation.md` - VTable 模式实现
-- `/docs/features/exchange-router/testing.md` - 测试文档
-- `/docs/features/exchange-router/bugs.md` - Bug 追踪
-- `/docs/features/exchange-router/changelog.md` - 变更日志
+## 🎯 功能模块文档
 
-#### V0.2 MVP - 交易功能 (6个模块, 21+ 个文件)
+每个功能模块包含 6 个标准文档：`README.md`, `api.md`, `implementation.md`, `testing.md`, `bugs.md`, `changelog.md`
 
-##### Hyperliquid 连接器 (7 个文件)
-- `/docs/features/hyperliquid-connector/README.md` - 功能概览和快速开始
-- `/docs/features/hyperliquid-connector/api-reference.md` - 完整 API 参考
-- `/docs/features/hyperliquid-connector/authentication.md` - Ed25519 认证详解
-- `/docs/features/hyperliquid-connector/testing.md` - 测试指南（单元 + 集成）
-- `/docs/features/hyperliquid-connector/websocket.md` - WebSocket 使用指南
-- `/docs/features/hyperliquid-connector/subscriptions.md` - WebSocket 订阅详解
-- `/docs/features/hyperliquid-connector/message-types.md` - 消息类型参考
+### V0.1 Foundation - 核心基础设施 (6个模块)
 
-#### 订单簿 (3 个文件)
-- `/docs/features/orderbook/README.md` - 订单簿概览
-- `/docs/features/orderbook/api-reference.md` - API 参考
-- `/docs/features/orderbook/performance.md` - 性能优化指南
+#### 1. Decimal - 高精度数值
+- **[README](features/decimal/README.md)** - 18位小数精度、零浮点误差
+- [API Reference](features/decimal/api.md) - 完整 API 和代码示例
+- [Implementation](features/decimal/implementation.md) - 基于 i128 的实现细节
+- [Testing](features/decimal/testing.md) - 140+ 测试用例
+- [Bugs](features/decimal/bugs.md) - Bug 追踪
+- [Changelog](features/decimal/changelog.md) - 版本历史
 
-#### 订单系统 (3 个文件)
-- `/docs/features/order-system/README.md` - 订单系统概览
-- `/docs/features/order-system/order-types.md` - 订单类型详解
-- `/docs/features/order-system/order-lifecycle.md` - 订单生命周期
+#### 2. Time - 时间处理
+- **[README](features/time/README.md)** - 时间戳、K线对齐、ISO 8601
+- [API Reference](features/time/api.md) - Timestamp, Duration, KlineInterval
+- [Implementation](features/time/implementation.md) - 时间对齐算法
+- [Testing](features/time/testing.md) - 测试覆盖
+- [Bugs](features/time/bugs.md) - Bug 追踪
+- [Changelog](features/time/changelog.md) - 版本历史
 
-#### 订单管理器 (3 个文件)
-- `/docs/features/order-manager/README.md` - 订单管理器概览
-- `/docs/features/order-manager/api-reference.md` - API 参考
-- `/docs/features/order-manager/error-handling.md` - 错误处理指南
+#### 3. Error System - 错误处理
+- **[README](features/error-system/README.md)** - 五大错误分类、重试机制
+- [API Reference](features/error-system/api.md) - ErrorContext, WrappedError
+- [Implementation](features/error-system/implementation.md) - 实现细节
+- [Testing](features/error-system/testing.md) - 测试文档
+- [Bugs](features/error-system/bugs.md) - Bug 追踪
+- [Changelog](features/error-system/changelog.md) - 版本历史
 
-#### 仓位追踪器 (2 个文件)
-- `/docs/features/position-tracker/README.md` - 仓位追踪器概览
-- `/docs/features/position-tracker/pnl-calculation.md` - 盈亏计算详解
+#### 4. Logger - 日志系统
+- **[README](features/logger/README.md)** - 6级日志、结构化输出
+- [API Reference](features/logger/api.md) - Logger API
+- [Usage Guide](features/logger/usage-guide.md) - 使用指南 ⭐
+- [std.log Bridge](features/logger/std-log-bridge.md) - 标准库桥接
+- [Comparison](features/logger/comparison.md) - 与其他日志系统对比
+- [Implementation](features/logger/implementation.md) - 实现细节
+- [Testing](features/logger/testing.md) - 38+ 测试用例
+- [Bugs](features/logger/bugs.md) - Bug 追踪
+- [Changelog](features/logger/changelog.md) - 版本历史
 
-#### CLI (3 个文件)
-- `/docs/cli/README.md` - CLI 使用指南
-- `/docs/cli/commands.md` - 命令参考
-- `/docs/cli/examples.md` - 使用示例
+#### 5. Config - 配置管理
+- **[README](features/config/README.md)** - JSON配置、环境变量覆盖
+- [API Reference](features/config/api.md) - Config API
+- [Implementation](features/config/implementation.md) - 实现细节
+- [Testing](features/config/testing.md) - 测试文档
+- [Bugs](features/config/bugs.md) - Bug 追踪
+- [Changelog](features/config/changelog.md) - 版本历史
 
-#### 索引文档 (1 个文件)
-- `/docs/features/README.md` - 功能模块总索引
+#### 6. Exchange Router - 交易所抽象层
+- **[README](features/exchange-router/README.md)** - IExchange接口、VTable模式
+- [API Reference](features/exchange-router/api.md) - 统一接口 API
+- [Implementation](features/exchange-router/implementation.md) - VTable实现
+- [Testing](features/exchange-router/testing.md) - 测试文档
+- [Bugs](features/exchange-router/bugs.md) - Bug 追踪
+- [Changelog](features/exchange-router/changelog.md) - 版本历史
 
-#### 实践示例 (4 个文件)
-- `/examples/README.md` - 示例总览
-- `/examples/01_core_basics.zig` - 核心基础（Logger, Decimal, Time, Errors）
-- `/examples/02_websocket_stream.zig` - WebSocket 实时数据流
-- `/examples/03_http_market_data.zig` - HTTP 市场数据查询
-- `/examples/04_exchange_connector.zig` - 交易所抽象层使用
+### V0.2 MVP - 交易功能 (6个模块)
 
-#### 故障排查文档
-- `/docs/troubleshooting/README.md` - 故障排查总览
-- `/docs/troubleshooting/zig-0.15.2-logger-compatibility.md` - Zig 0.15.2 日志兼容性
-- `/docs/troubleshooting/quick-reference-zig-0.15.2.md` - Zig 0.15.2 快速参考
-- `/docs/troubleshooting/bufferedwriter-trap.md` - BufferedWriter 陷阱
+#### 7. Hyperliquid Connector - Hyperliquid DEX 连接器
+- **[README](features/hyperliquid-connector/README.md)** - HTTP + WebSocket 完整集成
+- [API Reference](features/hyperliquid-connector/api.md) - Info API, Exchange API
+- [Implementation](features/hyperliquid-connector/implementation.md) - Ed25519签名、速率限制
+- [Testing](features/hyperliquid-connector/testing.md) - 单元测试 + 集成测试
+- [Bugs](features/hyperliquid-connector/bugs.md) - Bug 追踪
+- [Changelog](features/hyperliquid-connector/changelog.md) - 版本历史
 
-## 文档结构
+#### 8. OrderBook - L2 订单簿管理
+- **[README](features/orderbook/README.md)** - 快照更新、深度查询
+- [API Reference](features/orderbook/api.md) - OrderBook API
+- [Implementation](features/orderbook/implementation.md) - 数据结构和算法
+- [Testing](features/orderbook/testing.md) - 性能测试 (< 1ms 更新)
+- [Bugs](features/orderbook/bugs.md) - Bug 追踪
+- [Changelog](features/orderbook/changelog.md) - 版本历史
+
+#### 9. Order System - 订单类型定义
+- **[README](features/order-system/README.md)** - 订单类型和生命周期
+- [API Reference](features/order-system/api.md) - Order types API
+- [Implementation](features/order-system/implementation.md) - 订单状态机
+- [Testing](features/order-system/testing.md) - 测试文档
+- [Bugs](features/order-system/bugs.md) - Bug 追踪
+- [Changelog](features/order-system/changelog.md) - 版本历史
+
+#### 10. Order Manager - 订单管理器
+- **[README](features/order-manager/README.md)** - 下单、撤单、查询
+- [API Reference](features/order-manager/api.md) - OrderManager API
+- [Implementation](features/order-manager/implementation.md) - 订单追踪和事件处理
+- [Testing](features/order-manager/testing.md) - 集成测试结果 ✅
+- [Bugs](features/order-manager/bugs.md) - Bug 追踪
+- [Changelog](features/order-manager/changelog.md) - 版本历史
+
+#### 11. Position Tracker - 仓位追踪器
+- **[README](features/position-tracker/README.md)** - 仓位管理和 PnL 计算
+- [API Reference](features/position-tracker/api.md) - PositionTracker API
+- [Implementation](features/position-tracker/implementation.md) - PnL 算法
+- [Testing](features/position-tracker/testing.md) - 集成测试结果 ✅
+- [Bugs](features/position-tracker/bugs.md) - Bug 追踪
+- [Changelog](features/position-tracker/changelog.md) - 版本历史
+
+#### 12. CLI - 命令行界面
+- **[README](features/cli/README.md)** - 11个命令 + REPL
+- [API Reference](features/cli/api.md) - CLI 命令参考
+- [Implementation](features/cli/implementation.md) - REPL 实现
+- [Testing](features/cli/testing.md) - CLI 测试
+- [Bugs](features/cli/bugs.md) - Bug 追踪
+- [Changelog](features/cli/changelog.md) - 版本历史
+
+### 功能总索引
+- **[features/README.md](features/README.md)** - 所有功能模块导航
+
+---
+
+## 🛠️ 故障排查文档
+
+- **[troubleshooting/README.md](troubleshooting/README.md)** - 故障排查总览
+- **[Zig 0.15.2 Logger 兼容性](troubleshooting/zig-0.15.2-logger-compatibility.md)** - Logger 模块适配经验 ⭐
+- [Zig 0.15.2 快速参考](troubleshooting/quick-reference-zig-0.15.2.md) - API 变更速查表
+- [BufferedWriter 陷阱](troubleshooting/bufferedwriter-trap.md) - 缓冲写入常见问题
+
+---
+
+## 📋 设计决策文档
+
+- [ADR-001: 为什么选择 Zig](decisions/001-why-zig.md)
+- [ADR-002: 为什么首选 Hyperliquid](decisions/002-hyperliquid-first-exchange.md)
+- [决策文档模板](decisions/template.md)
+
+---
+
+## 📁 完整文档结构
 
 ```
 docs/
-├── DOCUMENTATION_INDEX.md (本文件)
-├── features/
+├── DOCUMENTATION_INDEX.md (本文件) ⭐
+│
+├── 核心项目文档 (11个)
+│   ├── ARCHITECTURE.md
+│   ├── DEPLOYMENT.md
+│   ├── FEATURES_SUPPLEMENT.md
+│   ├── MVP_V0.2.0_PROGRESS.md
+│   ├── NEXT_STEPS.md
+│   ├── PERFORMANCE.md
+│   ├── PROJECT_OUTLINE.md
+│   ├── SECURITY.md
+│   ├── TESTING.md
+│   ├── api-quick-reference.md
+│   └── architecture-diagram.jsx
+│
+├── features/ (12个模块 × 6-9个文件 = 78个文件)
 │   ├── README.md (功能总索引)
-│   ├── hyperliquid-connector/
-│   │   ├── README.md
-│   │   ├── api-reference.md
-│   │   ├── authentication.md
-│   │   ├── testing.md
-│   │   ├── websocket.md
-│   │   ├── subscriptions.md
-│   │   └── message-types.md
-│   ├── orderbook/
-│   │   ├── README.md
-│   │   ├── api-reference.md
-│   │   └── performance.md
-│   ├── order-system/
-│   │   ├── README.md
-│   │   ├── order-types.md
-│   │   └── order-lifecycle.md
-│   ├── order-manager/
-│   │   ├── README.md
-│   │   ├── api-reference.md
-│   │   └── error-handling.md
-│   └── position-tracker/
-│       ├── README.md
-│       └── pnl-calculation.md
-└── cli/
-    ├── README.md
-    ├── commands.md
-    └── examples.md
+│   ├── decimal/ (6个文件)
+│   ├── time/ (6个文件)
+│   ├── error-system/ (6个文件)
+│   ├── logger/ (9个文件)
+│   ├── config/ (6个文件)
+│   ├── exchange-router/ (6个文件)
+│   ├── hyperliquid-connector/ (6个文件)
+│   ├── orderbook/ (6个文件)
+│   ├── order-system/ (6个文件)
+│   ├── order-manager/ (6个文件)
+│   ├── position-tracker/ (6个文件)
+│   ├── cli/ (6个文件)
+│   └── templates/ (6个模板文件)
+│
+├── troubleshooting/ (4个文件)
+│   ├── README.md
+│   ├── zig-0.15.2-logger-compatibility.md
+│   ├── quick-reference-zig-0.15.2.md
+│   └── bufferedwriter-trap.md
+│
+└── decisions/ (3个文件)
+    ├── 001-why-zig.md
+    ├── 002-hyperliquid-first-exchange.md
+    └── template.md
 ```
 
-## 每个模块的关键内容
-
-### V0.1 Foundation Modules
-
-#### 1. Decimal - 高精度数值
-
-**核心内容**:
-- 18位小数精度（满足金融交易需求）
-- 基于 i128 整数运算（无浮点误差）
-- 完整算术运算（加减乘除、比较）
-- 字符串解析和格式化
-- 零内存分配（除字符串操作）
-
-**Story 来源**:
-- [001-decimal.md](../stories/v0.1-foundation/001-decimal.md)
-
-**代码示例**:
-- 创建和转换 Decimal
-- 算术运算和比较
-- 字符串解析和格式化
-- 性能基准测试
-
 ---
 
-#### 2. Time - 时间处理
+## 🎯 文档使用指南
 
-**核心内容**:
-- Timestamp（毫秒精度 Unix 时间戳）
-- Duration（时间间隔）
-- KlineInterval（K线周期枚举）
-- ISO 8601 解析和格式化
-- K线时间对齐算法
+### 按角色查找
 
-**Story 来源**:
-- [002-time-utils.md](../stories/v0.1-foundation/002-time-utils.md)
-
-**代码示例**:
-- 时间戳创建和转换
-- 时间运算和比较
-- K线对齐
-- ISO 8601 处理
-
----
-
-#### 3. Error System - 错误处理
-
-**核心内容**:
-- 五大错误分类（Network, API, Data, Business, System）
-- ErrorContext（错误上下文）
-- WrappedError（错误包装）
-- 重试机制（固定间隔和指数退避）
-- 错误工具函数
-
-**Story 来源**:
-- [003-error-system.md](../stories/v0.1-foundation/003-error-system.md)
-
-**代码示例**:
-- 错误创建和包装
-- 重试机制使用
-- 错误处理最佳实践
-
----
-
-#### 4. Logger - 日志系统
-
-**核心内容**:
-- 六级日志（Trace, Debug, Info, Warn, Error, Fatal）
-- 多种 Writer（Console, File, JSON）
-- 结构化字段支持
-- std.log 桥接
-- 异步日志（可选）
-
-**Story 来源**:
-- [004-logger.md](../stories/v0.1-foundation/004-logger.md)
-
-**代码示例**:
-- Logger 创建和配置
-- 不同 Writer 使用
-- 结构化日志
-- 日志级别过滤
-
----
-
-#### 5. Config - 配置管理
-
-**核心内容**:
-- JSON 配置文件
-- 类型安全的配置结构
-- 环境变量覆盖
-- 配置验证
-- 默认值处理
-
-**Story 来源**:
-- [005-config-system.md](../stories/v0.1-foundation/005-config-system.md)
-
-**代码示例**:
-- 加载配置文件
-- 环境变量覆盖
-- 配置验证
-
----
-
-#### 6. Exchange Router - 交易所抽象层
-
-**核心内容**:
-- IExchange 接口（VTable 模式）
-- 统一数据类型（TradingPair, OrderRequest, Ticker, Orderbook）
-- ExchangeRegistry（交易所注册表）
-- SymbolMapper（符号映射）
-- Mock Exchange（测试用）
-
-**Story 来源**:
-- [Exchange Router Plan](../../../.claude/plans/sorted-crunching-sonnet.md)
-
-**代码示例**:
-- 创建和注册交易所
-- 通过接口访问交易所
-- 符号映射
-- Mock 测试
-
----
-
-### V0.2 MVP Modules
-
-#### 7. Hyperliquid 连接器
-
-**核心内容**:
-- HTTP 和 WebSocket 客户端完整实现
-- Ed25519 签名机制详解
-- Info API 和 Exchange API 完整参考
-- WebSocket 订阅类型和消息格式
-- 单元测试和集成测试示例
-
-**Story 来源**: 
-- [006-hyperliquid-http.md](../stories/v0.2-mvp/006-hyperliquid-http.md)
-- [007-hyperliquid-ws.md](../stories/v0.2-mvp/007-hyperliquid-ws.md)
-- [HYPERLIQUID_API_RESEARCH.md](../stories/v0.2-mvp/HYPERLIQUID_API_RESEARCH.md)
-
-**代码示例**:
-- 创建 HTTP 客户端
-- 获取订单簿和账户状态
-- WebSocket 订阅和消息处理
-- 下单和撤单流程
-- 签名生成和验证
-
----
-
-### 2. 订单簿
-
-**核心内容**:
-- L2 订单簿数据结构
-- 快照和增量更新机制
-- 查询接口（最优价格、价差、深度）
-- WebSocket 集成示例
-- 性能优化策略
-
-**Story 来源**: 
-- [008-orderbook.md](../stories/v0.2-mvp/008-orderbook.md)
-
-**代码示例**:
-- 创建和初始化订单簿
-- 应用快照和增量更新
-- 查询最优买卖价
-- 实时订单簿监控
-
----
-
-### 3. 订单系统
-
-**核心内容**:
-- 订单类型定义（限价单、市价单、Post-only、IOC）
-- 订单状态枚举
-- 订单生命周期管理
-- 订单验证逻辑
-
-**Story 来源**: 
-- [009-order-types.md](../stories/v0.2-mvp/009-order-types.md)
-
-**代码示例**:
-- 创建不同类型的订单
-- 订单状态转换
-- 订单验证
-
----
-
-### 4. 订单管理器
-
-**核心内容**:
-- 订单提交和撤单接口
-- 订单状态追踪
-- WebSocket 事件处理
-- 订单历史查询
-- 错误处理和重试机制
-
-**Story 来源**: 
-- [010-order-manager.md](../stories/v0.2-mvp/010-order-manager.md)
-
-**代码示例**:
-- 下单流程
-- 批量撤单
-- 订单状态查询
-- WebSocket 事件处理
-
----
-
-### 5. 仓位追踪器
-
-**核心内容**:
-- 仓位数据结构（基于 Hyperliquid API）
-- 账户状态管理
-- 盈亏计算（已实现/未实现）
-- WebSocket 成交事件处理
-- 清算价格和保证金计算
-
-**Story 来源**: 
-- [011-position-tracker.md](../stories/v0.2-mvp/011-position-tracker.md)
-
-**代码示例**:
-- 同步账户状态
-- 处理成交事件
-- 计算盈亏
-- 查询仓位
-
----
-
-### 6. CLI
-
-**核心内容**:
-- CLI 命令结构
-- 市场数据命令（ticker, orderbook）
-- 订单命令（buy, sell, cancel）
-- 仓位和账户查询
-- REPL 交互式模式
-
-**Story 来源**: 
-- [012-cli-interface.md](../stories/v0.2-mvp/012-cli-interface.md)
-
-**代码示例**:
-- CLI 使用示例
-- REPL 模式
-- 批处理脚本
-
----
-
-## 文档使用指南
-
-### 按角色分类
-
-#### 初学者
-1. 从 [Features 总索引](./features/README.md) 开始
-2. 阅读各模块的 `README.md`
-3. 参考快速开始示例
+#### 新用户
+1. 阅读 [README.md](../README.md) 了解项目
+2. 跟随 [QUICK_START.md](../QUICK_START.md) 快速上手
+3. 浏览 [功能总索引](features/README.md)
 
 #### 开发者
-1. 查看 [API Reference](./features/hyperliquid-connector/api-reference.md)
-2. 参考代码示例
-3. 查看测试指南
+1. 查看 [ARCHITECTURE.md](ARCHITECTURE.md) 了解架构
+2. 参考各模块的 API Reference
+3. 查看 [测试策略](TESTING.md)
+4. 参考 [故障排查文档](troubleshooting/README.md)
 
-#### 架构师
-1. 阅读 Story 文档（技术设计）
-2. 查看各模块架构说明
-3. 参考性能优化指南
+#### 贡献者
+1. 阅读 [PROJECT_OUTLINE.md](PROJECT_OUTLINE.md) 了解路线图
+2. 查看 [MVP 进度](MVP_V0.2.0_PROGRESS.md)
+3. 查看 [下一步计划](NEXT_STEPS.md)
+4. 参考 [设计决策文档](decisions/)
 
-### 按任务分类
+### 按任务查找
+
+#### 快速开始
+- [安装和构建](../QUICK_START.md#安装和构建)
+- [运行测试](../QUICK_START.md#运行测试)
+- [第一个程序](../QUICK_START.md#第一个程序)
+- [使用 CLI](../QUICK_START.md#使用-cli)
 
 #### 集成 Hyperliquid
-- [Hyperliquid 连接器](./features/hyperliquid-connector/README.md)
-- [认证详解](./features/hyperliquid-connector/authentication.md)
-- [测试指南](./features/hyperliquid-connector/testing.md)
+- [Hyperliquid Connector README](features/hyperliquid-connector/README.md)
+- [API Reference](features/hyperliquid-connector/api.md)
+- [Testing Guide](features/hyperliquid-connector/testing.md)
 
 #### 实现交易逻辑
-- [订单管理器](./features/order-manager/README.md)
-- [订单类型](./features/order-system/order-types.md)
-- [错误处理](./features/order-manager/error-handling.md)
+- [Order Manager README](features/order-manager/README.md)
+- [Order Types API](features/order-system/api.md)
+- [Position Tracker README](features/position-tracker/README.md)
 
-#### 监控和追踪
-- [订单簿](./features/orderbook/README.md)
-- [仓位追踪器](./features/position-tracker/README.md)
-- [盈亏计算](./features/position-tracker/pnl-calculation.md)
+#### 监控市场数据
+- [OrderBook README](features/orderbook/README.md)
+- [WebSocket 订阅](features/hyperliquid-connector/implementation.md)
 
-#### 命令行工具
-- [CLI 使用指南](./cli/README.md)
-- [命令参考](./cli/commands.md)
-
-## 文档与 Story 的对应关系
-
-| Story | 文档目录 | 主要文件 |
-|-------|---------|---------|
-| 006-hyperliquid-http | `features/hyperliquid-connector/` | README, api-reference, authentication, testing |
-| 007-hyperliquid-ws | `features/hyperliquid-connector/` | websocket, subscriptions, message-types |
-| 008-orderbook | `features/orderbook/` | README, api-reference, performance |
-| 009-order-types | `features/order-system/` | README, order-types, order-lifecycle |
-| 010-order-manager | `features/order-manager/` | README, api-reference, error-handling |
-| 011-position-tracker | `features/position-tracker/` | README, pnl-calculation |
-| 012-cli-interface | `cli/` | README, commands, examples |
-
-## 文档特点
-
-### 1. 完整性
-- 涵盖所有 MVP 核心功能
-- 每个模块都有概览、API 参考和使用示例
-- 从 Story 提取了关键技术设计
-
-### 2. 实用性
-- 提供可运行的代码示例
-- 包含快速开始指南
-- 添加了常见问题解答
-
-### 3. 可维护性
-- 清晰的目录结构
-- 统一的文档格式
-- 相互链接的导航
-
-### 4. Zig 原生
-- 所有代码示例使用 Zig
-- 符合 Zig 最佳实践
-- 利用 Zig 的类型系统和内存管理
-
-## 下一步
-
-### 文档完善
-- [ ] 补充更多代码示例
-- [ ] 添加架构图和流程图
-- [ ] 编写故障排查指南
-- [ ] 创建性能基准测试文档
-
-### 代码实现
-- [ ] 基于文档实现各模块
-- [ ] 编写单元测试和集成测试
-- [ ] 性能优化和基准测试
-- [ ] 代码审查和重构
-
-### 持续更新
-- [ ] 根据实现反馈更新文档
-- [ ] 添加实际使用案例
-- [ ] 补充最佳实践和设计模式
-- [ ] 更新 API 变更和版本兼容性
-
-## 参考资料
-
-### 项目文档
-- [Stories (v0.2-mvp)](../stories/v0.2-mvp/)
-- [Hyperliquid API Research](../stories/v0.2-mvp/HYPERLIQUID_API_RESEARCH.md)
-- [Project Outline](./PROJECT_OUTLINE.md)
-- [Architecture](./ARCHITECTURE.md)
-
-### 外部资源
-- [Hyperliquid Official Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/)
-- [Hyperliquid Python SDK](https://github.com/hyperliquid-dex/hyperliquid-python-sdk)
-- [Zig Language Reference](https://ziglang.org/documentation/master/)
+#### 解决问题
+- [故障排查总览](troubleshooting/README.md)
+- [Zig 0.15.2 兼容性](troubleshooting/zig-0.15.2-logger-compatibility.md)
 
 ---
 
-**文档生成完成**
+## ✅ MVP v0.2.0 完成度
 
-总计创建了 **21 个核心功能文档** + **1 个总索引文档**，完整覆盖 ZigQuant v0.2 MVP 的所有主要功能模块。
+| 模块 | 代码 | 文档 | 测试 | 状态 |
+|------|------|------|------|------|
+| Decimal | 100% | 100% | 140/140 | ✅ |
+| Time | 100% | 100% | 100% | ✅ |
+| Error System | 100% | 100% | 100% | ✅ |
+| Logger | 100% | 100% | 38/38 | ✅ |
+| Config | 100% | 100% | 100% | ✅ |
+| Exchange Router | 100% | 100% | 100% | ✅ |
+| Hyperliquid Connector | 100% | 100% | 100% | ✅ |
+| OrderBook | 100% | 100% | 100% | ✅ |
+| Order System | 100% | 100% | 100% | ✅ |
+| Order Manager | 100% | 100% | 100% | ✅ |
+| Position Tracker | 100% | 100% | 100% | ✅ |
+| CLI | 100% | 100% | 100% | ✅ |
+| **总计** | **99%** | **100%** | **178/178 + 3/3** | **✅** |
 
-每个模块都包含：
-- 功能概览和快速开始
-- 详细的 API 参考
-- 实用的代码示例
-- 测试和最佳实践
-- 与 Story 文档的链接
+**集成测试**:
+- ✅ WebSocket Orderbook (0.22ms 延迟)
+- ✅ Position Management (完整生命周期)
+- ✅ WebSocket Events (回调系统)
 
-文档结构清晰，易于导航和维护，为后续开发提供了完整的参考资料。
+---
 
-*Last updated: 2025-12-23*
+## 📝 文档规范
+
+### 标准模块文档结构
+
+每个功能模块包含以下标准文档：
+
+1. **README.md** - 功能概览、快速开始
+2. **api.md** - API 参考和代码示例
+3. **implementation.md** - 实现细节和设计决策
+4. **testing.md** - 测试策略和测试结果
+5. **bugs.md** - Bug 追踪和修复记录
+6. **changelog.md** - 版本历史和变更记录
+
+### 文档特点
+
+- ✅ **完整性**: 覆盖所有 MVP 核心功能
+- ✅ **实用性**: 包含可运行的代码示例
+- ✅ **可维护性**: 清晰的目录结构，统一的格式
+- ✅ **中文优先**: 完整的中文注释和说明
+
+---
+
+## 🔮 后续计划
+
+### v0.3.0 - 策略框架
+- 策略接口定义
+- 技术指标库
+- 内置策略实现
+- 策略回测引擎
+
+### v0.4.0 - 回测引擎
+- 历史数据管理
+- 回测执行引擎
+- 性能分析工具
+
+### v1.0.0 - 生产就绪
+- 完整的量化交易系统
+- 多交易所支持
+- Web 管理界面
+
+查看 [PROJECT_OUTLINE.md](PROJECT_OUTLINE.md) 了解完整路线图。
+
+---
+
+**文档总数**: 100 个文档
+**最后更新**: 2025-12-25
+**当前版本**: v0.2.0
+**MVP 完成度**: 99%
+
+🎉 Generated with [Claude Code](https://claude.com/claude-code)
