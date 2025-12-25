@@ -29,7 +29,7 @@ Commands:
   sell <PAIR> <QTY> <PRICE>      限价卖单
   cancel <ORDER_ID>              撤销订单
   cancel-all [PAIR]              撤销所有订单
-  repl                           进入 REPL 模式
+  repl                           进入 REPL 模式 // TODO 目前还没有测试使用过
 ```
 
 ---

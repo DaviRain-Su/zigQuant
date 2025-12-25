@@ -58,6 +58,75 @@ pub const TradingPair = struct {
 };
 
 // ============================================================================
+// Timeframe
+// ============================================================================
+
+/// Trading timeframe (candle interval)
+/// Represents the duration of each candle in historical data and live trading
+pub const Timeframe = enum {
+    m1, // 1 minute
+    m5, // 5 minutes
+    m15, // 15 minutes
+    m30, // 30 minutes
+    h1, // 1 hour
+    h4, // 4 hours
+    d1, // 1 day
+    w1, // 1 week
+
+    /// Convert to string representation
+    pub fn toString(self: Timeframe) []const u8 {
+        return switch (self) {
+            .m1 => "1m",
+            .m5 => "5m",
+            .m15 => "15m",
+            .m30 => "30m",
+            .h1 => "1h",
+            .h4 => "4h",
+            .d1 => "1d",
+            .w1 => "1w",
+        };
+    }
+
+    /// Parse from string representation
+    pub fn fromString(s: []const u8) !Timeframe {
+        if (std.mem.eql(u8, s, "1m")) return .m1;
+        if (std.mem.eql(u8, s, "5m")) return .m5;
+        if (std.mem.eql(u8, s, "15m")) return .m15;
+        if (std.mem.eql(u8, s, "30m")) return .m30;
+        if (std.mem.eql(u8, s, "1h")) return .h1;
+        if (std.mem.eql(u8, s, "4h")) return .h4;
+        if (std.mem.eql(u8, s, "1d")) return .d1;
+        if (std.mem.eql(u8, s, "1w")) return .w1;
+        return error.InvalidTimeframe;
+    }
+
+    /// Convert to minutes (for calculations and comparisons)
+    pub fn toMinutes(self: Timeframe) u32 {
+        return switch (self) {
+            .m1 => 1,
+            .m5 => 5,
+            .m15 => 15,
+            .m30 => 30,
+            .h1 => 60,
+            .h4 => 240,
+            .d1 => 1440,
+            .w1 => 10080,
+        };
+    }
+
+    /// Convert to seconds (for timestamp calculations)
+    pub fn toSeconds(self: Timeframe) u32 {
+        return self.toMinutes() * 60;
+    }
+
+    /// Compare two timeframes
+    /// Returns true if self is shorter than other
+    pub fn isShorterThan(self: Timeframe, other: Timeframe) bool {
+        return self.toMinutes() < other.toMinutes();
+    }
+};
+
+// ============================================================================
 // Order Side
 // ============================================================================
 
@@ -452,6 +521,47 @@ test "TradingPair: equality" {
 
     try std.testing.expect(pair1.eql(pair2));
     try std.testing.expect(!pair1.eql(pair3));
+}
+
+test "Timeframe: string conversion" {
+    try std.testing.expectEqualStrings("1m", Timeframe.m1.toString());
+    try std.testing.expectEqualStrings("5m", Timeframe.m5.toString());
+    try std.testing.expectEqualStrings("15m", Timeframe.m15.toString());
+    try std.testing.expectEqualStrings("1h", Timeframe.h1.toString());
+    try std.testing.expectEqualStrings("1d", Timeframe.d1.toString());
+
+    try std.testing.expectEqual(Timeframe.m1, try Timeframe.fromString("1m"));
+    try std.testing.expectEqual(Timeframe.m5, try Timeframe.fromString("5m"));
+    try std.testing.expectEqual(Timeframe.h1, try Timeframe.fromString("1h"));
+    try std.testing.expectEqual(Timeframe.d1, try Timeframe.fromString("1d"));
+
+    // Invalid timeframe should error
+    const result = Timeframe.fromString("invalid");
+    try std.testing.expectError(error.InvalidTimeframe, result);
+}
+
+test "Timeframe: toMinutes conversion" {
+    try std.testing.expectEqual(@as(u32, 1), Timeframe.m1.toMinutes());
+    try std.testing.expectEqual(@as(u32, 5), Timeframe.m5.toMinutes());
+    try std.testing.expectEqual(@as(u32, 15), Timeframe.m15.toMinutes());
+    try std.testing.expectEqual(@as(u32, 30), Timeframe.m30.toMinutes());
+    try std.testing.expectEqual(@as(u32, 60), Timeframe.h1.toMinutes());
+    try std.testing.expectEqual(@as(u32, 240), Timeframe.h4.toMinutes());
+    try std.testing.expectEqual(@as(u32, 1440), Timeframe.d1.toMinutes());
+    try std.testing.expectEqual(@as(u32, 10080), Timeframe.w1.toMinutes());
+}
+
+test "Timeframe: toSeconds conversion" {
+    try std.testing.expectEqual(@as(u32, 60), Timeframe.m1.toSeconds());
+    try std.testing.expectEqual(@as(u32, 300), Timeframe.m5.toSeconds());
+    try std.testing.expectEqual(@as(u32, 3600), Timeframe.h1.toSeconds());
+}
+
+test "Timeframe: comparison" {
+    try std.testing.expect(Timeframe.m1.isShorterThan(.m5));
+    try std.testing.expect(Timeframe.m15.isShorterThan(.h1));
+    try std.testing.expect(!Timeframe.h1.isShorterThan(.m15));
+    try std.testing.expect(!Timeframe.m5.isShorterThan(.m5));
 }
 
 test "Side: string conversion" {

@@ -127,10 +127,10 @@ fn encodeAgentType(allocator: Allocator, agent: PhantomAgent) ![32]u8 {
     @memcpy(data[64..96], &agent.connectionId);
 
     // std.debug.print("[VERIFY] Agent encode concat: ", .{});
-    for (data) |byte| {
-        std.debug.print("{x:0>2}", .{byte});
-    }
-    std.debug.print("\n", .{});
+    // for (data) |byte| {
+    //     std.debug.print("{x:0>2}", .{byte});
+    // }
+    // std.debug.print("\n", .{});
 
     // Final struct hash (SHA3-256)
     const result = keccak256(data);
@@ -230,10 +230,10 @@ pub const Signer = struct {
         @memcpy(digest_data[34..66], &agent_hash);
 
         // std.debug.print("[VERIFY] Digest input (66 bytes): ", .{});
-        for (digest_data) |byte| {
-            std.debug.print("{x:0>2}", .{byte});
-        }
-        std.debug.print("\n", .{});
+        // for (digest_data) |byte| {
+        //     std.debug.print("{x:0>2}", .{byte});
+        // }
+        // std.debug.print("\n", .{});
 
         const digest = keccak256(&digest_data); // Ethereum Keccak256!
         // std.debug.print("[DEBUG] EIP-712 digest (Keccak256): {s}\n", .{std.fmt.bytesToHex(&digest, .lower)});

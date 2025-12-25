@@ -31,6 +31,7 @@ pub const hyperliquid = struct {
 
 // Market data modules
 pub const orderbook = @import("market/orderbook.zig");
+pub const candles = @import("market/candles.zig");
 
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
@@ -44,6 +45,10 @@ pub const OrderBook = orderbook.OrderBook;
 pub const OrderBookManager = orderbook.OrderBookManager;
 pub const BookLevel = orderbook.Level; // Renamed to avoid conflict with logger.Level
 pub const SlippageResult = orderbook.SlippageResult;
+pub const Candle = candles.Candle;
+pub const Candles = candles.Candles;
+pub const IndicatorSeries = candles.IndicatorSeries;
+pub const IndicatorValue = candles.IndicatorValue;
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
@@ -90,6 +95,7 @@ pub const ConfigError = config.ConfigError;
 // Re-export exchange types
 pub const IExchange = exchange_interface.IExchange;
 pub const TradingPair = exchange_types.TradingPair;
+pub const Timeframe = exchange_types.Timeframe;
 pub const Side = exchange_types.Side;
 pub const OrderType = exchange_types.OrderType;
 pub const TimeInForce = exchange_types.TimeInForce;
@@ -140,6 +146,7 @@ test {
 
     // Market data modules
     _ = orderbook;
+    _ = candles;
 
     // Trading modules
     _ = order_store;

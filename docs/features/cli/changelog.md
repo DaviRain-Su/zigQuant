@@ -110,6 +110,7 @@
 - [ ] 多交易所支持
   - Binance 集成
   - OKX 集成
+  - Bybit 集成
   - 其他主流交易所
 
 - [ ] WebSocket 实时数据
