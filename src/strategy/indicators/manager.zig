@@ -70,6 +70,9 @@ pub const IndicatorManager = struct {
     /// Cache statistics
     stats: CacheStats,
 
+    /// Track if deinit has been called
+    deinitialized: bool,
+
     /// Initialize indicator manager
     pub fn init(allocator: std.mem.Allocator) IndicatorManager {
         return .{
@@ -80,13 +83,18 @@ pub const IndicatorManager = struct {
                 .cache_misses = 0,
                 .total_requests = 0,
             },
+            .deinitialized = false,
         };
     }
 
     /// Clean up resources
     pub fn deinit(self: *IndicatorManager) void {
+        // Make deinit idempotent
+        if (self.deinitialized) return;
+
         self.clear();
         self.cache.deinit();
+        self.deinitialized = true;
     }
 
     /// Get or calculate indicator

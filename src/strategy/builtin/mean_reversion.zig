@@ -176,6 +176,7 @@ pub const RSIMeanReversionStrategy = struct {
 
     fn deinit(ptr: *anyopaque) void {
         const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
+        self.indicator_manager.deinit();
         self.initialized = false;
     }
 

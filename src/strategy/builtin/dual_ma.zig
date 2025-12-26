@@ -131,6 +131,7 @@ pub const DualMAStrategy = struct {
 
     fn deinit(ptr: *anyopaque) void {
         const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
+        self.indicator_manager.deinit();
         self.initialized = false;
     }
 

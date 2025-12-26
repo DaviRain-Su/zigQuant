@@ -89,7 +89,7 @@ pub const GridSearchOptimizer = struct {
         self: *GridSearchOptimizer,
         strategy_factory: anytype, // Function: (ParameterSet) -> !IStrategy
     ) !OptimizationResult {
-        const start_time = std.time.milliNanos();
+        const start_time = std.time.milliTimestamp();
 
         // Generate all parameter combinations
         var generator = CombinationGenerator.init(
@@ -117,22 +117,22 @@ pub const GridSearchOptimizer = struct {
 
         for (combinations, 0..) |*combo, i| {
             // Clone the parameter set for this result
-            const params = try combo.clone(self.allocator);
+            var params = try combo.clone(self.allocator);
             errdefer params.deinit();
 
             // Create strategy with these parameters
             var strategy = try strategy_factory(params);
             defer strategy.deinit();
 
-            // Run backtest
-            var engine = try BacktestEngine.init(
-                self.allocator,
-                &strategy,
-                self.config.backtest_config,
-            );
-            defer engine.deinit();
+            // Create null logger for backtest
+            var null_writer = NullWriter.init();
+            const log_writer = null_writer.writer();
+            var logger = Logger.init(self.allocator, log_writer, .err);
+            defer logger.deinit();
 
-            const backtest_result = try engine.run();
+            // Run backtest
+            var engine = BacktestEngine.init(self.allocator, logger);
+            const backtest_result = try engine.run(strategy, self.config.backtest_config);
 
             // Calculate score based on objective
             const score = self.calculateScore(&backtest_result);
@@ -151,7 +151,7 @@ pub const GridSearchOptimizer = struct {
             }
         }
 
-        const elapsed_time = @as(u64, @intCast(std.time.milliNanos() - start_time)) / std.time.ns_per_ms;
+        const elapsed_time = @as(u64, @intCast(std.time.milliTimestamp() - start_time));
 
         // Clone best parameters
         const best_params = try results[best_index].params.clone(self.allocator);

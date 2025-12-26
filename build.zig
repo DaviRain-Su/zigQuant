@@ -355,6 +355,57 @@ pub fn build(b: *std.Build) void {
     const example_colored_logging_step = b.step("run-example-colored-logging", "Run colored logging example");
     example_colored_logging_step.dependOn(&run_example_colored_logging.step);
 
+    // Example 6: Strategy Backtest
+    const example_backtest = b.addExecutable(.{
+        .name = "example-backtest",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/05_strategy_backtest.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_backtest);
+    const run_example_backtest = b.addRunArtifact(example_backtest);
+    const example_backtest_step = b.step("run-example-backtest", "Run strategy backtest example");
+    example_backtest_step.dependOn(&run_example_backtest.step);
+
+    // Example 7: Strategy Optimize
+    const example_optimize = b.addExecutable(.{
+        .name = "example-optimize",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/06_strategy_optimize.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_optimize);
+    const run_example_optimize = b.addRunArtifact(example_optimize);
+    const example_optimize_step = b.step("run-example-optimize", "Run strategy optimization example");
+    example_optimize_step.dependOn(&run_example_optimize.step);
+
+    // Example 8: Custom Strategy
+    const example_custom = b.addExecutable(.{
+        .name = "example-custom",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/07_custom_strategy.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_custom);
+    const run_example_custom = b.addRunArtifact(example_custom);
+    const example_custom_step = b.step("run-example-custom", "Run custom strategy example");
+    example_custom_step.dependOn(&run_example_custom.step);
+
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
     examples_step.dependOn(&run_example_core.step);
@@ -362,6 +413,9 @@ pub fn build(b: *std.Build) void {
     examples_step.dependOn(&run_example_http.step);
     examples_step.dependOn(&run_example_connector.step);
     examples_step.dependOn(&run_example_colored_logging.step);
+    examples_step.dependOn(&run_example_backtest.step);
+    examples_step.dependOn(&run_example_optimize.step);
+    examples_step.dependOn(&run_example_custom.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

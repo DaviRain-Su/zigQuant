@@ -171,6 +171,7 @@ pub const BollingerBreakoutStrategy = struct {
 
     fn deinit(ptr: *anyopaque) void {
         const self: *BollingerBreakoutStrategy = @ptrCast(@alignCast(ptr));
+        self.indicator_manager.deinit();
         self.initialized = false;
     }
 
