@@ -1,8 +1,13 @@
 //! zigQuant CLI - Main Entry Point
 
 const std = @import("std");
+const zigQuant = @import("zigQuant");
 const CLI = @import("cli/cli.zig").CLI;
 const format = @import("cli/format.zig");
+const strategy_commands = @import("cli/strategy_commands.zig");
+
+const Logger = zigQuant.Logger;
+const ConsoleWriter = zigQuant.ConsoleWriter;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -16,6 +21,40 @@ pub fn main() !void {
     // Skip program name
     const cli_args = if (args.len > 1) args[1..] else &[_][]const u8{};
 
+    if (cli_args.len == 0) {
+        try printGeneralHelp();
+        return;
+    }
+
+    // Get command name (first non-flag argument)
+    const command = cli_args[0];
+
+    // Check if it's a strategy command (backtest, optimize, run-strategy)
+    if (strategy_commands.isStrategyCommand(command)) {
+        // Strategy commands don't need exchange connection
+        // They use a simple logger instead of full CLI
+        var log_buf: [4096]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&log_buf);
+        const WriterType = @TypeOf(fbs.writer());
+        var console = ConsoleWriter(WriterType).initWithColors(allocator, fbs.writer(), true);
+        defer console.deinit();
+        var logger = Logger.init(allocator, console.writer(), .info);
+
+        // Execute strategy command
+        strategy_commands.executeStrategyCommand(
+            allocator,
+            &logger,
+            command,
+            cli_args,
+        ) catch |err| {
+            try logger.err("Command failed: {s}", .{@errorName(err)});
+            std.process.exit(1);
+        };
+
+        return;
+    }
+
+    // For trading commands, use the existing CLI with exchange connection
     // Check for config file option
     var config_path: ?[]const u8 = null;
     var command_start: usize = 0;
@@ -36,9 +75,7 @@ pub fn main() !void {
 
     // Initialize CLI
     const cli = CLI.init(allocator, config_path) catch |err| {
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr = std.fs.File.stderr().writer(&stderr_buffer);
-        try format.printError(&stderr.interface, "Failed to initialize: {s}", .{@errorName(err)});
+        std.debug.print("Failed to initialize: {s}\n", .{@errorName(err)});
         std.process.exit(1);
     };
     defer cli.deinit();
@@ -49,7 +86,7 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    // Execute command or show help
+    // Execute trading command
     const command_args = if (command_start < cli_args.len)
         cli_args[command_start..]
     else
@@ -64,4 +101,42 @@ pub fn main() !void {
     // Flush output buffers before exiting
     cli.stdout.interface.flush() catch {};
     cli.stderr.interface.flush() catch {};
+}
+
+fn printGeneralHelp() !void {
+    const stdout = std.fs.File.stdout();
+    try stdout.writeAll(
+        \\
+        \\zigQuant - Quantitative Trading Framework
+        \\
+        \\USAGE:
+        \\    zigquant <COMMAND> [OPTIONS]
+        \\
+        \\STRATEGY COMMANDS:
+        \\    backtest         Run strategy backtests
+        \\    optimize         Parameter optimization (coming soon)
+        \\    run-strategy     Live/paper trading (coming soon)
+        \\
+        \\TRADING COMMANDS:
+        \\    price            Query current price
+        \\    book             Query order book
+        \\    balance          Query account balance
+        \\    positions        Query open positions
+        \\    orders           Query open orders
+        \\    buy              Place buy order
+        \\    sell             Place sell order
+        \\    cancel           Cancel specific order
+        \\    cancel-all       Cancel all orders
+        \\    repl             Start interactive REPL mode
+        \\    help             Show help message
+        \\
+        \\EXAMPLES:
+        \\    zigquant backtest --strategy dual_ma --config config.json --data btc.csv
+        \\    zigquant price BTC-USDC
+        \\    zigquant balance
+        \\
+        \\Use 'zigquant <COMMAND> --help' for command-specific help
+        \\
+        \\
+    );
 }

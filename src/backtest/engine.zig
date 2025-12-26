@@ -1,6 +1,8 @@
 //! Backtest Engine - Core Engine
 //!
 //! Main backtesting orchestrator using event-driven simulation.
+//! Refactored to use the new IStrategy interface with separate
+//! indicator calculation and signal generation methods.
 
 const std = @import("std");
 const Decimal = @import("../core/decimal.zig").Decimal;
@@ -9,6 +11,7 @@ const Logger = @import("../core/logger.zig").Logger;
 const Candle = @import("../market/candles.zig").Candle;
 const Candles = @import("../market/candles.zig").Candles;
 const IStrategy = @import("../strategy/interface.zig").IStrategy;
+const StrategyContext = @import("../strategy/interface.zig").StrategyContext;
 const Signal = @import("../strategy/signal.zig").Signal;
 const SignalType = @import("../strategy/signal.zig").SignalType;
 const PositionSide = @import("types.zig").PositionSide;
@@ -50,8 +53,9 @@ pub const BacktestEngine = struct {
         strategy: IStrategy,
         config: BacktestConfig,
     ) !BacktestResult {
-        self.logger.info("Starting backtest: {s} on {s}/{s}", .{
-            strategy.getName(),
+        const metadata = strategy.getMetadata();
+        try self.logger.info("Starting backtest: {s} on {s}/{s}", .{
+            metadata.name,
             config.pair.base,
             config.pair.quote,
         });
@@ -72,39 +76,47 @@ pub const BacktestEngine = struct {
             return BacktestError.InsufficientData;
         }
 
-        self.logger.info("Loaded {} candles", .{candles.candles.len});
+        try self.logger.info("Loaded {} candles", .{candles.candles.len});
 
-        // 3. Populate indicators
+        // 3. Initialize strategy
+        const strategy_context = StrategyContext{
+            .allocator = self.allocator,
+            .logger = self.logger,
+        };
+        try strategy.init(strategy_context);
+
+        // 4. Calculate indicators (populate all indicators once before loop)
+        try self.logger.info("Calculating indicators...", .{});
         try strategy.populateIndicators(&candles);
-        self.logger.info("Indicators calculated", .{});
+        try self.logger.info("Indicators populated successfully", .{});
 
-        // 4. Initialize backtest state
+        // 5. Initialize account and position manager
         var account = Account.init(config.initial_capital);
         var position_mgr = PositionManager.init(self.allocator);
         var executor = OrderExecutor.init(self.allocator, self.logger, config);
 
-        var trades = std.ArrayList(Trade).init(self.allocator);
-        defer trades.deinit();
+        var trades = try std.ArrayList(Trade).initCapacity(self.allocator, 50);
+        defer trades.deinit(self.allocator);
 
         var equity_curve = try std.ArrayList(EquitySnapshot).initCapacity(
             self.allocator,
             candles.candles.len,
         );
-        defer equity_curve.deinit();
+        defer equity_curve.deinit(self.allocator);
 
-        // 5. Run event loop
-        self.logger.info("Starting simulation...", .{});
+        // 6. Event loop - iterate through each candle
+        try self.logger.info("Starting simulation...", .{});
 
         for (candles.candles, 0..) |candle, i| {
-            // 5.1 Update position unrealized P&L
+            // 6.1 Update position unrealized P&L
             if (position_mgr.getPosition()) |pos| {
-                try pos.updateUnrealizedPnL(candle.close);
+                pos.updateUnrealizedPnL(candle.close);
                 try account.updateEquity(pos.unrealized_pnl);
             } else {
                 try account.updateEquity(Decimal.ZERO);
             }
 
-            // 5.2 Record equity snapshot
+            // 6.2 Record equity snapshot
             equity_curve.appendAssumeCapacity(EquitySnapshot{
                 .timestamp = candle.timestamp,
                 .equity = account.equity,
@@ -115,58 +127,57 @@ pub const BacktestEngine = struct {
                     Decimal.ZERO,
             });
 
-            // 5.3 Check exit signals (if in position)
+            // 6.3 Check for exit signal if we have a position
             if (position_mgr.hasPosition()) {
-                const exit_signal = try strategy.generateExitSignal(&candles, i);
-                if (exit_signal) |sig| {
-                    if (sig.signal_type != .hold) {
-                        try self.handleExit(
-                            &executor,
-                            &position_mgr,
-                            &account,
-                            &trades,
-                            sig,
-                            candle,
-                        );
-                        continue; // Skip entry check after exit
-                    }
+                const position = position_mgr.getPosition().?;
+                const exit_signal = try strategy.generateExitSignal(&candles, position.*);
+
+                if (exit_signal) |signal| {
+                    try self.handleExit(
+                        &executor,
+                        &position_mgr,
+                        &account,
+                        &trades,
+                        signal,
+                        candle,
+                    );
+                    continue; // Skip entry check after exit
                 }
             }
 
-            // 5.4 Check entry signals (if no position)
+            // 6.4 Check for entry signal if we don't have a position
             if (!position_mgr.hasPosition()) {
                 const entry_signal = try strategy.generateEntrySignal(&candles, i);
-                if (entry_signal) |sig| {
-                    if (sig.signal_type == .entry_long or sig.signal_type == .entry_short) {
-                        try self.handleEntry(
-                            &executor,
-                            &position_mgr,
-                            &account,
-                            strategy,
-                            sig,
-                            candle,
-                        );
-                    }
+
+                if (entry_signal) |signal| {
+                    try self.handleEntry(
+                        &executor,
+                        &position_mgr,
+                        &account,
+                        strategy,
+                        signal,
+                        candle,
+                    );
                 }
             }
 
-            // 5.5 Progress logging
+            // 6.5 Progress logging
             if (i > 0 and i % 1000 == 0) {
-                self.logger.debug("Progress: {}/{} candles", .{ i, candles.candles.len });
+                try self.logger.debug("Progress: {}/{} candles", .{ i, candles.candles.len });
             }
         }
 
-        // 6. Force close remaining positions
+        // 7. Force close remaining positions
         if (position_mgr.getPosition()) |pos| {
             const last_candle = candles.candles[candles.candles.len - 1];
             const force_exit_signal = Signal{
                 .timestamp = last_candle.timestamp,
                 .pair = config.pair,
-                .signal_type = if (pos.side == .long) .exit_long else .exit_short,
-                .side = pos.side,
+                .type = if (pos.side == .long) .exit_long else .exit_short,
+                .side = if (pos.side == .long) .sell else .buy,
                 .price = last_candle.close,
-                .strength = Decimal.fromFloat(1.0),
-                .metadata = .{},
+                .strength = 1.0,
+                .metadata = null,
             };
 
             try self.handleExit(
@@ -178,20 +189,20 @@ pub const BacktestEngine = struct {
                 last_candle,
             );
 
-            self.logger.warn("Force closed remaining position", .{});
+            try self.logger.warn("Force closed remaining position", .{});
         }
 
-        // 7. Generate results
-        self.logger.info("Backtest complete: {} trades", .{trades.items.len});
+        // 8. Generate results
+        try self.logger.info("Backtest complete: {} trades", .{trades.items.len});
 
         var result = BacktestResult.init(
             self.allocator,
             config,
-            strategy.getName(),
+            metadata.name,
         );
 
-        result.trades = try trades.toOwnedSlice();
-        result.equity_curve = try equity_curve.toOwnedSlice();
+        result.trades = try trades.toOwnedSlice(self.allocator);
+        result.equity_curve = try equity_curve.toOwnedSlice(self.allocator);
 
         try result.calculateStats();
 
@@ -208,18 +219,24 @@ pub const BacktestEngine = struct {
         signal: Signal,
         candle: Candle,
     ) !void {
-        // 1. Calculate position size
+        // 1. Calculate position size using strategy's position sizing logic
         const position_size = try strategy.calculatePositionSize(signal, account.*);
 
         // Verify sufficient funds
         const entry_cost = candle.close.mul(position_size);
         if (!account.hasSufficientFunds(entry_cost)) {
-            self.logger.warn("Insufficient funds for entry", .{});
+            try self.logger.warn("Insufficient funds for entry", .{});
+            return;
+        }
+
+        // Verify position size is valid (positive)
+        if (!position_size.isPositive()) {
+            try self.logger.warn("Invalid position size from strategy: {}", .{position_size});
             return;
         }
 
         // 2. Create market order
-        const order_side = switch (signal.signal_type) {
+        const order_side = switch (signal.type) {
             .entry_long => OrderEvent.OrderSide.buy,
             .entry_short => OrderEvent.OrderSide.sell,
             else => return,
@@ -240,12 +257,12 @@ pub const BacktestEngine = struct {
 
         // 4. Update account balance
         const cost = fill.fill_price.mul(fill.fill_size);
-        const total_cost = try cost.add(fill.commission);
-        account.balance = try account.balance.sub(total_cost);
-        account.total_commission = try account.total_commission.add(fill.commission);
+        const total_cost = cost.add(fill.commission);
+        account.balance = account.balance.sub(total_cost);
+        account.total_commission = account.total_commission.add(fill.commission);
 
         // 5. Open position
-        const pos_side = if (signal.signal_type == .entry_long) PositionSide.long else PositionSide.short;
+        const pos_side = if (signal.type == .entry_long) PositionSide.long else PositionSide.short;
         const position = Position.init(
             signal.pair,
             pos_side,
@@ -255,7 +272,7 @@ pub const BacktestEngine = struct {
         );
         try position_mgr.openPosition(position);
 
-        self.logger.info("Opened {s} position: {} @ {}", .{
+        try self.logger.info("Opened {s} position: {} @ {}", .{
             @tagName(pos_side),
             fill.fill_size,
             fill.fill_price,
@@ -292,13 +309,13 @@ pub const BacktestEngine = struct {
 
         // 3. Calculate P&L
         const pnl = position.calculatePnL(fill.fill_price);
-        const net_pnl = try pnl.sub(fill.commission);
+        const net_pnl = pnl.sub(fill.commission);
 
         // 4. Update account
         const proceeds = fill.fill_price.mul(fill.fill_size);
-        account.balance = try account.balance.add(proceeds);
-        account.balance = try account.balance.add(net_pnl);
-        account.total_commission = try account.total_commission.add(fill.commission);
+        account.balance = account.balance.add(proceeds);
+        account.balance = account.balance.add(net_pnl);
+        account.total_commission = account.total_commission.add(fill.commission);
 
         // 5. Calculate trade metrics
         const duration_ms = signal.timestamp.millis - position.entry_time.millis;
@@ -308,7 +325,7 @@ pub const BacktestEngine = struct {
         const pnl_percent = try net_pnl.div(entry_cost);
 
         // 6. Record trade
-        try trades.append(Trade{
+        try trades.append(self.allocator, Trade{
             .id = order.id,
             .pair = position.pair,
             .side = position.side,
@@ -323,7 +340,7 @@ pub const BacktestEngine = struct {
             .duration_minutes = duration_minutes,
         });
 
-        self.logger.info("Closed position: PnL={}, Return={d:.2}%", .{
+        try self.logger.info("Closed position: PnL={}, Return={d:.2}%", .{
             net_pnl,
             pnl_percent.toFloat() * 100,
         });

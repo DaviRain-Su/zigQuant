@@ -176,6 +176,11 @@ test "RiskManager: initialization" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -207,6 +212,11 @@ test "RiskManager: reject order exceeding max open trades" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -269,6 +279,11 @@ test "RiskManager: reject oversized position" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -313,6 +328,11 @@ test "RiskManager: reject excessive total exposure" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -367,6 +387,11 @@ test "RiskManager: calculate risk ratio" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -411,6 +436,11 @@ test "RiskManager: Kelly criterion position sizing" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -464,6 +494,11 @@ test "RiskManager: no memory leak" {
         .version = "1.0",
         .author = "Test",
         .description = "Test",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(

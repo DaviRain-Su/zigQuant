@@ -19,6 +19,17 @@ const TradingPair = @import("../root.zig").TradingPair;
 // Strategy Metadata
 // ============================================================================
 
+/// Strategy type classification
+pub const StrategyType = enum {
+    trend_following,
+    mean_reversion,
+    breakout,
+    arbitrage,
+    market_making,
+    grid_trading,
+    custom,
+};
+
 /// Strategy metadata
 /// Provides identification and description information for a strategy
 pub const StrategyMetadata = struct {
@@ -34,6 +45,21 @@ pub const StrategyMetadata = struct {
     /// Brief description of strategy logic
     description: []const u8,
 
+    /// Strategy type classification
+    strategy_type: StrategyType,
+
+    /// Recommended timeframe
+    timeframe: Timeframe,
+
+    /// Number of candles needed before strategy can start
+    startup_candle_count: u32,
+
+    /// Stop loss percentage (e.g., -0.05 for -5%)
+    stoploss: Decimal,
+
+    /// Optional trailing stop configuration
+    trailing_stop: ?TrailingStopConfig,
+
     /// Validate metadata fields
     pub fn validate(self: StrategyMetadata) !void {
         if (self.name.len == 0) {
@@ -42,11 +68,17 @@ pub const StrategyMetadata = struct {
         if (self.version.len == 0) {
             return error.EmptyStrategyVersion;
         }
+        if (self.stoploss.isPositive()) {
+            return error.PositiveStopLoss;
+        }
+        if (self.trailing_stop) |ts| {
+            try ts.validate();
+        }
     }
 
     /// Check if metadata is valid
     pub fn isValid(self: StrategyMetadata) bool {
-        return self.name.len > 0 and self.version.len > 0;
+        return self.name.len > 0 and self.version.len > 0 and !self.stoploss.isPositive();
     }
 };
 
@@ -337,6 +369,11 @@ test "StrategyMetadata: validation" {
         .version = "1.0.0",
         .author = "Test Author",
         .description = "A test strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .m15,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
     try valid.validate();
     try std.testing.expect(valid.isValid());
@@ -346,6 +383,11 @@ test "StrategyMetadata: validation" {
         .version = "1.0.0",
         .author = "Test Author",
         .description = "A test strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .m15,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
     try std.testing.expectError(error.EmptyStrategyName, invalid.validate());
     try std.testing.expect(!invalid.isValid());
@@ -451,6 +493,11 @@ test "StrategyConfig: initialization and cleanup" {
         .version = "1.0.0",
         .author = "Test Author",
         .description = "A test strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const parameters = [_]StrategyParameter{
@@ -505,6 +552,11 @@ test "StrategyConfig: parameter lookup" {
         .version = "1.0.0",
         .author = "Test Author",
         .description = "A test strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const parameters = [_]StrategyParameter{
@@ -551,6 +603,11 @@ test "StrategyConfig: no memory leak" {
         .version = "1.0.0",
         .author = "Test Author",
         .description = "A test strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const parameters = [_]StrategyParameter{

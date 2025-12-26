@@ -78,7 +78,7 @@ pub const PerformanceAnalyzer = struct {
         self: *PerformanceAnalyzer,
         result: BacktestResult,
     ) !PerformanceMetrics {
-        self.logger.info("Analyzing {} trades", .{result.trades.len});
+        try self.logger.info("Analyzing {} trades", .{result.trades.len});
 
         // Calculate each category of metrics
         const profit_metrics = try self.calculateProfitMetrics(result.trades);
@@ -157,17 +157,17 @@ pub const PerformanceAnalyzer = struct {
 
         for (trades) |trade| {
             if (trade.isWinning()) {
-                total_profit = try total_profit.add(trade.pnl);
+                total_profit = total_profit.add(trade.pnl);
                 winning_count += 1;
             } else if (trade.isLosing()) {
-                total_loss = total_loss.add(try trade.pnl.abs());
+                total_loss = total_loss.add(trade.pnl.abs());
                 losing_count += 1;
             }
         }
 
-        const net_profit = try total_profit.sub(total_loss);
+        const net_profit = total_profit.sub(total_loss);
 
-        const profit_factor = if (!total_loss.isZero())
+        const profit_factor: f64 = if (!total_loss.isZero())
             (try total_profit.div(total_loss)).toFloat()
         else if (total_profit.isPositive())
             999.0
@@ -192,7 +192,7 @@ pub const PerformanceAnalyzer = struct {
         // Expectancy = avg_profit * win_rate - avg_loss * (1 - win_rate)
         const expectancy_win = avg_profit.mul(Decimal.fromFloat(win_rate));
         const expectancy_loss = avg_loss.mul(Decimal.fromFloat(1.0 - win_rate));
-        const expectancy = try expectancy_win.sub(expectancy_loss);
+        const expectancy = expectancy_win.sub(expectancy_loss);
 
         return .{
             .total_profit = total_profit,
@@ -281,19 +281,19 @@ pub const PerformanceAnalyzer = struct {
 
         for (equity_curve) |snapshot| {
             // Update peak
-            if (snapshot.equity.gt_internal(peak)) {
+            if (snapshot.equity.cmp(peak) == .gt) {
                 peak = snapshot.equity;
                 peak_time = snapshot.timestamp;
             }
 
             // Update trough
-            if (snapshot.equity.lt_internal(trough)) {
+            if (snapshot.equity.cmp(trough) == .lt) {
                 trough = snapshot.equity;
             }
 
             // Calculate current drawdown
-            if (snapshot.equity.lt_internal(peak)) {
-                const dd_amount = try peak.sub(snapshot.equity);
+            if (snapshot.equity.cmp(peak) == .lt) {
+                const dd_amount = peak.sub(snapshot.equity);
                 const dd_pct = (try dd_amount.div(peak)).toFloat();
                 max_dd = @max(max_dd, dd_pct);
 
@@ -332,7 +332,7 @@ pub const PerformanceAnalyzer = struct {
             const curr_equity = equity_curve[i].equity;
 
             if (!prev_equity.isZero()) {
-                const ret = try (try curr_equity.sub(prev_equity)).div(prev_equity);
+                const ret = try curr_equity.sub(prev_equity).div(prev_equity);
                 returns[i - 1] = ret.toFloat();
             } else {
                 returns[i - 1] = 0.0;
@@ -422,7 +422,7 @@ pub const PerformanceAnalyzer = struct {
         }
 
         const final_equity = equity_curve[equity_curve.len - 1].equity;
-        const net_profit = try final_equity.sub(initial_capital);
+        const net_profit = final_equity.sub(initial_capital);
         const total_return = (try net_profit.div(initial_capital)).toFloat();
 
         // Calculate time period in years

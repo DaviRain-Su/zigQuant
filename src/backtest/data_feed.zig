@@ -36,11 +36,11 @@ pub const HistoricalDataFeed = struct {
         pair: TradingPair,
         timeframe: Timeframe,
     ) !Candles {
-        self.logger.info("Loading data from: {s}", .{file_path});
+        try self.logger.info("Loading data from: {s}", .{file_path});
 
         // Open file
         var file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
-            self.logger.err("Failed to open file: {s}", .{file_path});
+            self.logger.err("Failed to open file: {s}", .{file_path}) catch {};
             return if (err == error.FileNotFound)
                 BacktestError.FileNotFound
             else
@@ -48,19 +48,18 @@ pub const HistoricalDataFeed = struct {
         };
         defer file.close();
 
-        // Read file content
-        var buffered = std.io.bufferedReader(file.reader());
-        var reader = buffered.reader();
+        // Read file content with buffer
+        var read_buffer: [4096]u8 = undefined;
+        var reader = file.reader(&read_buffer);
 
         // Allocate candles array list
-        var candle_list = std.ArrayList(Candle).init(self.allocator);
-        errdefer candle_list.deinit();
+        var candle_list = try std.ArrayList(Candle).initCapacity(self.allocator, 100);
+        errdefer candle_list.deinit(self.allocator);
 
-        var line_buf: [1024]u8 = undefined;
         var line_num: usize = 0;
 
         // Read line by line
-        while (reader.readUntilDelimiterOrEof(&line_buf, '\n') catch null) |line| {
+        while (try reader.interface.takeDelimiter('\n')) |line| {
             line_num += 1;
 
             // Skip empty lines
@@ -73,26 +72,26 @@ pub const HistoricalDataFeed = struct {
 
             // Parse CSV line
             const candle = self.parseCSVLine(line, line_num) catch |err| {
-                self.logger.err("Failed to parse line {}: {}", .{ line_num, err });
+                self.logger.err("Failed to parse line {}: {}", .{ line_num, err }) catch {};
                 return BacktestError.ParseError;
             };
 
-            try candle_list.append(candle);
+            try candle_list.append(self.allocator, candle);
         }
 
         if (candle_list.items.len == 0) {
-            self.logger.err("No data loaded from file", .{});
+            self.logger.err("No data loaded from file", .{}) catch {};
             return BacktestError.NoData;
         }
 
-        self.logger.info("Loaded {} candles", .{candle_list.items.len});
+        try self.logger.info("Loaded {} candles", .{candle_list.items.len});
 
         // Create Candles struct
         var candles = Candles.initWithCandles(
             self.allocator,
             pair,
             timeframe,
-            try candle_list.toOwnedSlice(),
+            try candle_list.toOwnedSlice(self.allocator),
         );
 
         // Validate data

@@ -222,7 +222,7 @@ pub const BacktestResult = struct {
     pub fn calculateTotalCommission(self: *const BacktestResult) Decimal {
         var total = Decimal.ZERO;
         for (self.trades) |trade| {
-            total = total.add(trade.commission) catch Decimal.ZERO;
+            total = total.add(trade.commission);
         }
         return total;
     }

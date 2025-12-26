@@ -292,6 +292,11 @@ test "StrategyContext: initialization" {
         .version = "1.0",
         .author = "Test",
         .description = "Test Strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -325,6 +330,11 @@ test "StrategyContext: execute order with risk validation" {
         .version = "1.0",
         .author = "Test",
         .description = "Test Strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -368,6 +378,11 @@ test "StrategyContext: reject order exceeding risk limits" {
         .version = "1.0",
         .author = "Test",
         .description = "Test Strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -412,6 +427,11 @@ test "StrategyContext: close position" {
         .version = "1.0",
         .author = "Test",
         .description = "Test Strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -465,6 +485,11 @@ test "StrategyContext: market data operations" {
         .version = "1.0",
         .author = "Test",
         .description = "Test Strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(
@@ -513,6 +538,11 @@ test "StrategyContext: no memory leak" {
         .version = "1.0",
         .author = "Test",
         .description = "Test Strategy",
+        .strategy_type = .trend_following,
+        .timeframe = .h1,
+        .startup_candle_count = 20,
+        .stoploss = Decimal.fromFloat(-0.05),
+        .trailing_stop = null,
     };
 
     const config = try StrategyConfig.init(

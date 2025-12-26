@@ -48,6 +48,9 @@ pub const strategy_dual_ma = @import("strategy/builtin/dual_ma.zig");
 pub const strategy_mean_reversion = @import("strategy/builtin/mean_reversion.zig");
 pub const strategy_breakout = @import("strategy/builtin/breakout.zig");
 
+// Strategy factory
+pub const StrategyFactory = @import("strategy/factory.zig").StrategyFactory;
+
 // Indicator modules
 pub const indicator_interface = @import("strategy/indicators/interface.zig");
 pub const indicator_utils = @import("strategy/indicators/utils.zig");

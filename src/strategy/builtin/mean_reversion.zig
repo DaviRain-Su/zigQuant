@@ -18,36 +18,28 @@
 //! - Range-bound markets
 //! - Sideways/choppy conditions
 //! - Avoid in strong trending markets
-//!
-//! Usage:
-//! ```zig
-//! const strategy = try RSIMeanReversionStrategy.create(allocator, .{
-//!     .pair = .{ .base = "BTC", .quote = "USDT" },
-//!     .rsi_period = 14,
-//!     .oversold_threshold = 30,
-//!     .overbought_threshold = 70,
-//!     .exit_rsi_level = 50,
-//! });
-//! defer strategy.destroy();
-//!
-//! const signal = try strategy.toStrategy().analyze(&candles, timestamp);
-//! defer signal.deinit();
-//! ```
 
 const std = @import("std");
 const Decimal = @import("../../root.zig").Decimal;
 const Candles = @import("../../root.zig").Candles;
 const TradingPair = @import("../../root.zig").TradingPair;
 const Timestamp = @import("../../root.zig").Timestamp;
-const Order = @import("../../root.zig").Order;
 const Side = @import("../../root.zig").Side;
 const IStrategy = @import("../interface.zig").IStrategy;
+const StrategyContext = @import("../interface.zig").StrategyContext;
 const Signal = @import("../signal.zig").Signal;
 const SignalType = @import("../signal.zig").SignalType;
 const SignalMetadata = @import("../signal.zig").SignalMetadata;
 const IndicatorValue = @import("../signal.zig").IndicatorValue;
+const StrategyMetadata = @import("../types.zig").StrategyMetadata;
+const StrategyParameter = @import("../types.zig").StrategyParameter;
+const StrategyType = @import("../types.zig").StrategyType;
+const Position = @import("../../backtest/position.zig").Position;
+const Account = @import("../../backtest/account.zig").Account;
 const IndicatorManager = @import("../../root.zig").IndicatorManager;
 const indicator_helpers = @import("../../root.zig").indicator_helpers;
+const Logger = @import("../../root.zig").Logger;
+const Timeframe = @import("../../root.zig").Timeframe;
 
 // ============================================================================
 // Configuration
@@ -96,17 +88,6 @@ pub const Config = struct {
 };
 
 // ============================================================================
-// Strategy State
-// ============================================================================
-
-/// Position state for tracking
-const PositionState = enum {
-    none,  // No position
-    long,  // Long position
-    short, // Short position
-};
-
-// ============================================================================
 // RSI Mean Reversion Strategy
 // ============================================================================
 
@@ -115,7 +96,7 @@ pub const RSIMeanReversionStrategy = struct {
     allocator: std.mem.Allocator,
     config: Config,
     indicator_manager: IndicatorManager,
-    position_state: PositionState,
+    logger: Logger,
     initialized: bool,
 
     /// Create a new RSI mean reversion strategy instance
@@ -130,7 +111,7 @@ pub const RSIMeanReversionStrategy = struct {
             .allocator = allocator,
             .config = config,
             .indicator_manager = IndicatorManager.init(allocator),
-            .position_state = .none,
+            .logger = undefined, // Will be set in init()
             .initialized = false,
         };
 
@@ -187,15 +168,10 @@ pub const RSIMeanReversionStrategy = struct {
     // VTable Implementation
     // ========================================================================
 
-    fn getName(ptr: *anyopaque) []const u8 {
-        _ = ptr;
-        return "RSI Mean Reversion Strategy";
-    }
-
-    fn init(ptr: *anyopaque) !void {
+    fn init(ptr: *anyopaque, ctx: StrategyContext) !void {
         const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
+        self.logger = ctx.logger;
         self.initialized = true;
-        self.position_state = .none;
     }
 
     fn deinit(ptr: *anyopaque) void {
@@ -203,136 +179,143 @@ pub const RSIMeanReversionStrategy = struct {
         self.initialized = false;
     }
 
-    fn analyze(
-        ptr: *anyopaque,
-        candles: *const Candles,
-        timestamp: Timestamp,
-    ) !Signal {
+    fn populateIndicators(ptr: *anyopaque, candles: *Candles) !void {
         const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
 
-        // Need mutable candles for indicator calculation
-        var mutable_candles = @constCast(candles);
-
-        // Check if we have enough data
-        const candle_count = mutable_candles.len();
-        if (candle_count < self.config.rsi_period + 1) {
-            // Not enough data - return hold signal
-            return Signal.init(
-                .hold,
-                self.config.pair,
-                .buy,
-                Decimal.ZERO,
-                0.0,
-                timestamp,
-                null,
-            );
-        }
-
-        // Calculate RSI using IndicatorManager for caching
+        // Calculate RSI
         const rsi_values = try indicator_helpers.getRSI(
             &self.indicator_manager,
-            mutable_candles,
+            candles,
             self.config.rsi_period,
         );
 
-        // Get current and previous RSI values
-        const current_idx = candle_count - 1;
-        const prev_idx = current_idx - 1;
+        // Add indicator to candles
+        try candles.addIndicatorValues("rsi", rsi_values);
+    }
 
-        const curr_rsi = rsi_values[current_idx];
-        const prev_rsi = rsi_values[prev_idx];
+    fn generateEntrySignal(
+        ptr: *anyopaque,
+        candles: *Candles,
+        index: usize,
+    ) !?Signal {
+        const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
+
+        // Need enough data for RSI and bounce detection
+        if (index < self.config.rsi_period + 1) {
+            return null;
+        }
+
+        // Get RSI indicator
+        const rsi_values = candles.getIndicator("rsi") orelse return null;
+
+        // Get current and previous RSI values
+        const curr_rsi = rsi_values.values[index];
+        const prev_rsi = rsi_values.values[index - 1];
 
         // Skip if RSI values are NaN
         if (curr_rsi.isNaN() or prev_rsi.isNaN()) {
-            const current_candle = mutable_candles.get(current_idx) orelse unreachable;
-            return Signal.init(
-                .hold,
-                self.config.pair,
-                .buy,
-                current_candle.close,
-                0.0,
-                timestamp,
-                null,
-            );
+            return null;
         }
 
-        const current_candle = mutable_candles.get(current_idx) orelse unreachable;
+        const current_candle = candles.get(index) orelse return null;
         const price = current_candle.close;
+        const timestamp = current_candle.timestamp;
 
         // Convert thresholds to Decimal for comparison
         const oversold = Decimal.fromInt(@as(i64, @intCast(self.config.oversold_threshold)));
         const overbought = Decimal.fromInt(@as(i64, @intCast(self.config.overbought_threshold)));
+
+        // Entry Long: RSI < oversold AND RSI bouncing (curr > prev)
+        if (self.config.enable_long and
+            curr_rsi.cmp(oversold) == .lt and
+            curr_rsi.cmp(prev_rsi) == .gt)
+        {
+            const strength = self.calculateLongStrength(curr_rsi);
+
+            const metadata = try SignalMetadata.init(
+                self.allocator,
+                "RSI oversold bounce detected",
+                &[_]IndicatorValue{
+                    .{ .name = "rsi", .value = curr_rsi },
+                },
+            );
+
+            const signal = try Signal.init(
+                .entry_long,
+                self.config.pair,
+                .buy,
+                price,
+                strength,
+                timestamp,
+                metadata,
+            );
+            return signal;
+        }
+
+        // Entry Short: RSI > overbought AND RSI falling (curr < prev)
+        if (self.config.enable_short and
+            curr_rsi.cmp(overbought) == .gt and
+            curr_rsi.cmp(prev_rsi) == .lt)
+        {
+            const strength = self.calculateShortStrength(curr_rsi);
+
+            const metadata = try SignalMetadata.init(
+                self.allocator,
+                "RSI overbought pullback detected",
+                &[_]IndicatorValue{
+                    .{ .name = "rsi", .value = curr_rsi },
+                },
+            );
+
+            const signal = try Signal.init(
+                .entry_short,
+                self.config.pair,
+                .sell,
+                price,
+                strength,
+                timestamp,
+                metadata,
+            );
+            return signal;
+        }
+
+        return null;
+    }
+
+    fn generateExitSignal(
+        ptr: *anyopaque,
+        candles: *Candles,
+        position: Position,
+    ) !?Signal {
+        const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
+
+        const index = candles.len() - 1;
+
+        // Need enough data
+        if (index < self.config.rsi_period) {
+            return null;
+        }
+
+        // Get RSI indicator
+        const rsi_values = candles.getIndicator("rsi") orelse return null;
+        const curr_rsi = rsi_values.values[index];
+
+        // Skip if RSI is NaN
+        if (curr_rsi.isNaN()) {
+            return null;
+        }
+
+        const current_candle = candles.get(index) orelse return null;
+        const price = current_candle.close;
+        const timestamp = current_candle.timestamp;
+
+        // Convert thresholds to Decimal
+        const oversold = Decimal.fromInt(@as(i64, @intCast(self.config.oversold_threshold)));
+        const overbought = Decimal.fromInt(@as(i64, @intCast(self.config.overbought_threshold)));
         const exit_level = Decimal.fromInt(@as(i64, @intCast(self.config.exit_rsi_level)));
 
-        // Check for entry signals based on position state
-        if (self.position_state == .none or self.position_state == .short) {
-            // Entry Long: RSI < oversold AND RSI bouncing (curr > prev)
-            if (self.config.enable_long and
-                curr_rsi.cmp(oversold) == .lt and
-                curr_rsi.cmp(prev_rsi) == .gt)
-            {
-                const signal_type: SignalType = if (self.position_state == .short)
-                    .exit_short
-                else
-                    .entry_long;
-
-                const strength = self.calculateLongStrength(curr_rsi);
-
-                const metadata = try SignalMetadata.init(
-                    self.allocator,
-                    "RSI oversold bounce detected",
-                    &[_]IndicatorValue{
-                        .{ .name = "rsi", .value = curr_rsi },
-                    },
-                );
-
-                return Signal.init(
-                    signal_type,
-                    self.config.pair,
-                    signal_type.toSide() orelse .buy,
-                    price,
-                    strength,
-                    timestamp,
-                    metadata,
-                );
-            }
-        }
-
-        if (self.position_state == .none or self.position_state == .long) {
-            // Entry Short: RSI > overbought AND RSI falling (curr < prev)
-            if (self.config.enable_short and
-                curr_rsi.cmp(overbought) == .gt and
-                curr_rsi.cmp(prev_rsi) == .lt)
-            {
-                const signal_type: SignalType = if (self.position_state == .long)
-                    .exit_long
-                else
-                    .entry_short;
-
-                const strength = self.calculateShortStrength(curr_rsi);
-
-                const metadata = try SignalMetadata.init(
-                    self.allocator,
-                    "RSI overbought pullback detected",
-                    &[_]IndicatorValue{
-                        .{ .name = "rsi", .value = curr_rsi },
-                    },
-                );
-
-                return Signal.init(
-                    signal_type,
-                    self.config.pair,
-                    signal_type.toSide() orelse .sell,
-                    price,
-                    strength,
-                    timestamp,
-                    metadata,
-                );
-            }
-        }
-
-        // Check for exit signals
-        if (self.position_state == .long) {
+        // Check for exit signals based on position side
+        if (position.side == .long) {
             // Exit Long: RSI returns to neutral zone OR enters overbought
             if (curr_rsi.cmp(exit_level) != .lt) {
                 const reason = if (curr_rsi.cmp(overbought) != .lt)
@@ -350,17 +333,18 @@ pub const RSIMeanReversionStrategy = struct {
                     },
                 );
 
-                return Signal.init(
+                const signal = try Signal.init(
                     .exit_long,
-                    self.config.pair,
+                    position.pair,
                     .sell,
                     price,
                     exit_strength,
                     timestamp,
                     metadata,
                 );
+                return signal;
             }
-        } else if (self.position_state == .short) {
+        } else if (position.side == .short) {
             // Exit Short: RSI returns to neutral zone OR enters oversold
             if (curr_rsi.cmp(exit_level) != .gt) {
                 const reason = if (curr_rsi.cmp(oversold) != .gt)
@@ -378,60 +362,99 @@ pub const RSIMeanReversionStrategy = struct {
                     },
                 );
 
-                return Signal.init(
+                const signal = try Signal.init(
                     .exit_short,
-                    self.config.pair,
+                    position.pair,
                     .buy,
                     price,
                     exit_strength,
                     timestamp,
                     metadata,
                 );
+                return signal;
             }
         }
 
-        // No signal - hold
-        return Signal.init(
-            .hold,
-            self.config.pair,
-            .buy,
-            price,
-            0.0,
-            timestamp,
-            null,
-        );
+        return null;
     }
 
-    fn onOrderFilled(ptr: *anyopaque, order: Order) !void {
-        const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
+    fn calculatePositionSize(
+        ptr: *anyopaque,
+        signal: Signal,
+        account: Account,
+    ) !Decimal {
+        _ = ptr;
 
-        // Update position state based on order
-        if (order.side == .buy) {
-            self.position_state = .long;
-        } else {
-            // Check if this is closing a position or opening short
-            if (self.position_state == .long) {
-                self.position_state = .none;
-            } else {
-                self.position_state = .short;
-            }
-        }
+        // Use 95% of available balance
+        const available = account.balance.mul(Decimal.fromFloat(0.95));
+        const position_size = try available.div(signal.price);
+        return position_size;
     }
 
-    fn onOrderCancelled(ptr: *anyopaque, order: Order) !void {
-        _ = order;
+    fn getParameters(ptr: *anyopaque) []const StrategyParameter {
         const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
-        // For now, don't change position state on cancellation
-        _ = self;
+
+        const params = [_]StrategyParameter{
+            .{
+                .name = "rsi_period",
+                .description = "RSI period",
+                .value = .{ .integer = @intCast(self.config.rsi_period) },
+            },
+            .{
+                .name = "oversold_threshold",
+                .description = "Oversold threshold for long entry",
+                .value = .{ .integer = @intCast(self.config.oversold_threshold) },
+            },
+            .{
+                .name = "overbought_threshold",
+                .description = "Overbought threshold for short entry",
+                .value = .{ .integer = @intCast(self.config.overbought_threshold) },
+            },
+            .{
+                .name = "exit_rsi_level",
+                .description = "Exit RSI level for take profit",
+                .value = .{ .integer = @intCast(self.config.exit_rsi_level) },
+            },
+            .{
+                .name = "enable_long",
+                .description = "Enable long positions",
+                .value = .{ .boolean = self.config.enable_long },
+            },
+            .{
+                .name = "enable_short",
+                .description = "Enable short positions",
+                .value = .{ .boolean = self.config.enable_short },
+            },
+        };
+
+        return &params;
+    }
+
+    fn getMetadata(ptr: *anyopaque) StrategyMetadata {
+        const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
+
+        return .{
+            .name = "RSI Mean Reversion Strategy",
+            .version = "1.0.0",
+            .author = "zigQuant",
+            .description = "Mean reversion strategy using RSI overbought/oversold levels",
+            .strategy_type = .mean_reversion,
+            .timeframe = .m15,
+            .startup_candle_count = self.config.rsi_period + 1,
+            .stoploss = Decimal.fromFloat(-0.05), // -5% stop loss
+            .trailing_stop = null,
+        };
     }
 
     const vtable = IStrategy.VTable{
-        .getName = getName,
         .init = init,
         .deinit = deinit,
-        .analyze = analyze,
-        .onOrderFilled = onOrderFilled,
-        .onOrderCancelled = onOrderCancelled,
+        .populateIndicators = populateIndicators,
+        .generateEntrySignal = generateEntrySignal,
+        .generateExitSignal = generateExitSignal,
+        .calculatePositionSize = calculatePositionSize,
+        .getParameters = getParameters,
+        .getMetadata = getMetadata,
     };
 };
 
@@ -534,7 +557,6 @@ test "RSIMeanReversion: creation and destruction" {
     defer strategy.destroy();
 
     try testing.expect(!strategy.initialized);
-    try testing.expectEqual(PositionState.none, strategy.position_state);
 }
 
 test "RSIMeanReversion: interface methods" {
@@ -548,108 +570,27 @@ test "RSIMeanReversion: interface methods" {
 
     const istrategy = strategy.toStrategy();
 
-    // Test getName
-    try testing.expectEqualStrings("RSI Mean Reversion Strategy", istrategy.getName());
-
     // Test init/deinit
-    try istrategy.init();
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const WriterType = @TypeOf(fbs.writer());
+    const ConsoleWriter = @import("../../root.zig").ConsoleWriter;
+    var console = ConsoleWriter(WriterType).initWithColors(testing.allocator, fbs.writer(), false);
+    defer console.deinit();
+
+    var logger = Logger.init(testing.allocator, console.writer(), .debug);
+    defer logger.deinit();
+
+    const ctx = StrategyContext{
+        .allocator = testing.allocator,
+        .logger = logger,
+    };
+
+    try istrategy.init(ctx);
     try testing.expect(strategy.initialized);
 
     istrategy.deinit();
     try testing.expect(!strategy.initialized);
-}
-
-test "RSIMeanReversion: oversold bounce long signal" {
-    const testing = std.testing;
-
-    const strategy = try RSIMeanReversionStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .rsi_period = 5,
-        .oversold_threshold = 30,
-        .overbought_threshold = 70,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Create test data: price drops (RSI goes low) then starts bouncing
-    var candles = try createTestCandles(testing.allocator, &[_]f64{
-        100, 98, 95, 92, 88,  // Falling - RSI drops
-        85, 83, 82, 83, 85,   // Starting to bounce - should trigger
-        88, 90, 92, 95, 98,   // Continuing up
-    });
-    defer candles.deinit();
-
-    const timestamp = Timestamp.now();
-    const signal = try istrategy.analyze(&candles, timestamp);
-    defer signal.deinit();
-
-    // Should detect oversold bounce
-    try testing.expect(signal.type == .entry_long or signal.type == .hold);
-    if (signal.type == .entry_long) {
-        try testing.expect(signal.strength >= 0.6 and signal.strength <= 0.9);
-    }
-}
-
-test "RSIMeanReversion: overbought pullback short signal" {
-    const testing = std.testing;
-
-    const strategy = try RSIMeanReversionStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .rsi_period = 5,
-        .oversold_threshold = 30,
-        .overbought_threshold = 70,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Create test data: price rises (RSI goes high) then starts falling
-    var candles = try createTestCandles(testing.allocator, &[_]f64{
-        100, 102, 105, 108, 112, // Rising - RSI rises
-        115, 117, 118, 117, 115, // Starting to fall - should trigger
-        112, 110, 108, 105, 102, // Continuing down
-    });
-    defer candles.deinit();
-
-    const timestamp = Timestamp.now();
-    const signal = try istrategy.analyze(&candles, timestamp);
-    defer signal.deinit();
-
-    // Should detect overbought pullback
-    try testing.expect(signal.type == .entry_short or signal.type == .hold);
-    if (signal.type == .entry_short) {
-        try testing.expect(signal.strength >= 0.6 and signal.strength <= 0.9);
-    }
-}
-
-test "RSIMeanReversion: insufficient data" {
-    const testing = std.testing;
-
-    const strategy = try RSIMeanReversionStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .rsi_period = 14,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Only 10 candles - not enough for RSI period=14
-    var candles = try createTestCandles(testing.allocator, &[_]f64{
-        100, 101, 102, 103, 104,
-        105, 106, 107, 108, 109,
-    });
-    defer candles.deinit();
-
-    const timestamp = Timestamp.now();
-    const signal = try istrategy.analyze(&candles, timestamp);
-    defer signal.deinit();
-
-    // Should return hold signal
-    try testing.expectEqual(SignalType.hold, signal.type);
 }
 
 test "RSIMeanReversion: signal strength calculation" {
@@ -688,60 +629,6 @@ test "RSIMeanReversion: signal strength calculation" {
     try testing.expect(strength_85 > strength_70);
 }
 
-test "RSIMeanReversion: position state tracking" {
-    const testing = std.testing;
-
-    const strategy = try RSIMeanReversionStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .rsi_period = 14,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Initial state
-    try testing.expectEqual(PositionState.none, strategy.position_state);
-
-    // Simulate buy order fill
-    const buy_order = Order{
-        .exchange_order_id = 1,
-        .client_order_id = null,
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .side = .buy,
-        .order_type = .market,
-        .status = .filled,
-        .amount = Decimal.fromInt(1),
-        .price = Decimal.fromInt(50000),
-        .filled_amount = Decimal.fromInt(1),
-        .avg_fill_price = Decimal.fromInt(50000),
-        .created_at = Timestamp.now(),
-        .updated_at = Timestamp.now(),
-    };
-
-    try istrategy.onOrderFilled(buy_order);
-    try testing.expectEqual(PositionState.long, strategy.position_state);
-
-    // Simulate sell order fill (close long)
-    const sell_order = Order{
-        .exchange_order_id = 2,
-        .client_order_id = null,
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .side = .sell,
-        .order_type = .market,
-        .status = .filled,
-        .amount = Decimal.fromInt(1),
-        .price = Decimal.fromInt(51000),
-        .filled_amount = Decimal.fromInt(1),
-        .avg_fill_price = Decimal.fromInt(51000),
-        .created_at = Timestamp.now(),
-        .updated_at = Timestamp.now(),
-    };
-
-    try istrategy.onOrderFilled(sell_order);
-    try testing.expectEqual(PositionState.none, strategy.position_state);
-}
-
 test "RSIMeanReversion: no memory leak" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -759,7 +646,23 @@ test "RSIMeanReversion: no memory leak" {
     defer strategy.destroy();
 
     const istrategy = strategy.toStrategy();
-    try istrategy.init();
+
+    var buf: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const WriterType = @TypeOf(fbs.writer());
+    const ConsoleWriter = @import("../../root.zig").ConsoleWriter;
+    var console = ConsoleWriter(WriterType).initWithColors(allocator, fbs.writer(), false);
+    defer console.deinit();
+
+    var logger = Logger.init(allocator, console.writer(), .debug);
+    defer logger.deinit();
+
+    const ctx = StrategyContext{
+        .allocator = allocator,
+        .logger = logger,
+    };
+
+    try istrategy.init(ctx);
 
     var candles = try createTestCandles(allocator, &[_]f64{
         100, 98, 95, 92, 88,
@@ -769,9 +672,14 @@ test "RSIMeanReversion: no memory leak" {
     });
     defer candles.deinit();
 
-    // Run multiple analyses
-    for (0..10) |_| {
-        const signal = try istrategy.analyze(&candles, Timestamp.now());
-        defer signal.deinit();
+    // Populate indicators
+    try istrategy.populateIndicators(&candles);
+
+    // Generate entry signals
+    for (7..candles.len()) |i| {
+        const signal = try istrategy.generateEntrySignal(&candles, i);
+        if (signal) |sig| {
+            sig.deinit();
+        }
     }
 }

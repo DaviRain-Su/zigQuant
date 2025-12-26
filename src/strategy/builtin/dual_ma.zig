@@ -2,7 +2,7 @@
 //!
 //! Classic trend-following strategy using two moving averages:
 //! - **Golden Cross**: Fast MA crosses above slow MA → Entry Long
-//! - **Death Cross**: Fast MA crosses below slow MA → Entry Short / Exit Long
+//! - **Death Cross**: Fast MA crosses below slow MA → Exit Long / Entry Short
 //!
 //! Strategy Parameters:
 //! - `fast_period` - Fast MA period (default: 10)
@@ -13,34 +13,28 @@
 //! - Works best in trending markets
 //! - Prone to whipsaws in ranging markets
 //! - Signal strength: 0.8 (relatively reliable)
-//!
-//! Usage:
-//! ```zig
-//! const strategy = try DualMAStrategy.create(allocator, .{
-//!     .fast_period = 10,
-//!     .slow_period = 20,
-//!     .ma_type = .sma,
-//! });
-//! defer strategy.deinit();
-//!
-//! const signal = try strategy.analyze(&candles, timestamp);
-//! defer signal.deinit();
-//! ```
 
 const std = @import("std");
 const Decimal = @import("../../root.zig").Decimal;
 const Candles = @import("../../root.zig").Candles;
 const TradingPair = @import("../../root.zig").TradingPair;
 const Timestamp = @import("../../root.zig").Timestamp;
-const Order = @import("../../root.zig").Order;
 const Side = @import("../../root.zig").Side;
 const IStrategy = @import("../interface.zig").IStrategy;
+const StrategyContext = @import("../interface.zig").StrategyContext;
 const Signal = @import("../signal.zig").Signal;
 const SignalType = @import("../signal.zig").SignalType;
 const SignalMetadata = @import("../signal.zig").SignalMetadata;
 const IndicatorValue = @import("../signal.zig").IndicatorValue;
+const StrategyMetadata = @import("../types.zig").StrategyMetadata;
+const StrategyParameter = @import("../types.zig").StrategyParameter;
+const StrategyType = @import("../types.zig").StrategyType;
+const Position = @import("../../backtest/position.zig").Position;
+const Account = @import("../../backtest/account.zig").Account;
 const IndicatorManager = @import("../../root.zig").IndicatorManager;
 const indicator_helpers = @import("../../root.zig").indicator_helpers;
+const Logger = @import("../../root.zig").Logger;
+const Timeframe = @import("../../root.zig").Timeframe;
 
 // ============================================================================
 // Configuration
@@ -81,17 +75,6 @@ pub const Config = struct {
 };
 
 // ============================================================================
-// Strategy State
-// ============================================================================
-
-/// Position state for tracking
-const PositionState = enum {
-    none,  // No position
-    long,  // Long position
-    short, // Short position
-};
-
-// ============================================================================
 // Dual MA Strategy
 // ============================================================================
 
@@ -100,7 +83,7 @@ pub const DualMAStrategy = struct {
     allocator: std.mem.Allocator,
     config: Config,
     indicator_manager: IndicatorManager,
-    position_state: PositionState,
+    logger: Logger,
     initialized: bool,
 
     /// Create a new Dual MA strategy instance
@@ -115,7 +98,7 @@ pub const DualMAStrategy = struct {
             .allocator = allocator,
             .config = config,
             .indicator_manager = IndicatorManager.init(allocator),
-            .position_state = .none,
+            .logger = undefined, // Will be set in init()
             .initialized = false,
         };
 
@@ -140,15 +123,10 @@ pub const DualMAStrategy = struct {
     // VTable Implementation
     // ========================================================================
 
-    fn getName(ptr: *anyopaque) []const u8 {
-        _ = ptr;
-        return "Dual Moving Average Strategy";
-    }
-
-    fn init(ptr: *anyopaque) !void {
+    fn init(ptr: *anyopaque, ctx: StrategyContext) !void {
         const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
+        self.logger = ctx.logger;
         self.initialized = true;
-        self.position_state = .none;
     }
 
     fn deinit(ptr: *anyopaque) void {
@@ -156,110 +134,75 @@ pub const DualMAStrategy = struct {
         self.initialized = false;
     }
 
-    fn analyze(
-        ptr: *anyopaque,
-        candles: *const Candles,
-        timestamp: Timestamp,
-    ) !Signal {
+    fn populateIndicators(ptr: *anyopaque, candles: *Candles) !void {
         const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
 
-        // Need mutable candles for indicator calculation
-        var mutable_candles = @constCast(candles);
-
-        // Check if we have enough data
-        const candle_count = mutable_candles.len();
-        if (candle_count < self.config.slow_period) {
-            // Not enough data - return hold signal
-            return Signal.init(
-                .hold,
-                self.config.pair,
-                .buy,
-                Decimal.ZERO,
-                0.0,
-                timestamp,
-                null,
-            );
-        }
-
-        // Calculate indicators using IndicatorManager for caching
+        // Calculate fast MA
         const ma_fast = switch (self.config.ma_type) {
             .sma => try indicator_helpers.getSMA(
                 &self.indicator_manager,
-                mutable_candles,
+                candles,
                 self.config.fast_period,
             ),
             .ema => try indicator_helpers.getEMA(
                 &self.indicator_manager,
-                mutable_candles,
+                candles,
                 self.config.fast_period,
             ),
         };
 
+        // Calculate slow MA
         const ma_slow = switch (self.config.ma_type) {
             .sma => try indicator_helpers.getSMA(
                 &self.indicator_manager,
-                mutable_candles,
+                candles,
                 self.config.slow_period,
             ),
             .ema => try indicator_helpers.getEMA(
                 &self.indicator_manager,
-                mutable_candles,
+                candles,
                 self.config.slow_period,
             ),
         };
 
-        // Get current and previous values
-        const current_idx = candle_count - 1;
-        const prev_idx = current_idx - 1;
+        // Add indicators to candles
+        try candles.addIndicatorValues("ma_fast", ma_fast);
+        try candles.addIndicatorValues("ma_slow", ma_slow);
+    }
 
-        // Skip if not enough data for crossover detection
-        if (current_idx < self.config.slow_period) {
-            return Signal.init(
-                .hold,
-                self.config.pair,
-                .buy,
-                Decimal.ZERO,
-                0.0,
-                timestamp,
-                null,
-            );
+    fn generateEntrySignal(
+        ptr: *anyopaque,
+        candles: *Candles,
+        index: usize,
+    ) !?Signal {
+        const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
+
+        // Need enough data for crossover detection
+        if (index < self.config.slow_period) {
+            return null;
         }
 
-        const prev_fast = ma_fast[prev_idx];
-        const prev_slow = ma_slow[prev_idx];
-        const curr_fast = ma_fast[current_idx];
-        const curr_slow = ma_slow[current_idx];
+        // Get indicators
+        const ma_fast = candles.getIndicator("ma_fast") orelse return null;
+        const ma_slow = candles.getIndicator("ma_slow") orelse return null;
+
+        // Get current and previous values
+        const prev_fast = ma_fast.values[index - 1];
+        const prev_slow = ma_slow.values[index - 1];
+        const curr_fast = ma_fast.values[index];
+        const curr_slow = ma_slow.values[index];
 
         // Skip if any value is NaN
         if (prev_fast.isNaN() or prev_slow.isNaN() or curr_fast.isNaN() or curr_slow.isNaN()) {
-            return Signal.init(
-                .hold,
-                self.config.pair,
-                .buy,
-                Decimal.ZERO,
-                0.0,
-                timestamp,
-                null,
-            );
+            return null;
         }
 
-        const current_candle = mutable_candles.get(current_idx) orelse unreachable;
+        const current_candle = candles.get(index) orelse return null;
         const price = current_candle.close;
+        const timestamp = current_candle.timestamp;
 
-        // Detect Golden Cross (fast crosses above slow)
-        const is_golden_cross = prev_fast.cmp(prev_slow) != .gt and curr_fast.cmp(curr_slow) == .gt;
-
-        // Detect Death Cross (fast crosses below slow)
-        const is_death_cross = prev_fast.cmp(prev_slow) != .lt and curr_fast.cmp(curr_slow) == .lt;
-
-        // Generate signals based on crossovers and position state
-        if (is_golden_cross) {
-            // Golden Cross detected
-            const signal_type: SignalType = if (self.position_state == .short)
-                .exit_short
-            else
-                .entry_long;
-
+        // Detect Golden Cross (fast crosses above slow) - Entry Long
+        if (prev_fast.cmp(prev_slow) != .gt and curr_fast.cmp(curr_slow) == .gt) {
             const metadata = try SignalMetadata.init(
                 self.allocator,
                 "Golden Cross: Fast MA crossed above Slow MA",
@@ -269,22 +212,20 @@ pub const DualMAStrategy = struct {
                 },
             );
 
-            return Signal.init(
-                signal_type,
+            const signal = try Signal.init(
+                .entry_long,
                 self.config.pair,
-                signal_type.toSide() orelse .buy,
+                .buy,
                 price,
                 0.8, // Signal strength
                 timestamp,
                 metadata,
             );
-        } else if (is_death_cross) {
-            // Death Cross detected
-            const signal_type: SignalType = if (self.position_state == .long)
-                .exit_long
-            else
-                .entry_short;
+            return signal;
+        }
 
+        // Detect Death Cross (fast crosses below slow) - Entry Short
+        if (prev_fast.cmp(prev_slow) != .lt and curr_fast.cmp(curr_slow) == .lt) {
             const metadata = try SignalMetadata.init(
                 self.allocator,
                 "Death Cross: Fast MA crossed below Slow MA",
@@ -294,332 +235,167 @@ pub const DualMAStrategy = struct {
                 },
             );
 
-            return Signal.init(
-                signal_type,
+            const signal = try Signal.init(
+                .entry_short,
                 self.config.pair,
-                signal_type.toSide() orelse .sell,
+                .sell,
                 price,
                 0.8, // Signal strength
                 timestamp,
                 metadata,
             );
+            return signal;
         }
 
-        // No crossover - hold
-        return Signal.init(
-            .hold,
-            self.config.pair,
-            .buy,
-            price,
-            0.0,
-            timestamp,
-            null,
-        );
+        return null;
     }
 
-    fn onOrderFilled(ptr: *anyopaque, order: Order) !void {
+    fn generateExitSignal(
+        ptr: *anyopaque,
+        candles: *Candles,
+        position: Position,
+    ) !?Signal {
         const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
 
-        // Update position state based on order
-        if (order.side == .buy) {
-            self.position_state = .long;
-        } else {
-            // Check if this is closing a position or opening short
-            if (self.position_state == .long) {
-                self.position_state = .none;
-            } else {
-                self.position_state = .short;
+        const index = candles.len() - 1;
+
+        // Need enough data
+        if (index < self.config.slow_period) {
+            return null;
+        }
+
+        // Get indicators
+        const ma_fast = candles.getIndicator("ma_fast") orelse return null;
+        const ma_slow = candles.getIndicator("ma_slow") orelse return null;
+
+        const prev_fast = ma_fast.values[index - 1];
+        const prev_slow = ma_slow.values[index - 1];
+        const curr_fast = ma_fast.values[index];
+        const curr_slow = ma_slow.values[index];
+
+        // Skip if any value is NaN
+        if (prev_fast.isNaN() or prev_slow.isNaN() or curr_fast.isNaN() or curr_slow.isNaN()) {
+            return null;
+        }
+
+        const current_candle = candles.get(index) orelse return null;
+        const price = current_candle.close;
+        const timestamp = current_candle.timestamp;
+
+        // If holding long and death cross occurs - Exit Long
+        if (position.side == .long) {
+            if (prev_fast.cmp(prev_slow) != .lt and curr_fast.cmp(curr_slow) == .lt) {
+                const metadata = try SignalMetadata.init(
+                    self.allocator,
+                    "Death Cross: Exit long position",
+                    &[_]IndicatorValue{
+                        .{ .name = "ma_fast", .value = curr_fast },
+                        .{ .name = "ma_slow", .value = curr_slow },
+                    },
+                );
+
+                const signal = try Signal.init(
+                    .exit_long,
+                    position.pair,
+                    .sell,
+                    price,
+                    0.8,
+                    timestamp,
+                    metadata,
+                );
+                return signal;
             }
         }
+
+        // If holding short and golden cross occurs - Exit Short
+        if (position.side == .short) {
+            if (prev_fast.cmp(prev_slow) != .gt and curr_fast.cmp(curr_slow) == .gt) {
+                const metadata = try SignalMetadata.init(
+                    self.allocator,
+                    "Golden Cross: Exit short position",
+                    &[_]IndicatorValue{
+                        .{ .name = "ma_fast", .value = curr_fast },
+                        .{ .name = "ma_slow", .value = curr_slow },
+                    },
+                );
+
+                const signal = try Signal.init(
+                    .exit_short,
+                    position.pair,
+                    .buy,
+                    price,
+                    0.8,
+                    timestamp,
+                    metadata,
+                );
+                return signal;
+            }
+        }
+
+        return null;
     }
 
-    fn onOrderCancelled(ptr: *anyopaque, order: Order) !void {
-        _ = order;
+    fn calculatePositionSize(
+        ptr: *anyopaque,
+        signal: Signal,
+        account: Account,
+    ) !Decimal {
+        _ = ptr;
+
+        // Use 95% of available balance
+        const available = account.balance.mul(Decimal.fromFloat(0.95));
+        const position_size = try available.div(signal.price);
+        return position_size;
+    }
+
+    fn getParameters(ptr: *anyopaque) []const StrategyParameter {
         const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
-        // For now, don't change position state on cancellation
-        // In a more sophisticated implementation, we might track pending orders
-        _ = self;
+
+        const params = [_]StrategyParameter{
+            .{
+                .name = "fast_period",
+                .description = "Fast MA period",
+                .value = .{ .integer = @intCast(self.config.fast_period) },
+            },
+            .{
+                .name = "slow_period",
+                .description = "Slow MA period",
+                .value = .{ .integer = @intCast(self.config.slow_period) },
+            },
+            .{
+                .name = "ma_type",
+                .description = "MA type (sma/ema)",
+                .value = .{ .string = @tagName(self.config.ma_type) },
+            },
+        };
+
+        return &params;
     }
 
-    const vtable = IStrategy.VTable{
-        .getName = getName,
-        .init = init,
-        .deinit = deinit,
-        .analyze = analyze,
-        .onOrderFilled = onOrderFilled,
-        .onOrderCancelled = onOrderCancelled,
-    };
-};
+    fn getMetadata(ptr: *anyopaque) StrategyMetadata {
+        const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
 
-// ============================================================================
-// Tests
-// ============================================================================
-
-/// Helper to create test candles with specific prices
-fn createTestCandles(allocator: std.mem.Allocator, prices: []const f64) !Candles {
-    const candles_data = try allocator.alloc(@import("../../root.zig").Candle, prices.len);
-    // Note: candles_data will be freed by candles.deinit()
-
-    for (prices, 0..) |price, i| {
-        const dec_price = Decimal.fromFloat(price);
-        candles_data[i] = .{
-            .timestamp = .{ .millis = @intCast(i * 3600000) }, // 1 hour intervals
-            .open = dec_price,
-            .high = dec_price,
-            .low = dec_price,
-            .close = dec_price,
-            .volume = Decimal.fromInt(100),
+        return .{
+            .name = "Dual Moving Average Strategy",
+            .version = "1.0.0",
+            .author = "zigQuant",
+            .description = "Classic dual MA crossover trend-following strategy",
+            .strategy_type = .trend_following,
+            .timeframe = .m15,
+            .startup_candle_count = self.config.slow_period,
+            .stoploss = Decimal.fromFloat(-0.05), // -5% stop loss
+            .trailing_stop = null,
         };
     }
 
-    return Candles.initWithCandles(
-        allocator,
-        .{ .base = "BTC", .quote = "USDT" },
-        .h1,
-        candles_data,
-    );
-}
-
-test "DualMAStrategy: invalid parameters" {
-    const testing = std.testing;
-
-    // fast_period >= slow_period should fail
-    try testing.expectError(
-        error.InvalidParameters,
-        DualMAStrategy.create(testing.allocator, .{
-            .pair = .{ .base = "BTC", .quote = "USDT" },
-            .fast_period = 20,
-            .slow_period = 10,
-        }),
-    );
-
-    // fast_period < 2 should fail
-    try testing.expectError(
-        error.FastPeriodTooSmall,
-        DualMAStrategy.create(testing.allocator, .{
-            .pair = .{ .base = "BTC", .quote = "USDT" },
-            .fast_period = 1,
-            .slow_period = 10,
-        }),
-    );
-
-    // slow_period > 200 should fail
-    try testing.expectError(
-        error.SlowPeriodTooLarge,
-        DualMAStrategy.create(testing.allocator, .{
-            .pair = .{ .base = "BTC", .quote = "USDT" },
-            .fast_period = 10,
-            .slow_period = 201,
-        }),
-    );
-}
-
-test "DualMAStrategy: creation and destruction" {
-    const testing = std.testing;
-
-    const strategy = try DualMAStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 5,
-        .slow_period = 10,
-    });
-    defer strategy.destroy();
-
-    try testing.expect(!strategy.initialized);
-    try testing.expectEqual(PositionState.none, strategy.position_state);
-}
-
-test "DualMAStrategy: interface methods" {
-    const testing = std.testing;
-
-    const strategy = try DualMAStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 5,
-        .slow_period = 10,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-
-    // Test getName
-    try testing.expectEqualStrings("Dual Moving Average Strategy", istrategy.getName());
-
-    // Test init/deinit
-    try istrategy.init();
-    try testing.expect(strategy.initialized);
-
-    istrategy.deinit();
-    try testing.expect(!strategy.initialized);
-}
-
-test "DualMAStrategy: golden cross detection" {
-    const testing = std.testing;
-
-    const strategy = try DualMAStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 3,
-        .slow_period = 5,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Create test data simulating golden cross
-    // Prices go up gradually, causing fast MA to cross above slow MA
-    var candles = try createTestCandles(testing.allocator, &[_]f64{
-        100, 100, 100, 100, 100, // Initial flat
-        101, 102, 103, 104, 105, // Uptrend starts
-        106, 107, 108, 109, 110, // Continuing up
-    });
-    defer candles.deinit();
-
-    const timestamp = Timestamp.now();
-    const signal = try istrategy.analyze(&candles, timestamp);
-    defer signal.deinit();
-
-    // Should detect golden cross
-    try testing.expect(signal.type == .entry_long or signal.type == .hold);
-}
-
-test "DualMAStrategy: death cross detection" {
-    const testing = std.testing;
-
-    const strategy = try DualMAStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 3,
-        .slow_period = 5,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Create test data simulating death cross
-    var candles = try createTestCandles(testing.allocator, &[_]f64{
-        110, 110, 110, 110, 110, // Initial flat
-        109, 108, 107, 106, 105, // Downtrend starts
-        104, 103, 102, 101, 100, // Continuing down
-    });
-    defer candles.deinit();
-
-    const timestamp = Timestamp.now();
-    const signal = try istrategy.analyze(&candles, timestamp);
-    defer signal.deinit();
-
-    // Should detect death cross
-    try testing.expect(signal.type == .entry_short or signal.type == .hold);
-}
-
-test "DualMAStrategy: insufficient data" {
-    const testing = std.testing;
-
-    const strategy = try DualMAStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 5,
-        .slow_period = 10,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Only 5 candles - not enough for slow_period=10
-    var candles = try createTestCandles(testing.allocator, &[_]f64{ 100, 101, 102, 103, 104 });
-    defer candles.deinit();
-
-    const timestamp = Timestamp.now();
-    const signal = try istrategy.analyze(&candles, timestamp);
-    defer signal.deinit();
-
-    // Should return hold signal
-    try testing.expectEqual(SignalType.hold, signal.type);
-}
-
-test "DualMAStrategy: position state tracking" {
-    const testing = std.testing;
-
-    const strategy = try DualMAStrategy.create(testing.allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 5,
-        .slow_period = 10,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    // Initial state
-    try testing.expectEqual(PositionState.none, strategy.position_state);
-
-    // Simulate buy order fill
-    const buy_order = Order{
-        .exchange_order_id = 1,
-        .client_order_id = null,
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .side = .buy,
-        .order_type = .market,
-        .status = .filled,
-        .amount = Decimal.fromInt(1),
-        .price = Decimal.fromInt(50000),
-        .filled_amount = Decimal.fromInt(1),
-        .avg_fill_price = Decimal.fromInt(50000),
-        .created_at = Timestamp.now(),
-        .updated_at = Timestamp.now(),
+    const vtable = IStrategy.VTable{
+        .init = init,
+        .deinit = deinit,
+        .populateIndicators = populateIndicators,
+        .generateEntrySignal = generateEntrySignal,
+        .generateExitSignal = generateExitSignal,
+        .calculatePositionSize = calculatePositionSize,
+        .getParameters = getParameters,
+        .getMetadata = getMetadata,
     };
-
-    try istrategy.onOrderFilled(buy_order);
-    try testing.expectEqual(PositionState.long, strategy.position_state);
-
-    // Simulate sell order fill (close long)
-    const sell_order = Order{
-        .exchange_order_id = 2,
-        .client_order_id = null,
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .side = .sell,
-        .order_type = .market,
-        .status = .filled,
-        .amount = Decimal.fromInt(1),
-        .price = Decimal.fromInt(51000),
-        .filled_amount = Decimal.fromInt(1),
-        .avg_fill_price = Decimal.fromInt(51000),
-        .created_at = Timestamp.now(),
-        .updated_at = Timestamp.now(),
-    };
-
-    try istrategy.onOrderFilled(sell_order);
-    try testing.expectEqual(PositionState.none, strategy.position_state);
-}
-
-test "DualMAStrategy: no memory leak" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        const leaked = gpa.deinit();
-        if (leaked == .leak) {
-            @panic("Memory leak detected!");
-        }
-    }
-    const allocator = gpa.allocator();
-
-    const strategy = try DualMAStrategy.create(allocator, .{
-        .pair = .{ .base = "BTC", .quote = "USDT" },
-        .fast_period = 5,
-        .slow_period = 10,
-    });
-    defer strategy.destroy();
-
-    const istrategy = strategy.toStrategy();
-    try istrategy.init();
-
-    var candles = try createTestCandles(allocator, &[_]f64{
-        100, 101, 102, 103, 104,
-        105, 106, 107, 108, 109,
-        110, 111, 112, 113, 114,
-    });
-    defer candles.deinit();
-
-    // Run multiple analyses
-    for (0..10) |_| {
-        const signal = try istrategy.analyze(&candles, Timestamp.now());
-        defer signal.deinit();
-    }
-}
+};

@@ -253,6 +253,28 @@ pub const Candles = struct {
         try self.indicators.put(indicator.name, indicator);
     }
 
+    /// Convenience method: Add indicator from name and values array
+    /// Creates an IndicatorSeries and adds it to the candles
+    pub fn addIndicatorValues(self: *Candles, name: []const u8, values: []const Decimal) !void {
+        // Create indicator series
+        const indicator = try self.allocator.create(IndicatorSeries);
+        errdefer self.allocator.destroy(indicator);
+
+        const name_copy = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(name_copy);
+
+        const values_copy = try self.allocator.dupe(Decimal, values);
+        errdefer self.allocator.free(values_copy);
+
+        indicator.* = .{
+            .name = name_copy,
+            .values = values_copy,
+            .allocator = self.allocator,
+        };
+
+        try self.addIndicator(indicator);
+    }
+
     /// Get indicator series by name
     pub fn getIndicator(self: *const Candles, name: []const u8) ?*IndicatorSeries {
         return self.indicators.get(name);
