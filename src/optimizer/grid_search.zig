@@ -121,8 +121,17 @@ pub const GridSearchOptimizer = struct {
             errdefer params.deinit();
 
             // Create strategy with these parameters
-            var strategy = try strategy_factory(params);
-            defer strategy.deinit();
+            // Support both function pointers and struct pointers with createStrategy method
+            const FactoryType = @TypeOf(strategy_factory);
+            const type_info = @typeInfo(FactoryType);
+            const uses_wrapper = type_info == .pointer and @hasDecl(type_info.pointer.child, "createStrategy");
+
+            // Create strategy - could be wrapper or direct IStrategy
+            var strategy_or_wrapper = if (uses_wrapper)
+                try strategy_factory.createStrategy(params)
+            else
+                try strategy_factory(params);
+            defer strategy_or_wrapper.deinit();
 
             // Create null logger for backtest
             var null_writer = NullWriter.init();
@@ -130,9 +139,10 @@ pub const GridSearchOptimizer = struct {
             var logger = Logger.init(self.allocator, log_writer, .err);
             defer logger.deinit();
 
-            // Run backtest
+            // Run backtest - extract interface if wrapper, otherwise use directly
             var engine = BacktestEngine.init(self.allocator, logger);
-            const backtest_result = try engine.run(strategy, self.config.backtest_config);
+            const strategy_interface = if (uses_wrapper) strategy_or_wrapper.interface else strategy_or_wrapper;
+            const backtest_result = try engine.run(strategy_interface, self.config.backtest_config);
 
             // Calculate score based on objective
             const score = self.calculateScore(&backtest_result);

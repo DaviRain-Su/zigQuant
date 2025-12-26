@@ -1,9 +1,9 @@
 # Backtest Engine - 回测引擎
 
-**版本**: v0.4.0 (计划中)
-**状态**: 设计阶段
+**版本**: v0.3.0
+**状态**: ✅ 已完成
 **层级**: Strategy Layer
-**依赖**: Strategy Framework, Indicators Library, Market (OrderBook)
+**依赖**: Strategy Framework, Indicators Library, Market (Candles), Core (Decimal, Time)
 
 ---
 
@@ -179,6 +179,57 @@ pub const BacktestResult = struct {
 
 ---
 
-**版本**: v0.4.0 (计划中)
-**状态**: 设计阶段
-**更新时间**: 2025-12-25
+## ✅ v0.3.0 完成情况
+
+### 已实现功能
+
+- ✅ BacktestEngine - 核心回测引擎
+- ✅ BacktestResult - 回测结果类型
+- ✅ PerformanceAnalyzer - 性能分析器
+- ✅ PerformanceMetrics - 性能指标
+- ✅ Trade & Position 跟踪
+- ✅ Account 管理
+- ✅ CSV 数据加载 (HistoricalDataFeed)
+- ✅ 手续费和滑点模拟
+- ✅ 权益曲线生成
+
+### 核心组件
+
+**文件结构**:
+```
+src/backtest/
+├── engine.zig          # 回测引擎核心
+├── types.zig           # BacktestResult, BacktestConfig
+├── analyzer.zig        # 性能分析器
+├── account.zig         # 账户管理
+├── position.zig        # 持仓跟踪
+├── trade.zig           # 交易记录
+└── data_feed.zig       # 历史数据加载
+```
+
+### 示例和测试
+
+**示例代码**:
+- `examples/05_strategy_backtest.zig` - 完整回测示例 ✅
+
+**测试代码**:
+- `tests/integration/strategy_full_test.zig` - 集成测试 ✅
+  - 测试 BacktestEngine 与所有策略
+  - 测试 PerformanceAnalyzer
+  - 内存泄漏检测
+
+### 使用方法
+
+```bash
+# 运行回测示例
+zig build run-example-backtest
+
+# 运行集成测试
+zig build test-strategy-full
+```
+
+---
+
+**版本**: v0.3.0
+**状态**: ✅ 已完成 (2025-12-26)
+**更新时间**: 2025-12-26

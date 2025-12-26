@@ -9,6 +9,7 @@
 const std = @import("std");
 const zigQuant = @import("zigQuant");
 const format = @import("format.zig");
+const strategy_commands = @import("strategy_commands.zig");
 
 const Config = zigQuant.Config;
 const Logger = zigQuant.Logger;
@@ -179,6 +180,16 @@ pub const CLI = struct {
         } else if (std.mem.eql(u8, command, "repl")) {
             const repl = @import("repl.zig");
             try repl.run(self);
+        } else if (std.mem.eql(u8, command, "strategy")) {
+            // Strategy commands: backtest, optimize, run-strategy
+            if (args.len < 2) {
+                try format.printError(&self.stderr.interface, "Usage: strategy <subcommand>", .{});
+                try (&self.stderr.interface).writeAll("Available subcommands: backtest, optimize, run-strategy\n");
+                try (&self.stderr.interface).writeAll("Use 'strategy <subcommand> --help' for more information\n");
+                return;
+            }
+            const subcommand = args[1];
+            try strategy_commands.executeStrategyCommand(self.allocator, &self.logger, subcommand, args[1..]);
         } else {
             try format.printError(&self.stderr.interface, "Unknown command: {s}", .{command});
             try (&self.stderr.interface).writeAll("Use 'help' to see available commands\n");
@@ -545,6 +556,7 @@ fn printHelp(writer: anytype) !void {
         \\  sell <pair> <size> <price>      卖出
         \\  cancel <order_id>               撤单
         \\  cancel-all [pair]               撤销所有订单
+        \\  strategy <subcommand>           策略命令 (backtest, optimize, run-strategy)
         \\  repl                            交互式模式
         \\  help                            显示帮助
         \\
@@ -553,6 +565,7 @@ fn printHelp(writer: anytype) !void {
         \\  zigquant book ETH-USDC 10
         \\  zigquant buy BTC-USDC 0.01 50000
         \\  zigquant positions
+        \\  zigquant strategy backtest --help
         \\  zigquant repl
         \\
         \\

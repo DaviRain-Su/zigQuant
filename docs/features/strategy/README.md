@@ -1,9 +1,9 @@
 # Strategy Framework - 策略框架
 
 **版本**: v0.3.0
-**状态**: 设计阶段
+**状态**: ✅ 已完成
 **层级**: Strategy Layer
-**依赖**: Core (Decimal, Time, Logger), Exchange (IExchange), Market (OrderBook)
+**依赖**: Core (Decimal, Time, Logger), Market (Candles), Backtest (BacktestEngine)
 
 ---
 
@@ -407,8 +407,17 @@ std.debug.print("夏普比率: {d:.2}\n", .{result.best_result.sharpe_ratio});
 
 ### 示例代码
 
-- `examples/05_strategy_backtest.zig` - 策略回测示例
-- `examples/06_strategy_optimize.zig` - 参数优化示例
+- `examples/05_strategy_backtest.zig` - 策略回测示例 ✅
+- `examples/06_strategy_optimize.zig` - 参数优化示例 ✅
+- `examples/07_custom_strategy.zig` - 自定义策略示例 ✅
+
+### 测试代码
+
+- `tests/integration/strategy_full_test.zig` - 完整策略系统集成测试 ✅
+  - 测试所有三个内置策略
+  - 测试性能分析器
+  - 测试网格搜索优化器
+  - 内存泄漏检测
 
 ---
 
@@ -416,14 +425,49 @@ std.debug.print("夏普比率: {d:.2}\n", .{result.best_result.sharpe_ratio});
 
 1. **理解概念**: 阅读本 README 和设计文档
 2. **运行示例**: 尝试内置策略回测
-3. **修改参数**: 调整策略参数观察效果
-4. **创建策略**: 实现自定义策略
-5. **参数优化**: 使用优化器寻找最佳参数
-6. **实盘测试**: 在 testnet 验证策略
+   ```bash
+   zig build run-example-backtest
+   ```
+3. **参数优化**: 使用优化器寻找最佳参数
+   ```bash
+   zig build run-example-optimize
+   ```
+4. **创建策略**: 实现自定义策略 (参考 example 07)
+   ```bash
+   zig build run-example-custom
+   ```
+5. **运行测试**: 验证所有功能正常
+   ```bash
+   zig build test-strategy-full
+   ```
+
+---
+
+## ✅ v0.3.0 完成情况
+
+### 已实现功能
+
+- ✅ IStrategy 接口 (VTable 模式)
+- ✅ 三个内置策略 (DualMA, RSI Mean Reversion, Bollinger Breakout)
+- ✅ IndicatorManager (指标缓存和管理)
+- ✅ 7个技术指标 (SMA, EMA, RSI, MACD, Bollinger, ATR, Volume Profile)
+- ✅ BacktestEngine (回测引擎)
+- ✅ PerformanceAnalyzer (性能分析器)
+- ✅ GridSearchOptimizer (网格搜索优化器)
+- ✅ 完整的示例代码 (3个示例)
+- ✅ 集成测试 (8个测试用例)
+
+### 测试结果
+
+```bash
+$ zig build test-strategy-full
+✅ All 8 tests passed
+✅ No memory leaks detected
+```
 
 ---
 
 **版本**: v0.3.0
-**状态**: 设计阶段
-**更新时间**: 2025-12-25
+**状态**: ✅ 已完成 (2025-12-26)
+**更新时间**: 2025-12-26
 **参考框架**: Hummingbot V2, Freqtrade

@@ -249,6 +249,22 @@ pub fn build(b: *std.Build) void {
     const websocket_events_step = b.step("test-websocket-events", "Run WebSocket Events integration test (requires network and testnet account)");
     websocket_events_step.dependOn(&run_websocket_events_test.step);
 
+    // Strategy Full integration test - tests complete strategy system
+    const strategy_full_test = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/strategy_full_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_strategy_full_test = b.addRunArtifact(strategy_full_test);
+    const strategy_full_step = b.step("test-strategy-full", "Run full strategy system integration test");
+    strategy_full_step.dependOn(&run_strategy_full_test.step);
+
     // Verify Keys tool - helps verify private key and wallet address match
     const verify_keys = b.addExecutable(.{
         .name = "verify-keys",
@@ -359,7 +375,7 @@ pub fn build(b: *std.Build) void {
     const example_backtest = b.addExecutable(.{
         .name = "example-backtest",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/05_strategy_backtest.zig"),
+            .root_source_file = b.path("examples/06_strategy_backtest.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -376,7 +392,7 @@ pub fn build(b: *std.Build) void {
     const example_optimize = b.addExecutable(.{
         .name = "example-optimize",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/06_strategy_optimize.zig"),
+            .root_source_file = b.path("examples/07_strategy_optimize.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -393,7 +409,7 @@ pub fn build(b: *std.Build) void {
     const example_custom = b.addExecutable(.{
         .name = "example-custom",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/07_custom_strategy.zig"),
+            .root_source_file = b.path("examples/08_custom_strategy.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{

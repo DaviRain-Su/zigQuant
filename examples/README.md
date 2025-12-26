@@ -2,7 +2,7 @@
 
 This directory contains practical examples demonstrating how to use zigQuant's various features.
 
-## 📋 Examples
+## 📋 Examples (8 total)
 
 ### 1. Core Basics (`01_core_basics.zig`)
 
@@ -125,6 +125,77 @@ zig build run-example-colored-logging
 
 ---
 
+### 6. Strategy Backtest (`06_strategy_backtest.zig`)
+
+Run backtests on trading strategies:
+- Load historical candle data from CSV
+- Test builtin strategies (Dual MA, RSI Mean Reversion, Bollinger Breakout)
+- Generate performance metrics
+- Analyze trade results
+
+**Run:**
+```bash
+zig build run-example-backtest
+```
+
+**What you'll see:**
+- Strategy initialization and configuration
+- Backtest execution over historical data
+- Performance metrics (Total Trades, Win Rate, Profit Factor, Sharpe Ratio, Max Drawdown)
+- Detailed trade log
+- Equity curve statistics
+
+**Key Feature:** Validate strategy performance before live trading!
+
+---
+
+### 7. Strategy Optimize (`07_strategy_optimize.zig`)
+
+Optimize strategy parameters using grid search:
+- Define parameter ranges to test
+- Run grid search optimization
+- Find best parameter combinations
+- Compare performance across combinations
+
+**Run:**
+```bash
+zig build run-example-optimize
+```
+
+**What you'll see:**
+- Parameter grid definition
+- Progress through all combinations
+- Best parameters found
+- Performance comparison
+- Optimization statistics
+
+**Key Feature:** Automatically find optimal parameters for maximum performance!
+
+---
+
+### 8. Custom Strategy (`08_custom_strategy.zig`)
+
+Create your own trading strategy:
+- Implement IStrategy interface
+- Use IndicatorManager for technical indicators
+- Define entry/exit logic
+- Backtest custom strategy
+
+**Run:**
+```bash
+zig build run-example-custom
+```
+
+**What you'll see:**
+- Custom MACD Cross strategy implementation
+- EMA calculation and crossover detection
+- Signal generation with stop-loss and take-profit
+- Backtest results for custom strategy
+
+**Key Feature:** Full flexibility to implement any trading strategy!
+
+---
+
 ## 🚀 Quick Start
 
 ### Run All Examples
@@ -144,6 +215,15 @@ zig build run-example-connector
 
 # Colored logging
 zig build run-example-colored-logging
+
+# Strategy backtest
+zig build run-example-backtest
+
+# Strategy optimization
+zig build run-example-optimize
+
+# Custom strategy
+zig build run-example-custom
 
 # Run all examples at once
 zig build run-examples

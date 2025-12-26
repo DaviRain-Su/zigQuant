@@ -50,6 +50,7 @@ pub const strategy_breakout = @import("strategy/builtin/breakout.zig");
 
 // Strategy factory
 pub const StrategyFactory = @import("strategy/factory.zig").StrategyFactory;
+pub const StrategyWrapper = @import("strategy/factory.zig").StrategyWrapper;
 
 // Indicator modules
 pub const indicator_interface = @import("strategy/indicators/interface.zig");

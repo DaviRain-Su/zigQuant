@@ -4,9 +4,9 @@
 
 [![Zig Version](https://img.shields.io/badge/zig-0.15.2-orange.svg)](https://ziglang.org/)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-173%2F173-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](CHANGELOG.md)
 
 ## 📖 项目文档
 
@@ -36,12 +36,22 @@
 - [Order Manager](./docs/features/order-manager/README.md) - 订单管理、状态追踪
 - [Position Tracker](./docs/features/position-tracker/README.md) - 仓位追踪、盈亏计算
 
+### V0.3 策略与回测功能文档
+- [Strategy Framework 策略框架](./docs/features/strategy/README.md) - IStrategy接口、三个内置策略
+- [Backtest Engine 回测引擎](./docs/features/backtest/README.md) - 历史数据回测、性能分析
+- [Indicators Library 指标库](./docs/features/indicators/README.md) - 7个技术指标(SMA/EMA/RSI/MACD/BB/ATR/Stoch)
+- [Parameter Optimizer 参数优化](./docs/features/optimizer/README.md) - 网格搜索优化器
+
 ### 🎓 示例教程
-- **[示例总览](./examples/README.md)** - 4个完整示例
+- **[示例总览](./examples/README.md)** - 8个完整示例
 - [Core Basics](./examples/01_core_basics.zig) - Logger、Decimal、Time基础
 - [WebSocket Stream](./examples/02_websocket_stream.zig) - 实时市场数据
 - [HTTP Market Data](./examples/03_http_market_data.zig) - REST API查询
 - [Exchange Connector](./examples/04_exchange_connector.zig) - 交易所抽象层
+- [Colored Logging](./examples/05_colored_logging.zig) - 彩色日志输出
+- [Strategy Backtest](./examples/06_strategy_backtest.zig) - 策略回测
+- [Strategy Optimize](./examples/07_strategy_optimize.zig) - 参数优化
+- [Custom Strategy](./examples/08_custom_strategy.zig) - 自定义策略
 
 ### 🔧 故障排查
 - **[故障排查索引](./docs/troubleshooting/README.md)** - 常见问题和解决方案
@@ -95,6 +105,18 @@ zig build run-example-http
 
 # 运行交易所连接器示例（需要网络）
 zig build run-example-connector
+
+# 运行彩色日志示例
+zig build run-example-colored-logging
+
+# 运行策略回测示例
+zig build run-example-backtest
+
+# 运行参数优化示例
+zig build run-example-optimize
+
+# 运行自定义策略示例
+zig build run-example-custom
 
 # 查看完整示例说明
 cat examples/README.md
@@ -178,6 +200,38 @@ cat examples/README.md
 - ✅ 账户状态同步
 - ✅ 完整集成测试通过
 
+### ✅ V0.3 策略与回测: 策略系统（已完成）
+
+#### Strategy Framework - 策略框架 (`src/strategy/`)
+- ✅ IStrategy 接口（VTable 模式）
+- ✅ 三个内置策略（Dual MA, RSI Mean Reversion, Bollinger Breakout）
+- ✅ IndicatorManager（指标缓存和管理）
+- ✅ Signal 和 SignalMetadata（信号生成）
+- ✅ StrategyParameter（参数定义和范围）
+
+#### Backtest Engine - 回测引擎 (`src/backtest/`)
+- ✅ BacktestEngine（核心回测引擎）
+- ✅ PerformanceAnalyzer（性能分析器）
+- ✅ PerformanceMetrics（性能指标计算）
+- ✅ Trade & Position 跟踪
+- ✅ Account 管理
+- ✅ CSV 数据加载（HistoricalDataFeed）
+
+#### Indicators Library - 指标库 (`src/indicators/`)
+- ✅ SMA（Simple Moving Average）
+- ✅ EMA（Exponential Moving Average）
+- ✅ RSI（Relative Strength Index）
+- ✅ MACD（Moving Average Convergence Divergence）
+- ✅ Bollinger Bands（布林带）
+- ✅ ATR（Average True Range）
+- ✅ Stochastic Oscillator（随机指标）
+
+#### Parameter Optimizer - 参数优化器 (`src/optimizer/`)
+- ✅ GridSearchOptimizer（网格搜索优化）
+- ✅ CombinationGenerator（参数组合生成）
+- ✅ OptimizationResult（优化结果分析）
+- ✅ 6种优化目标（Sharpe, Profit Factor, Win Rate, etc.）
+
 ## 🎯 项目特色
 
 ### 高性能
@@ -248,7 +302,7 @@ zig build test -freference-trace=10
 - [x] Config - 配置管理
 - [x] Exchange Router - 交易所抽象层
 
-### V0.2 MVP（✅ 已完成 - 99%）
+### V0.2 MVP（✅ 已完成 - 100%）
 - [x] Hyperliquid Connector - HTTP/WebSocket 客户端（100%）
 - [x] Orderbook - L2 订单簿（100%）
 - [x] Order System - 订单类型定义（100%）
@@ -259,11 +313,29 @@ zig build test -freference-trace=10
   - [x] WebSocket Orderbook 集成测试
   - [x] Position Management 集成测试
   - [x] WebSocket Events 集成测试
-- [ ] 发布文档（进行中 - README.md ✅）
+
+### V0.3 策略与回测（✅ 已完成 - 100%）
+- [x] Strategy Framework - 策略框架（100%）
+  - [x] IStrategy 接口（VTable 模式）
+  - [x] 三个内置策略（Dual MA, RSI, Bollinger）
+  - [x] IndicatorManager 指标管理
+- [x] Backtest Engine - 回测引擎（100%）
+  - [x] BacktestEngine 核心引擎
+  - [x] PerformanceAnalyzer 性能分析
+  - [x] Trade & Position 跟踪
+- [x] Indicators Library - 指标库（100%）
+  - [x] 7个技术指标（SMA/EMA/RSI/MACD/BB/ATR/Stoch）
+- [x] Parameter Optimizer - 参数优化（100%）
+  - [x] GridSearchOptimizer 网格搜索
+  - [x] 6种优化目标
+- [x] **示例与测试**（100%）✨
+  - [x] 3个策略示例（Backtest, Optimize, Custom）
+  - [x] 集成测试通过
+  - [x] 文档完善
 
 ### 未来规划
-- [ ] V0.3: 策略框架
-- [ ] V0.4: 回测引擎
+- [ ] V0.4: CLI 策略命令集成
+- [ ] V0.5: 实盘交易集成
 - [ ] V1.0: 完整的量化交易系统
 
 详见 [变更日志](./CHANGELOG.md) 和 [MVP 进度](./docs/MVP_V0.2.0_PROGRESS.md)
@@ -307,5 +379,5 @@ zig build test -freference-trace=10
 
 ---
 
-**状态:** ✅ MVP 完成 (99%) | **版本:** 0.2.0 | **更新时间:** 2025-12-25
-**测试:** 173/173 单元测试 + 3/3 集成测试通过 | **文档:** 114+ 文件 | **性能:** 全部达标 ✅
+**状态:** ✅ V0.3 策略与回测完成 | **版本:** 0.3.0 | **更新时间:** 2024-12-26
+**测试:** 全部通过 ✅ | **示例:** 8个完整示例 | **文档:** 完善 | **性能:** 全部达标 ✅

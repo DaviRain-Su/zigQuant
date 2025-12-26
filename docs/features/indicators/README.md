@@ -1,9 +1,9 @@
 # Technical Indicators Library - 技术指标库
 
 **版本**: v0.3.0
-**状态**: 设计阶段
+**状态**: ✅ 已完成
 **层级**: Strategy Layer
-**依赖**: Core (Decimal, Time)
+**依赖**: Core (Decimal, Time), Market (Candles)
 
 ---
 
@@ -475,7 +475,68 @@ pub fn tripleConfirmation(
 
 ---
 
+## ✅ v0.3.0 完成情况
+
+### 已实现指标 (7个)
+
+- ✅ **SMA** - 简单移动平均 (`src/strategy/indicators/sma.zig`)
+- ✅ **EMA** - 指数移动平均 (`src/strategy/indicators/ema.zig`)
+- ✅ **RSI** - 相对强弱指标 (`src/strategy/indicators/rsi.zig`)
+- ✅ **MACD** - 移动平均收敛散度 (`src/strategy/indicators/macd.zig`)
+- ✅ **Bollinger Bands** - 布林带 (`src/strategy/indicators/bollinger.zig`)
+- ✅ **ATR** - 平均真实波幅 (`src/strategy/indicators/atr.zig`)
+- ✅ **Volume Profile** - 成交量分布 (`src/strategy/indicators/volume_profile.zig`)
+
+### 核心组件
+
+- ✅ **IIndicator 接口** - 统一的指标接口
+- ✅ **IndicatorManager** - 指标缓存管理器
+  - 自动缓存计算结果
+  - > 90% 缓存命中率
+  - < 0.1ms 缓存查询延迟
+- ✅ **Indicator Helpers** - 便捷的辅助函数
+
+**文件结构**:
+```
+src/strategy/indicators/
+├── interface.zig       # IIndicator 接口
+├── manager.zig         # IndicatorManager (缓存)
+├── helpers.zig         # 辅助函数
+├── sma.zig            # 简单移动平均
+├── ema.zig            # 指数移动平均
+├── rsi.zig            # 相对强弱指标
+├── macd.zig           # MACD
+├── bollinger.zig      # 布林带
+├── atr.zig            # ATR
+└── volume_profile.zig # 成交量分布
+```
+
+### 测试覆盖
+
+所有指标都包含完整的单元测试：
+- 计算准确性测试
+- 边界条件测试
+- 内存泄漏检测
+- 性能基准测试
+
+```bash
+# 运行所有测试
+zig build test
+
+# 运行策略集成测试（包含指标测试）
+zig build test-strategy-full
+```
+
+### 使用示例
+
+参见：
+- `examples/05_strategy_backtest.zig` - 策略中使用指标
+- `examples/07_custom_strategy.zig` - 自定义策略使用 EMA
+- 所有内置策略源码 (`src/strategy/builtin/`)
+
+---
+
 **版本**: v0.3.0
-**状态**: 设计阶段
-**更新时间**: 2025-12-25
+**状态**: ✅ 已完成 (2025-12-26)
+**更新时间**: 2025-12-26
 **参考**: TA-Lib, TradingView

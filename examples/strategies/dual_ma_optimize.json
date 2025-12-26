@@ -1,0 +1,30 @@
+{
+  "strategy": "dual_ma",
+  "parameters": {
+    "ma_type": "sma"
+  },
+  "backtest": {
+    "pair": {
+      "base": "BTC",
+      "quote": "USDT"
+    },
+    "timeframe": "h1",
+    "initial_capital": 10000,
+    "commission_rate": 0.001,
+    "slippage": 0.0005
+  },
+  "optimization": {
+    "parameters": {
+      "fast_period": {
+        "min": 5,
+        "max": 15,
+        "step": 5
+      },
+      "slow_period": {
+        "min": 20,
+        "max": 40,
+        "step": 10
+      }
+    }
+  }
+}
