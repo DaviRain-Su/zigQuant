@@ -229,6 +229,12 @@ pub fn main() !void {
 - 排序和过滤
 - Top N选择
 
+### 6. 精确的指标计算
+- 使用 PerformanceAnalyzer 计算详细指标
+- NullWriter 实现零开销日志
+- 正确计算 Sharpe Ratio、Max Drawdown、Total Return
+- 降级策略：分析失败时使用基础指标
+
 ---
 
 ## 🐛 解决的问题
@@ -264,6 +270,16 @@ pub fn main() !void {
 - **症状**: 编译警告 - sorted 变量未修改
 - **根因**: std.sort.pdq 修改切片内容，不修改切片变量
 - **修复**: 使用 `const` 替代 `var`
+
+### 问题 #6: TODO 标记未解决
+- **位置**: grid_search.zig:141, 145, 153
+- **症状**: 3个TODO标记（使用PerformanceAnalyzer、计算Sharpe ratio、计算max drawdown）
+- **根因**: 初始实现为了简化而跳过了PerformanceAnalyzer
+- **修复**:
+  - 实现 NullWriter 用于静默日志
+  - 使用 PerformanceAnalyzer 计算所有详细指标
+  - 添加降级策略处理分析失败情况
+  - 所有优化目标现在使用精确指标
 
 ---
 

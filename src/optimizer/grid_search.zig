@@ -20,6 +20,10 @@ const BacktestConfig = root.BacktestConfig;
 const BacktestResult = root.BacktestResult;
 const IStrategy = root.IStrategy;
 const PerformanceMetrics = root.PerformanceMetrics;
+const PerformanceAnalyzer = root.PerformanceAnalyzer;
+const Logger = root.Logger;
+const LogWriter = root.logger.LogWriter;
+const LogRecord = root.logger.LogRecord;
 
 const OptimizationConfig = types.OptimizationConfig;
 const OptimizationResult = types.OptimizationResult;
@@ -27,6 +31,34 @@ const OptimizationObjective = types.OptimizationObjective;
 const ParameterSet = types.ParameterSet;
 const ParameterResult = types.ParameterResult;
 const CombinationGenerator = combination.CombinationGenerator;
+
+/// Null writer for optimizer (doesn't write anything)
+const NullWriter = struct {
+    fn init() NullWriter {
+        return .{};
+    }
+
+    fn writer(self: *NullWriter) LogWriter {
+        return LogWriter{
+            .ptr = self,
+            .writeFn = writeFn,
+            .flushFn = flushFn,
+            .closeFn = closeFn,
+        };
+    }
+
+    fn writeFn(_: *anyopaque, _: LogRecord) anyerror!void {
+        // Do nothing
+    }
+
+    fn flushFn(_: *anyopaque) anyerror!void {
+        // Do nothing
+    }
+
+    fn closeFn(_: *anyopaque) void {
+        // Do nothing
+    }
+};
 
 /// Grid Search Optimizer
 pub const GridSearchOptimizer = struct {
@@ -137,32 +169,40 @@ pub const GridSearchOptimizer = struct {
 
     /// Calculate score for a backtest result based on objective
     fn calculateScore(self: *const GridSearchOptimizer, result: *const BacktestResult) f64 {
-        // For now, use the built-in metrics from BacktestResult
-        // TODO: Use PerformanceAnalyzer for more detailed metrics
+        // Create a null logger and analyzer for metrics calculation
+        var null_writer = NullWriter.init();
+        const logger = Logger.init(self.allocator, null_writer.writer(), .err);
+        var analyzer = PerformanceAnalyzer.init(self.allocator, logger);
+
+        // Calculate detailed metrics
+        const metrics = analyzer.analyze(result.*) catch {
+            // If analysis fails, fall back to basic metrics from BacktestResult
+            return switch (self.config.objective) {
+                .maximize_sharpe_ratio => result.profit_factor,
+                .maximize_profit_factor => result.profit_factor,
+                .maximize_win_rate => result.win_rate,
+                .minimize_max_drawdown => -result.net_profit.toFloat(),
+                .maximize_net_profit => result.net_profit.toFloat(),
+                .maximize_total_return => blk: {
+                    const initial = result.config.initial_capital;
+                    if (initial.eql(root.Decimal.ZERO)) break :blk 0.0;
+                    const final = initial.add(result.net_profit);
+                    const ratio = final.div(initial) catch break :blk 0.0;
+                    const return_pct = ratio.sub(root.Decimal.ONE);
+                    break :blk return_pct.toFloat();
+                },
+                .custom => unreachable,
+            };
+        };
+
+        // Use detailed metrics from PerformanceAnalyzer
         return switch (self.config.objective) {
-            .maximize_sharpe_ratio => {
-                // For now, use profit factor as proxy for Sharpe ratio
-                // TODO: Calculate proper Sharpe ratio
-                return result.profit_factor;
-            },
-            .maximize_profit_factor => result.profit_factor,
-            .maximize_win_rate => result.win_rate,
-            .minimize_max_drawdown => {
-                // For max drawdown, we need to analyze the equity curve
-                // For now, use net profit as a proxy
-                // TODO: Calculate max drawdown from equity curve
-                return result.net_profit.toFloat();
-            },
-            .maximize_net_profit => result.net_profit.toFloat(),
-            .maximize_total_return => {
-                // Calculate total return percentage
-                const initial = result.config.initial_capital;
-                if (initial.eql(root.Decimal.ZERO)) return 0.0;
-                const final = initial.add(result.net_profit);
-                const ratio = final.div(initial) catch return 0.0;
-                const return_pct = ratio.sub(root.Decimal.ONE);
-                return return_pct.toFloat();
-            },
+            .maximize_sharpe_ratio => metrics.sharpe_ratio,
+            .maximize_profit_factor => metrics.profit_factor,
+            .maximize_win_rate => metrics.win_rate,
+            .minimize_max_drawdown => -metrics.max_drawdown, // Negative because we maximize score
+            .maximize_net_profit => metrics.net_profit.toFloat(),
+            .maximize_total_return => metrics.total_return,
             .custom => unreachable, // Custom objectives not yet supported
         };
     }
