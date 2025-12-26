@@ -115,6 +115,11 @@ pub const Encoder = struct {
             }
         }
     }
+
+    /// Encode null
+    pub fn writeNull(self: *Encoder) !void {
+        try self.buffer.append(self.allocator, 0xc0);
+    }
 };
 
 /// Pack a Hyperliquid order action
@@ -224,9 +229,13 @@ fn packOrder(encoder: *Encoder, order: OrderRequest) !void {
 }
 
 /// Cancel request structure for msgpack
+/// Both fields are optional to support:
+/// - a=null, o=null: cancel all orders for all assets
+/// - a=<index>, o=null: cancel all orders for specific asset
+/// - a=<index>, o=<id>: cancel specific order
 pub const CancelRequest = struct {
-    a: u64, // asset index
-    o: u64, // order id
+    a: ?u64, // asset index (null for all assets)
+    o: ?u64, // order id (null for all orders)
 };
 
 /// Pack a Hyperliquid cancel action
@@ -268,11 +277,19 @@ fn packCancel(encoder: *Encoder, cancel: CancelRequest) !void {
 
     // Key: "a" (asset index)
     try encoder.writeString("a");
-    try encoder.writeUint(cancel.a);
+    if (cancel.a) |asset_index| {
+        try encoder.writeUint(asset_index);
+    } else {
+        try encoder.writeNull();
+    }
 
     // Key: "o" (order id)
     try encoder.writeString("o");
-    try encoder.writeUint(cancel.o);
+    if (cancel.o) |order_id| {
+        try encoder.writeUint(order_id);
+    } else {
+        try encoder.writeNull();
+    }
 }
 
 // ============================================================================

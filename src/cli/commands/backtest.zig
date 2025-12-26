@@ -149,12 +149,12 @@ pub fn cmdBacktest(
     try logger.info("Building backtest configuration...", .{});
 
     const start_time = if (res.args.start) |s|
-        try parseTimestamp(s)
+        try parseTimestamp(allocator, s)
     else
         Timestamp{ .millis = 0 };
 
     const end_time = if (res.args.@"end") |s|
-        try parseTimestamp(s)
+        try parseTimestamp(allocator, s)
     else
         Timestamp{ .millis = std.math.maxInt(i64) };
 
@@ -286,11 +286,13 @@ fn parseTimeframe(root: std.json.Value, key: []const u8) !Timeframe {
     return tf;
 }
 
-fn parseTimestamp(s: []const u8) !Timestamp {
+fn parseTimestamp(allocator: std.mem.Allocator, s: []const u8) !Timestamp {
     // Try to parse as integer (unix millis)
     const millis = std.fmt.parseInt(i64, s, 10) catch {
-        // TODO: Parse ISO8601 format
-        return error.InvalidTimestamp;
+        // Try to parse as ISO8601 format
+        return Timestamp.fromISO8601(allocator, s) catch {
+            return error.InvalidTimestamp;
+        };
     };
 
     return Timestamp{ .millis = millis };

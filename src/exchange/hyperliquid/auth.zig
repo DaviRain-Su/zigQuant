@@ -357,10 +357,21 @@ test "Signer: sign action" {
     var signer = try Signer.init(allocator, private_key, true); // testnet
     defer signer.deinit();
 
-    // Test action data (TODO: should be msgpack-encoded, using placeholder for now)
-    const action_data = "{\"type\":\"order\",\"orders\":[{\"a\":0,\"b\":true,\"p\":\"1800.0\",\"s\":\"0.1\"}]}";
+    // Create test order request with msgpack encoding
+    const order_request = msgpack.OrderRequest{
+        .a = 0,
+        .b = true,
+        .p = "1800.0",
+        .s = "0.1",
+        .r = false,
+        .t = msgpack.OrderType{ .limit = .{ .tif = "Gtc" } },
+    };
 
-    // Sign the action with a test nonce
+    const orders = [_]msgpack.OrderRequest{order_request};
+    const action_data = try msgpack.packOrderAction(allocator, &orders, "na");
+    defer allocator.free(action_data);
+
+    // Sign the msgpack-encoded action with a test nonce
     const nonce = 1234567890;
     const signature = try signer.signAction(action_data, nonce);
     defer allocator.free(signature.r);

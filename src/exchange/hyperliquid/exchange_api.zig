@@ -289,9 +289,30 @@ pub const ExchangeAPI = struct {
             self.logger.debug("Canceling all orders", .{}) catch {};
         }
 
-        // Construct cancel all action
-        // If asset_index is null, cancel all orders across all assets
-        // If asset_index is provided, cancel only orders for that asset
+        // Build msgpack cancel all action for signing
+        const msgpack_cancel = msgpack.CancelRequest{
+            .a = asset_index,
+            .o = null,
+        };
+
+        const cancels = [_]msgpack.CancelRequest{msgpack_cancel};
+        const action_msgpack = try msgpack.packCancelAction(
+            self.allocator,
+            &cancels,
+        );
+        defer self.allocator.free(action_msgpack);
+
+        self.logger.debug("Msgpack cancel all action size: {d} bytes", .{action_msgpack.len}) catch {};
+
+        // Generate nonce (must be same for signing and request!)
+        const nonce = @as(u64, @intCast(std.time.milliTimestamp()));
+
+        // Sign the msgpack-encoded action (with phantom agent)
+        const signature = try self.signer.?.signAction(action_msgpack, nonce);
+        defer self.allocator.free(signature.r);
+        defer self.allocator.free(signature.s);
+
+        // Construct cancel action JSON for request body
         const action_json = if (asset_index) |idx| blk: {
             break :blk try std.fmt.allocPrint(
                 self.allocator,
@@ -303,17 +324,6 @@ pub const ExchangeAPI = struct {
             break :blk try self.allocator.dupe(u8, "{\"type\":\"cancel\",\"cancels\":[{\"a\":null,\"o\":null}]}");
         };
         defer self.allocator.free(action_json);
-
-        // TODO: Implement msgpack encoding for cancel actions
-        // For now, using JSON as placeholder (need to implement msgpack.packCancelAction)
-
-        // Generate nonce (must be same for signing and request!)
-        const nonce = @as(u64, @intCast(std.time.milliTimestamp()));
-
-        // Sign the action (TODO: should sign msgpack, not JSON)
-        const signature = try self.signer.?.signAction(action_json, nonce);
-        defer self.allocator.free(signature.r);
-        defer self.allocator.free(signature.s);
 
         // Construct signed request (use the same nonce!)
         const request_json = try std.fmt.allocPrint(
