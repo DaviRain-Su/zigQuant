@@ -79,6 +79,12 @@ pub const backtest_data_feed = @import("backtest/data_feed.zig");
 pub const backtest_engine = @import("backtest/engine.zig");
 pub const backtest_analyzer = @import("backtest/analyzer.zig");
 
+// Optimizer modules
+pub const optimizer_types = @import("optimizer/types.zig");
+pub const optimizer_combination = @import("optimizer/combination.zig");
+pub const optimizer_grid_search = @import("optimizer/grid_search.zig");
+pub const optimizer_result = @import("optimizer/result.zig");
+
 // Re-export market data types
 pub const OrderBook = orderbook.OrderBook;
 pub const OrderBookManager = orderbook.OrderBookManager;
@@ -149,6 +155,23 @@ pub const BacktestAccount = backtest_account.Account;
 pub const BacktestPosition = backtest_position.Position;
 pub const BacktestPositionManager = backtest_position.PositionManager;
 pub const BacktestOrderExecutor = backtest_executor.OrderExecutor;
+
+// Re-export optimizer types
+pub const OptimizerParameterType = optimizer_types.ParameterType;
+pub const OptimizerParameterValue = optimizer_types.ParameterValue;
+pub const OptimizerParameterRange = optimizer_types.ParameterRange;
+pub const OptimizerIntegerRange = optimizer_types.IntegerRange;
+pub const OptimizerDecimalRange = optimizer_types.DecimalRange;
+pub const OptimizerStrategyParameter = optimizer_types.StrategyParameter;
+pub const OptimizerParameterSet = optimizer_types.ParameterSet;
+pub const OptimizationObjective = optimizer_types.OptimizationObjective;
+pub const OptimizationResult = optimizer_types.OptimizationResult;
+pub const OptimizationConfig = optimizer_types.OptimizationConfig;
+pub const ParameterResult = optimizer_types.ParameterResult;
+pub const CombinationGenerator = optimizer_combination.CombinationGenerator;
+pub const GridSearchOptimizer = optimizer_grid_search.GridSearchOptimizer;
+pub const ResultAnalyzer = optimizer_result.ResultAnalyzer;
+pub const ScoreStatistics = optimizer_result.ScoreStatistics;
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -281,4 +304,10 @@ test {
     _ = backtest_data_feed;
     _ = backtest_engine;
     _ = backtest_analyzer;
+
+    // Optimizer modules
+    _ = optimizer_types;
+    _ = optimizer_combination;
+    _ = optimizer_grid_search;
+    _ = optimizer_result;
 }
