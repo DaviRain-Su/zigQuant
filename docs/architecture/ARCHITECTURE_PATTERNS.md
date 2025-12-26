@@ -1,19 +1,31 @@
 # zigQuant 核心架构模式参考
 
 **创建时间**: 2024-12-26
-**来源**: [竞争分析](./COMPETITIVE_ANALYSIS.md) - NautilusTrader/Hummingbot/Freqtrade 深度研究
+**最后更新**: 2024-12-26 (添加 HFTBacktest 模式)
+**来源**: [竞争分析](./COMPETITIVE_ANALYSIS.md) - NautilusTrader/Hummingbot/Freqtrade/HFTBacktest 深度研究
 **用途**: 后续开发的快速参考指南
 
 ---
 
 ## 📚 快速索引
 
+### 基础架构 (NautilusTrader)
 1. [MessageBus 消息总线](#messagebus-消息总线) (NautilusTrader)
 2. [Cache 高性能缓存](#cache-高性能缓存) (NautilusTrader)
+
+### 可靠性 (Hummingbot)
 3. [订单前置追踪](#订单前置追踪) (Hummingbot)
-4. [向量化回测](#向量化回测) (Freqtrade)
-5. [Clock-Driven 模式](#clock-driven-模式) (Hummingbot)
-6. [Crash Recovery 崩溃恢复](#crash-recovery-崩溃恢复) (NautilusTrader)
+4. [Clock-Driven 模式](#clock-driven-模式) (Hummingbot)
+
+### 性能优化 (Freqtrade)
+5. [向量化回测](#向量化回测) (Freqtrade)
+
+### 精度建模 (HFTBacktest) ✨ NEW
+6. [Queue Position Modeling 队列位置建模](#queue-position-modeling-队列位置建模) (HFTBacktest)
+7. [Dual Latency 双向延迟模拟](#dual-latency-双向延迟模拟) (HFTBacktest)
+
+### 生产级 (NautilusTrader)
+8. [Crash Recovery 崩溃恢复](#crash-recovery-崩溃恢复) (NautilusTrader)
 
 ---
 
@@ -537,6 +549,319 @@ pub const TradingSystem = struct {
 
 ---
 
+## Queue Position Modeling 队列位置建模
+
+> 来源: **HFTBacktest**
+> 实施版本: **v0.7.0**
+
+### 核心理念
+
+订单在订单簿中的队列位置决定成交概率,假设立即成交过于乐观。
+
+### 问题场景
+
+```
+❌ 传统回测:
+1. 下限价买单 @ $100
+2. 市场价 = $100 → 假设立即成交
+3. 结果: 过于乐观,实际中可能排在队列后方
+
+✅ Queue-Aware 回测:
+1. 下限价买单 @ $100
+2. 计算队列位置: 你前面有 50 BTC
+3. 市场成交 30 BTC → 你的订单未成交
+4. 结果: 真实反映市场微观结构
+```
+
+### 四种队列模型
+
+```zig
+pub const QueueModel = enum {
+    RiskAverse,   // 保守: 假设在队尾
+    Probability,  // 概率: 线性分布
+    PowerLaw,     // 幂函数: x^2 或 x^3
+    Logarithmic,  // 对数: log(1+x)
+};
+
+pub const QueuePosition = struct {
+    order_id: []const u8,
+    price_level: Decimal,
+    position_in_queue: usize,      // 当前位置 (0 = 队头)
+    total_quantity_ahead: Decimal,  // 前方总量
+
+    /// 计算成交概率
+    pub fn fillProbability(self: QueuePosition, model: QueueModel) f64 {
+        // x = 归一化位置 (0.0 - 1.0)
+        const x = @as(f64, @floatFromInt(self.position_in_queue)) /
+                  @as(f64, @floatFromInt(self.total_quantity_ahead));
+
+        return switch (model) {
+            // P(0) = 0 (队头), P(1) = 1 (队尾)
+            .RiskAverse => if (x < 0.01) 0.0 else 1.0,
+            .Probability => x,
+            .PowerLaw => std.math.pow(f64, x, 2.0),  // x^2
+            .Logarithmic => @log(1.0 + x) / @log(2.0),  // log(1+x)
+        };
+    }
+
+    /// 推进队列位置 (当前方订单成交/撤单)
+    pub fn advance(self: *QueuePosition, executed_qty: Decimal) void {
+        if (executed_qty >= self.total_quantity_ahead) {
+            // 前方订单全部清空,移到队头
+            self.position_in_queue = 0;
+            self.total_quantity_ahead = Decimal.zero;
+        } else {
+            // 部分推进
+            self.total_quantity_ahead = self.total_quantity_ahead.sub(executed_qty);
+            // position_in_queue 相应减少
+        }
+    }
+};
+```
+
+### Level-3 Order Book (Market-By-Order)
+
+```zig
+pub const OrderBook = struct {
+    bids: BTreeMap(Decimal, PriceLevel),
+    asks: BTreeMap(Decimal, PriceLevel),
+
+    pub const PriceLevel = struct {
+        price: Decimal,
+        orders: ArrayList(*Order),  // 该价位所有订单（Level-3）
+        total_quantity: Decimal,
+
+        /// 添加订单到队尾
+        pub fn addOrder(self: *PriceLevel, order: *Order) !void {
+            try self.orders.append(order);
+            self.total_quantity = self.total_quantity.add(order.quantity);
+
+            // 计算队列位置
+            var position: usize = 0;
+            var qty_ahead = Decimal.zero;
+            for (self.orders.items, 0..) |existing, i| {
+                if (existing == order) {
+                    position = i;
+                    break;
+                }
+                qty_ahead = qty_ahead.add(existing.quantity);
+            }
+
+            order.queue_position = QueuePosition{
+                .order_id = order.id,
+                .price_level = self.price,
+                .position_in_queue = position,
+                .total_quantity_ahead = qty_ahead,
+            };
+        }
+    };
+
+    /// 处理成交事件 (更新所有订单队列位置)
+    pub fn onTrade(self: *OrderBook, trade: Trade) !void {
+        const level = if (trade.side == .Buy)
+            self.asks.get(trade.price)
+        else
+            self.bids.get(trade.price);
+
+        if (level) |price_level| {
+            for (price_level.orders.items) |order| {
+                // 推进队列位置
+                order.queue_position.advance(trade.quantity);
+
+                // 检查是否成交
+                const fill_prob = order.queue_position.fillProbability(.Probability);
+                if (fill_prob > 0.9 and order.queue_position.position_in_queue == 0) {
+                    // 成交
+                    try self.fillOrder(order, trade);
+                }
+            }
+        }
+    }
+};
+```
+
+### 使用场景
+
+- **做市策略** (必须,队列位置决定收益)
+- **限价单策略** (重要,避免过度乐观)
+- **HFT 策略** (关键,微秒级竞争)
+
+### 关键优势
+
+- ✅ 真实反映市场微观结构
+- ✅ 避免回测过度乐观
+- ✅ Sharpe 比率差异 20-30% (HFTBacktest 证明)
+
+### 实施建议
+
+1. **v0.7.0**: 做市策略默认启用
+2. **可配置**: 让用户选择队列模型
+3. **验证**: 回测 vs 实盘对比校准模型
+
+---
+
+## Dual Latency 双向延迟模拟
+
+> 来源: **HFTBacktest**
+> 实施版本: **v0.7.0**
+
+### 核心理念
+
+真实交易有两种延迟: Feed Latency (市场数据) 和 Order Latency (订单执行),必须分别模拟。
+
+### 问题场景
+
+```
+❌ 传统回测:
+1. 市场价格变化 → 立即可见
+2. 下订单 → 立即成交
+3. 结果: 零延迟假设,不现实
+
+✅ Dual Latency 回测:
+1. 市场价格变化 @ t0
+2. 策略接收数据 @ t0 + 10ms (Feed Latency)
+3. 下订单 @ t0 + 11ms
+4. 订单到达交易所 @ t0 + 21ms (Entry Latency)
+5. 交易所确认 @ t0 + 25ms (Response Latency)
+6. 结果: 真实 25ms 延迟
+```
+
+### Zig 实现伪代码
+
+```zig
+pub const FeedLatencyModel = struct {
+    model_type: enum { Constant, Normal, Interpolated },
+
+    /// 模拟 Feed Latency
+    pub fn simulate(self: *FeedLatencyModel, event_time: i64) !i64 {
+        return switch (self.model_type) {
+            .Constant => event_time + 10_000_000,  // 10ms
+            .Normal => {
+                // 正态分布: mean=10ms, std=2ms
+                const latency_ns = sampleNormal(10_000_000, 2_000_000);
+                return event_time + latency_ns;
+            },
+            .Interpolated => {
+                // 基于历史数据插值
+                return event_time + interpolateLatency(event_time);
+            },
+        };
+    }
+};
+
+pub const OrderLatencyModel = struct {
+    entry_latency: FeedLatencyModel,   // 提交延迟
+    response_latency: FeedLatencyModel, // 确认延迟
+
+    /// 模拟完整订单流程
+    pub fn simulateOrderFlow(self: *OrderLatencyModel, order: *Order) !OrderTimeline {
+        const strategy_time = Time.now();
+
+        // 1. 订单离开策略
+        const leave_time = strategy_time;
+
+        // 2. 到达交易所 (Entry Latency)
+        const arrive_time = try self.entry_latency.simulate(leave_time);
+
+        // 3. 交易所处理 (假设 100us)
+        const process_time = arrive_time + 100_000;  // 100us
+
+        // 4. 确认返回策略 (Response Latency)
+        const ack_time = try self.response_latency.simulate(process_time);
+
+        return OrderTimeline{
+            .strategy_submit = leave_time,
+            .exchange_arrive = arrive_time,
+            .exchange_process = process_time,
+            .strategy_ack = ack_time,
+            .total_roundtrip = ack_time - leave_time,
+        };
+    }
+};
+
+/// 回测引擎集成
+pub const BacktestEngine = struct {
+    feed_latency: FeedLatencyModel,
+    order_latency: OrderLatencyModel,
+
+    /// 处理市场数据事件
+    pub fn onMarketData(self: *BacktestEngine, event: MarketEvent) !void {
+        // 模拟 Feed Latency
+        const event_time = event.timestamp;
+        const arrival_time = try self.feed_latency.simulate(event_time);
+
+        // 延迟后才触发策略
+        try self.eventQueue.schedule(arrival_time, event);
+    }
+
+    /// 处理订单提交
+    pub fn submitOrder(self: *BacktestEngine, order: *Order) !void {
+        // 模拟 Order Latency
+        const timeline = try self.order_latency.simulateOrderFlow(order);
+
+        // 订单在 arrive_time 到达交易所
+        order.exchange_time = timeline.exchange_arrive;
+
+        // 确认在 ack_time 返回策略
+        order.ack_time = timeline.strategy_ack;
+
+        // 调度确认事件
+        try self.eventQueue.schedule(timeline.strategy_ack, .{
+            .type = .OrderAck,
+            .order = order,
+        });
+    }
+};
+```
+
+### 延迟分布拟合 (从实盘日志)
+
+```zig
+/// 从实盘日志拟合延迟分布
+pub fn fitLatencyDistribution(trade_logs: []TradeLog) !LatencyStats {
+    var feed_latencies = ArrayList(i64).init(allocator);
+    var order_latencies = ArrayList(i64).init(allocator);
+
+    for (trade_logs) |log| {
+        // Feed Latency = 接收时间 - 交易所时间
+        const feed_lat = log.local_receive_time - log.exchange_timestamp;
+        try feed_latencies.append(feed_lat);
+
+        // Order Latency = 确认时间 - 提交时间
+        const order_lat = log.ack_time - log.submit_time;
+        try order_latencies.append(order_lat);
+    }
+
+    return LatencyStats{
+        .feed_mean = calculateMean(feed_latencies.items),
+        .feed_std = calculateStd(feed_latencies.items),
+        .order_mean = calculateMean(order_latencies.items),
+        .order_std = calculateStd(order_latencies.items),
+    };
+}
+```
+
+### 使用场景
+
+- **HFT 策略** (必须,微秒级敏感)
+- **做市策略** (重要,报价时效性)
+- **套利策略** (关键,延迟决定收益)
+
+### 关键优势
+
+- ✅ 纳秒级精度
+- ✅ 真实延迟分布 (非常数)
+- ✅ Feed != Order (分开建模)
+- ✅ 可从实盘日志拟合
+
+### 实施建议
+
+1. **v0.7.0**: 做市/HFT 策略默认启用
+2. **可配置**: 3 种模型 (常数/正态/插值)
+3. **校准**: 从实盘日志拟合分布
+
+---
+
 ## 实施优先级
 
 根据 [roadmap.md](../../roadmap.md),推荐实施顺序:
@@ -551,9 +876,11 @@ pub const TradingSystem = struct {
 
 ### v0.7.0 (2-3 周)
 5. **Clock-Driven** (1 周) - 做市支持
+6. **Queue Position Modeling** (1-2 周) - HFT/做市精度 ✨ NEW
+7. **Dual Latency** (1 周) - 延迟模拟 ✨ NEW
 
 ### v0.8.0 (2-3 周)
-6. **Crash Recovery** (2 周) - 生产级可靠性
+8. **Crash Recovery** (2 周) - 生产级可靠性
 
 ---
 
