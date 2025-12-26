@@ -219,12 +219,22 @@ pub const ParameterSet = struct {
 
 /// Optimization objective
 pub const OptimizationObjective = enum {
+    // v0.3.0 objectives
     maximize_sharpe_ratio,
     maximize_profit_factor,
     maximize_win_rate,
     minimize_max_drawdown,
     maximize_net_profit,
     maximize_total_return,
+
+    // v0.4.0 new objectives
+    maximize_sortino_ratio, // Only considers downside volatility
+    maximize_calmar_ratio, // Annual return / max drawdown
+    maximize_omega_ratio, // Probability weighted ratio of gains vs losses
+    maximize_tail_ratio, // Right tail / left tail distribution
+    maximize_stability, // Consistency of returns
+    maximize_risk_adjusted_return, // Custom risk-adjusted metric
+
     custom,
 
     /// Get objective name for display
@@ -236,7 +246,27 @@ pub const OptimizationObjective = enum {
             .minimize_max_drawdown => "Minimize Max Drawdown",
             .maximize_net_profit => "Maximize Net Profit",
             .maximize_total_return => "Maximize Total Return",
+            .maximize_sortino_ratio => "Maximize Sortino Ratio",
+            .maximize_calmar_ratio => "Maximize Calmar Ratio",
+            .maximize_omega_ratio => "Maximize Omega Ratio",
+            .maximize_tail_ratio => "Maximize Tail Ratio",
+            .maximize_stability => "Maximize Stability",
+            .maximize_risk_adjusted_return => "Maximize Risk-Adjusted Return",
             .custom => "Custom Objective",
+        };
+    }
+
+    /// Check if objective needs advanced metrics
+    pub fn needsAdvancedMetrics(self: OptimizationObjective) bool {
+        return switch (self) {
+            .maximize_sortino_ratio,
+            .maximize_calmar_ratio,
+            .maximize_omega_ratio,
+            .maximize_tail_ratio,
+            .maximize_stability,
+            .maximize_risk_adjusted_return,
+            => true,
+            else => false,
         };
     }
 };

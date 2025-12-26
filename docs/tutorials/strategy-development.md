@@ -842,4 +842,117 @@ cat results/debug.json | jq '.trades[] | select(.profit < 0)'
 ---
 
 **更新时间**: 2024-12-26
-**版本**: v0.3.0
+**版本**: v0.4.0
+
+---
+
+## v0.4.0 新增功能
+
+### 扩展指标库 (Story 025)
+
+v0.4.0 新增了 8 个高级技术指标：
+
+| 指标 | 用途 | 参数 |
+|------|------|------|
+| ADX (Average Directional Index) | 趋势强度 | period (默认: 14) |
+| Ichimoku Cloud | 趋势/支撑阻力 | tenkan=9, kijun=26, senkou_span_b=52 |
+| Stochastic RSI | 动量超买超卖 | rsi_period=14, stoch_period=14, k=3, d=3 |
+| Williams %R | 超买超卖 | period (默认: 14) |
+| CCI (Commodity Channel Index) | 周期波动 | period (默认: 20) |
+| OBV (On Balance Volume) | 成交量趋势 | 无参数 |
+| MFI (Money Flow Index) | 资金流向 | period (默认: 14) |
+| VWAP | 成交量加权价格 | 无参数 |
+
+**使用示例**：
+
+```zig
+const zigQuant = @import("../../root.zig");
+
+// ADX - 趋势强度
+var adx = try zigQuant.ADX.init(allocator, 14);
+defer adx.deinit();
+const adx_value = try adx.calculate(candles);
+if (adx_value > 25.0) {
+    // 强趋势市场
+}
+
+// Ichimoku Cloud - 多重分析
+var ichimoku = try zigQuant.Ichimoku.init(allocator, 9, 26, 52);
+defer ichimoku.deinit();
+const result = try ichimoku.calculate(candles);
+// result.tenkan_sen, result.kijun_sen, result.senkou_span_a, result.senkou_span_b
+```
+
+### 扩展策略库 (Story 026)
+
+v0.4.0 新增了 MACD Divergence 策略：
+
+- **MACD Divergence**: 价格与MACD背离检测
+  - 看涨背离：价格创新低，MACD不创新低
+  - 看跌背离：价格创新高，MACD不创新高
+
+### Walk-Forward 分析 (Story 022)
+
+v0.4.0 增强了优化器，支持 Walk-Forward 分析以防止过拟合：
+
+```zig
+const walk_forward = @import("../../root.zig").walk_forward;
+
+var analyzer = walk_forward.WalkForwardAnalyzer.init(allocator, .{
+    .training_ratio = 0.7,     // 70% 训练数据
+    .testing_ratio = 0.3,      // 30% 测试数据
+    .num_windows = 5,          // 5 个滚动窗口
+    .min_trades = 30,          // 最少交易次数
+});
+defer analyzer.deinit();
+
+const result = try analyzer.analyze(&optimizer, candles, strategy);
+// result.training_sharpe, result.testing_sharpe, result.stability_score
+```
+
+**新增优化目标**:
+- `maximize_sortino_ratio`: Sortino 比率
+- `maximize_calmar_ratio`: Calmar 比率
+- `maximize_omega_ratio`: Omega 比率
+- `maximize_tail_ratio`: 尾部比率
+- `maximize_stability`: 稳定性得分
+
+### 回测结果导出 (Story 027)
+
+v0.4.0 新增了结果导出功能：
+
+```zig
+const exporter = @import("../../root.zig").exporter;
+
+// 导出到 JSON
+var exp = exporter.Exporter.init(allocator);
+defer exp.deinit();
+
+const json_result = try exp.exportResult(&backtest_result, .{
+    .format = .json,
+    .output_path = "results/backtest.json",
+    .pretty_json = true,
+    .include_trades = true,
+    .include_equity_curve = true,
+});
+
+// 导出交易到 CSV
+const csv_result = try exp.exportResult(&backtest_result, .{
+    .format = .csv_trades,
+    .output_path = "results/trades.csv",
+});
+
+// 加载并比较结果
+var loader = exporter.ResultLoader.init(allocator);
+defer loader.deinit();
+
+var result1 = try loader.loadFromFile("results/strategy_a.json");
+defer result1.deinit();
+
+var result2 = try loader.loadFromFile("results/strategy_b.json");
+defer result2.deinit();
+
+const comparison = exporter.ResultComparison.init(allocator, &result1, &result2);
+const metrics = comparison.compareMetrics();
+// metrics.total_return_diff, metrics.sharpe_diff, etc.
+```

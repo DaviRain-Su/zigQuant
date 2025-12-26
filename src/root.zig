@@ -48,6 +48,10 @@ pub const strategy_dual_ma = @import("strategy/builtin/dual_ma.zig");
 pub const strategy_mean_reversion = @import("strategy/builtin/mean_reversion.zig");
 pub const strategy_breakout = @import("strategy/builtin/breakout.zig");
 
+// New v0.4.0 strategies
+pub const strategy_triple_ma = @import("strategy/builtin/triple_ma.zig");
+pub const strategy_macd_divergence = @import("strategy/builtin/macd_divergence.zig");
+
 // Strategy factory
 pub const StrategyFactory = @import("strategy/factory.zig").StrategyFactory;
 pub const StrategyWrapper = @import("strategy/factory.zig").StrategyWrapper;
@@ -62,6 +66,16 @@ pub const indicator_ema = @import("strategy/indicators/ema.zig");
 pub const indicator_rsi = @import("strategy/indicators/rsi.zig");
 pub const indicator_macd = @import("strategy/indicators/macd.zig");
 pub const indicator_bollinger = @import("strategy/indicators/bollinger.zig");
+
+// New v0.4.0 indicators
+pub const indicator_williams_r = @import("strategy/indicators/williams_r.zig");
+pub const indicator_cci = @import("strategy/indicators/cci.zig");
+pub const indicator_roc = @import("strategy/indicators/roc.zig");
+pub const indicator_adx = @import("strategy/indicators/adx.zig");
+pub const indicator_obv = @import("strategy/indicators/obv.zig");
+pub const indicator_vwap = @import("strategy/indicators/vwap.zig");
+pub const indicator_parabolic_sar = @import("strategy/indicators/parabolic_sar.zig");
+pub const indicator_ichimoku = @import("strategy/indicators/ichimoku.zig");
 
 // Trading modules
 pub const order_store = @import("trading/order_store.zig");
@@ -80,11 +94,26 @@ pub const backtest_data_feed = @import("backtest/data_feed.zig");
 pub const backtest_engine = @import("backtest/engine.zig");
 pub const backtest_analyzer = @import("backtest/analyzer.zig");
 
+// v0.4.0 Backtest export modules
+pub const backtest_export = @import("backtest/export.zig");
+pub const backtest_json_exporter = @import("backtest/json_exporter.zig");
+pub const backtest_csv_exporter = @import("backtest/csv_exporter.zig");
+pub const backtest_result_loader = @import("backtest/result_loader.zig");
+
 // Optimizer modules
 pub const optimizer_types = @import("optimizer/types.zig");
 pub const optimizer_combination = @import("optimizer/combination.zig");
 pub const optimizer_grid_search = @import("optimizer/grid_search.zig");
 pub const optimizer_result = @import("optimizer/result.zig");
+
+// v0.4.0 Walk-Forward optimizer modules
+pub const optimizer_data_split = @import("optimizer/data_split.zig");
+pub const optimizer_overfitting = @import("optimizer/overfitting_detector.zig");
+pub const optimizer_walk_forward = @import("optimizer/walk_forward.zig");
+
+// v0.4.0 Parallel backtest modules
+pub const optimizer_thread_pool = @import("optimizer/thread_pool.zig");
+pub const optimizer_parallel_executor = @import("optimizer/parallel_executor.zig");
 
 // Re-export market data types
 pub const OrderBook = orderbook.OrderBook;
@@ -122,6 +151,10 @@ pub const DualMAStrategy = strategy_dual_ma.DualMAStrategy;
 pub const RSIMeanReversionStrategy = strategy_mean_reversion.RSIMeanReversionStrategy;
 pub const BollingerBreakoutStrategy = strategy_breakout.BollingerBreakoutStrategy;
 
+// Re-export new v0.4.0 strategies
+pub const TripleMAStrategy = strategy_triple_ma.TripleMAStrategy;
+pub const MACDDivergenceStrategy = strategy_macd_divergence.MACDDivergenceStrategy;
+
 // Re-export indicator types
 pub const IIndicator = indicator_interface.IIndicator;
 pub const IndicatorManager = indicator_manager.IndicatorManager;
@@ -133,6 +166,18 @@ pub const MACD = indicator_macd.MACD;
 pub const MACDResult = indicator_macd.MACDResult;
 pub const BollingerBands = indicator_bollinger.BollingerBands;
 pub const BollingerResult = indicator_bollinger.BollingerResult;
+
+// Re-export new v0.4.0 indicator types
+pub const WilliamsR = indicator_williams_r.WilliamsR;
+pub const CCI = indicator_cci.CCI;
+pub const ROC = indicator_roc.ROC;
+pub const ADX = indicator_adx.ADX;
+pub const ADXResult = indicator_adx.ADXResult;
+pub const OBV = indicator_obv.OBV;
+pub const VWAP = indicator_vwap.VWAP;
+pub const ParabolicSAR = indicator_parabolic_sar.ParabolicSAR;
+pub const Ichimoku = indicator_ichimoku.Ichimoku;
+pub const IchimokuResult = indicator_ichimoku.IchimokuResult;
 
 // Re-export trading types
 pub const OrderStore = order_store.OrderStore;
@@ -157,6 +202,17 @@ pub const BacktestPosition = backtest_position.Position;
 pub const BacktestPositionManager = backtest_position.PositionManager;
 pub const BacktestOrderExecutor = backtest_executor.OrderExecutor;
 
+// Re-export v0.4.0 backtest export types
+pub const Exporter = backtest_export.Exporter;
+pub const ExportFormat = backtest_export.ExportFormat;
+pub const ExportOptions = backtest_export.ExportOptions;
+pub const ExportResult = backtest_export.ExportResult;
+pub const JSONExporter = backtest_json_exporter.JSONExporter;
+pub const CSVExporter = backtest_csv_exporter.CSVExporter;
+pub const ResultLoader = backtest_result_loader.ResultLoader;
+pub const LoadedResult = backtest_result_loader.LoadedResult;
+pub const ResultComparison = backtest_result_loader.ResultComparison;
+
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
 pub const OptimizerParameterValue = optimizer_types.ParameterValue;
@@ -171,8 +227,26 @@ pub const OptimizationConfig = optimizer_types.OptimizationConfig;
 pub const ParameterResult = optimizer_types.ParameterResult;
 pub const CombinationGenerator = optimizer_combination.CombinationGenerator;
 pub const GridSearchOptimizer = optimizer_grid_search.GridSearchOptimizer;
+pub const StrategyFactoryFn = optimizer_grid_search.GridSearchOptimizer.StrategyFactoryFn;
 pub const ResultAnalyzer = optimizer_result.ResultAnalyzer;
 pub const ScoreStatistics = optimizer_result.ScoreStatistics;
+
+// Re-export v0.4.0 Walk-Forward types
+pub const DataSplitter = optimizer_data_split.DataSplitter;
+pub const DataWindow = optimizer_data_split.DataWindow;
+pub const SplitConfig = optimizer_data_split.SplitConfig;
+pub const SplitStrategy = optimizer_data_split.SplitStrategy;
+pub const OverfittingDetector = optimizer_overfitting.OverfittingDetector;
+pub const OverfittingMetrics = optimizer_overfitting.OverfittingMetrics;
+pub const WindowPerformance = optimizer_overfitting.WindowPerformance;
+pub const WalkForwardAnalyzer = optimizer_walk_forward.WalkForwardAnalyzer;
+pub const WalkForwardConfig = optimizer_walk_forward.WalkForwardConfig;
+pub const WalkForwardResult = optimizer_walk_forward.WalkForwardResult;
+
+// Re-export v0.4.0 Parallel backtest types
+pub const ParallelExecutor = optimizer_parallel_executor.ParallelExecutor;
+pub const ParallelTaskResult = optimizer_parallel_executor.TaskResult;
+pub const ParallelConfig = optimizer_parallel_executor.ParallelConfig;
 
 // Re-export commonly used types
 pub const Timestamp = time.Timestamp;
@@ -278,6 +352,10 @@ test {
     _ = strategy_mean_reversion;
     _ = strategy_breakout;
 
+    // New v0.4.0 strategy modules
+    _ = strategy_triple_ma;
+    _ = strategy_macd_divergence;
+
     // Indicator modules
     _ = indicator_interface;
     _ = indicator_utils;
@@ -288,6 +366,16 @@ test {
     _ = indicator_rsi;
     _ = indicator_macd;
     _ = indicator_bollinger;
+
+    // New v0.4.0 indicator modules
+    _ = indicator_williams_r;
+    _ = indicator_cci;
+    _ = indicator_roc;
+    _ = indicator_adx;
+    _ = indicator_obv;
+    _ = indicator_vwap;
+    _ = indicator_parabolic_sar;
+    _ = indicator_ichimoku;
 
     // Trading modules
     _ = order_store;
@@ -306,9 +394,24 @@ test {
     _ = backtest_engine;
     _ = backtest_analyzer;
 
+    // v0.4.0 Backtest export modules
+    _ = backtest_export;
+    _ = backtest_json_exporter;
+    _ = backtest_csv_exporter;
+    _ = backtest_result_loader;
+
     // Optimizer modules
     _ = optimizer_types;
     _ = optimizer_combination;
     _ = optimizer_grid_search;
     _ = optimizer_result;
+
+    // v0.4.0 Walk-Forward optimizer modules
+    _ = optimizer_data_split;
+    _ = optimizer_overfitting;
+    _ = optimizer_walk_forward;
+
+    // v0.4.0 Parallel backtest modules
+    _ = optimizer_thread_pool;
+    _ = optimizer_parallel_executor;
 }
