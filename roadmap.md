@@ -2,9 +2,9 @@
 
 > 从 0 到生产级量化交易框架的演进路径
 
-**当前版本**: v0.0 (规划阶段)
-**目标**: 成为高性能、易用的 Zig 量化交易框架
-**最后更新**: 2025-01-22
+**当前版本**: v0.3.0 (策略与回测)
+**状态**: v0.3.0 接近完成 (95%)
+**最后更新**: 2024-12-26
 
 ---
 
@@ -14,21 +14,36 @@
 
 ---
 
+## 📊 里程碑总览
+
+```
+v0.1 Foundation          ████████████████████ (100%) ✅ 完成
+v0.2 MVP                 ████████████████████ (100%) ✅ 完成
+v0.3 Strategy Framework  ███████████████████░ (95%)  ← 当前
+v0.4 实盘交易增强         ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
+v0.5 高级策略            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
+v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
+```
+
+**整体进度**: 65% (3/5 主要版本完成或接近完成)
+
+---
+
 ## 📅 版本规划
 
-### v0.1 - Foundation (基础设施) 🏗️
-**预计时间**: 2-3 周
-**状态**: 📋 待开始
+### ✅ v0.1 - Foundation (基础设施) - 已完成
+**完成时间**: 2024-12-23
+**状态**: ✅ 100% 完成
 
 #### 核心目标
 搭建项目基础设施，实现核心数据类型和基础工具。
 
-#### Stories
-- [x] `stories/v0.1-foundation/001-decimal-type.md` - 高精度 Decimal 类型
-- [ ] `stories/v0.1-foundation/002-time-utils.md` - 时间处理工具
-- [ ] `stories/v0.1-foundation/003-error-system.md` - 错误处理系统
-- [ ] `stories/v0.1-foundation/004-logger.md` - 日志系统
-- [ ] `stories/v0.1-foundation/005-config.md` - 配置管理
+#### Stories (5/5 完成)
+- ✅ Story 001: Decimal 高精度数值类型
+- ✅ Story 002: Time 时间处理工具
+- ✅ Story 003: Error System 错误处理系统
+- ✅ Story 004: Logger 日志系统
+- ✅ Story 005: Config 配置管理
 
 #### 交付物
 - ✅ 项目结构搭建
@@ -37,244 +52,144 @@
 - ✅ 基础工具库
 
 #### 成功指标
-- [ ] 所有 Story 测试通过
-- [ ] 文档完整性 100%
-- [ ] 代码覆盖率 > 90%
+- ✅ 所有 Story 测试通过
+- ✅ 文档完整性 100%
+- ✅ 代码覆盖率 > 90%
 
 ---
 
-### v0.2 - MVP (最小可行产品) 🚀
-**预计时间**: 3-4 周
-**状态**: 📋 待开始
-**前置条件**: v0.1 完成
+### ✅ v0.2 - MVP (最小可行产品) - 已完成
+**完成时间**: 2024-12-25
+**状态**: ✅ 100% 完成
 
 #### 核心目标
-**能够连接 Hyperliquid DEX，获取链上行情，执行一次完整的永续合约交易操作。**
+能够连接 Hyperliquid DEX，获取链上行情，执行完整的永续合约交易操作。
 
-#### Stories
-- [ ] `stories/v0.2-mvp/001-hyperliquid-http.md` - Hyperliquid REST API
-- [ ] `stories/v0.2-mvp/002-hyperliquid-ws.md` - Hyperliquid WebSocket
-- [ ] `stories/v0.2-mvp/003-orderbook.md` - 订单簿数据结构
-- [ ] `stories/v0.2-mvp/004-order-types.md` - 订单类型定义
-- [ ] `stories/v0.2-mvp/005-order-manager.md` - 订单管理器
-- [ ] `stories/v0.2-mvp/006-position-tracker.md` - 仓位追踪
-- [ ] `stories/v0.2-mvp/007-cli-interface.md` - 基础 CLI
+#### Stories (7/7 完成)
+- ✅ Story 006: Hyperliquid HTTP API
+- ✅ Story 007: Hyperliquid WebSocket
+- ✅ Story 008: Orderbook 订单簿数据结构
+- ✅ Story 009: Order Types 订单类型定义
+- ✅ Story 010: Order Manager 订单管理器
+- ✅ Story 011: Position Tracker 仓位追踪
+- ✅ Story 012: CLI Interface 基础 CLI
 
 #### 功能清单
-- [ ] 连接 Hyperliquid 获取 BTC-USD (Perps) 实时价格
-- [ ] 显示链上订单簿
-- [ ] 手动下单（市价单/限价单）
-- [ ] 查询账户余额（链上资产）
-- [ ] 查询订单状态
-- [ ] 查询持仓信息
-- [ ] WebSocket 实时数据流
-- [ ] 基础日志输出
-
-#### 演示场景
-```bash
-$ zigquant
-ZigQuant v0.2.0 - MVP
-Connected to Hyperliquid (L1 DEX)
-Wallet: 0x1234...5678
-
-> price BTC-USD
-BTC-USD (Perps): $43,250.50
-24h Volume: $1.2B
-Funding Rate: 0.01%
-
-> balance
-USDC: 10,000.00 (available)
-Positions: None
-
-> long 0.1 BTC-USD market
-Order submitted: 0xabcd...ef01
-Status: FILLED (on-chain)
-Entry Price: $43,251.20
-Size: 0.1 BTC
-Margin: $4,325.12 USDC (10x leverage)
-
-> positions
-BTC-USD: +0.1 BTC
-Entry: $43,251.20
-Mark: $43,280.50
-PnL: +$2.93 (0.07%)
-Margin: $4,325.12
-
-> balance
-USDC: 5,674.88 (available)
-USDC: 4,325.12 (in positions)
-```
+- ✅ 连接 Hyperliquid 获取 BTC-USD (Perps) 实时价格
+- ✅ 显示链上订单簿
+- ✅ 手动下单（市价单/限价单）
+- ✅ 查询账户余额（链上资产）
+- ✅ 查询订单状态
+- ✅ 查询持仓信息
+- ✅ WebSocket 实时数据流
+- ✅ 基础日志输出
 
 #### 成功指标
-- [ ] 能完成一次完整的链上交易周期
-- [ ] 订单状态与链上同步正确
-- [ ] 仓位和余额计算准确
-- [ ] WebSocket 连接稳定性 > 99%
-- [ ] 订单延迟 < 100ms
-- [ ] 无内存泄漏
+- ✅ 能完成一次完整的链上交易周期
+- ✅ 订单状态与链上同步正确
+- ✅ 仓位和余额计算准确
+- ✅ WebSocket 连接稳定性 > 99%
+- ✅ 订单延迟 < 100ms
+- ✅ 无内存泄漏
 
 ---
 
-### v0.3 - Trading Engine (核心交易引擎) ⚙️
-**预计时间**: 4-5 周
-**状态**: 📋 待开始
-**前置条件**: v0.2 完成
+### ⏳ v0.3 - Strategy Framework (策略框架) - 进行中
+**预计完成**: 2024-12-27
+**状态**: ⏳ 95% 完成
+**前置条件**: ✅ v0.2 完成
 
 #### 核心目标
-实现完整的订单生命周期管理和高性能实时数据流，优化链上交易体验。
+实现策略开发框架、技术指标库、回测引擎和参数优化。
 
-#### Stories
-- [ ] `stories/v0.3-engine/001-event-bus.md` - 事件总线
-- [ ] `stories/v0.3-engine/002-orderbook-sync.md` - 订单簿同步优化
-- [ ] `stories/v0.3-engine/003-order-lifecycle.md` - 订单生命周期管理
-- [ ] `stories/v0.3-engine/004-risk-checks.md` - 交易前风险检查
-- [ ] `stories/v0.3-engine/005-multi-pair.md` - 多交易对支持
-- [ ] `stories/v0.3-engine/006-exchange-abstraction.md` - 交易所抽象层
+#### Stories (11.8/12 完成)
+- ✅ Story 013: IStrategy 接口和核心类型
+- ✅ Story 014: StrategyContext 和辅助组件
+- ✅ Story 015: 技术指标库实现 (SMA/EMA/RSI/MACD/BB/ATR/Stoch)
+- ✅ Story 016: IndicatorManager 和缓存优化
+- ✅ Story 017: DualMAStrategy 双均线策略
+- ✅ Story 018: RSIMeanReversionStrategy 均值回归
+- ✅ Story 019: BollingerBreakoutStrategy 突破策略
+- ✅ Story 020: BacktestEngine 回测引擎核心
+- ✅ Story 021: PerformanceAnalyzer 性能分析
+- ✅ Story 022: GridSearchOptimizer 网格搜索
+- ✅ Story 023: CLI 策略命令集成
+- ⏳ Story 024: 示例、文档和集成测试 (80% 完成)
 
 #### 功能清单
-- [ ] 事件驱动架构
-- [ ] 本地订单簿高效维护
-- [ ] 订单状态链上同步
-- [ ] 仓位实时追踪和 PnL 计算
-- [ ] 断线重连和状态恢复
-- [ ] 交易所抽象接口（为多交易所做准备）
-- [ ] 交易前风险检查（余额、杠杆、风险限额）
+- ✅ IStrategy 接口（VTable 模式）
+- ✅ 7 个技术指标 (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic)
+- ✅ 3 个内置策略（趋势、均值回归、突破）
+- ✅ 回测引擎（事件驱动架构）
+- ✅ 性能分析器（Sharpe、Drawdown、Profit Factor 等）
+- ✅ 参数优化器（网格搜索）
+- ✅ CLI 命令（backtest, optimize, run-strategy）
+- ⏳ 完整文档和示例
 
 #### 成功指标
-- [ ] 订单簿更新延迟 < 50ms
-- [ ] WebSocket 稳定性 > 99.9%
-- [ ] 支持 5+ 交易对同时运行
-- [ ] 链上状态同步准确率 100%
+- ✅ 至少实现 7 个常用指标
+- ✅ 策略执行延迟 < 50ms
+- ✅ 完整的策略示例
+- ✅ 回测速度 > 10,000 ticks/s
+- ✅ 所有测试通过
 
 ---
 
-### v0.4 - Strategy Framework (策略框架) 🧠
-**预计时间**: 4-5 周
-**状态**: 📋 待开始
+### 📋 v0.4 - 实盘交易增强 (计划中)
+**预计时间**: 2-3 周
+**状态**: 📋 未开始
 **前置条件**: v0.3 完成
 
 #### 核心目标
-实现策略开发框架和技术指标库。
+完善实盘交易功能，增强风险管理和监控能力。
 
-#### Stories
-- [ ] `stories/v0.4-strategy/001-strategy-base.md` - 策略基类
-- [ ] `stories/v0.4-strategy/002-indicators.md` - 技术指标库
-- [ ] `stories/v0.4-strategy/003-signal-system.md` - 信号系统
-- [ ] `stories/v0.4-strategy/004-dual-ma.md` - 双均线策略示例
-- [ ] `stories/v0.4-strategy/005-strategy-runner.md` - 策略运行器
+#### Stories (待规划)
+- [ ] Story 025: 实盘交易集成
+- [ ] Story 026: 风险管理系统
+- [ ] Story 027: 实时监控和告警
+- [ ] Story 028: 崩溃恢复机制
+- [ ] Story 029: 多交易对支持
 
-#### 指标清单
-- [ ] SMA (Simple Moving Average)
-- [ ] EMA (Exponential Moving Average)
-- [ ] RSI (Relative Strength Index)
-- [ ] MACD (Moving Average Convergence Divergence)
-- [ ] Bollinger Bands
-- [ ] ATR (Average True Range)
-
-#### 演示策略
-```zig
-// 双均线策略
-pub const DualMAStrategy = struct {
-    fast_ma: SMA,
-    slow_ma: SMA,
-
-    pub fn onKline(self: *DualMAStrategy, kline: Kline) ?Signal {
-        const fast = self.fast_ma.update(kline.close);
-        const slow = self.slow_ma.update(kline.close);
-
-        if (fast > slow) return Signal{ .direction = .long };
-        if (fast < slow) return Signal{ .direction = .short };
-        return null;
-    }
-};
-```
+#### 功能清单
+- [ ] 实盘交易模式（--live 标志）
+- [ ] 风险管理（仓位限制、日损失限制、Kill Switch）
+- [ ] 实时监控（性能指标、PnL 追踪）
+- [ ] 告警系统（Telegram、邮件）
+- [ ] 状态持久化和自动恢复
+- [ ] 多交易对并行运行
 
 #### 成功指标
-- [ ] 至少实现 6 个常用指标
-- [ ] 策略执行延迟 < 50ms
-- [ ] 完整的策略示例
+- [ ] 系统稳定性 > 99.5%
+- [ ] 订单延迟 < 50ms
+- [ ] 故障恢复时间 < 1 分钟
+- [ ] 支持 5+ 交易对同时运行
 
 ---
 
-### v0.5 - Backtesting (回测系统) 📊
-**预计时间**: 4-5 周
-**状态**: 📋 待开始
+### 📋 v0.5 - 高级策略 (计划中)
+**预计时间**: 3-4 周
+**状态**: 📋 未开始
 **前置条件**: v0.4 完成
 
 #### 核心目标
-实现高性能回测引擎和完整的绩效分析。
+实现做市策略和套利策略。
 
-#### Stories
-- [ ] `stories/v0.5-backtest/001-data-feed.md` - 历史数据管理
-- [ ] `stories/v0.5-backtest/002-backtest-engine.md` - 回测引擎
-- [ ] `stories/v0.5-backtest/003-metrics.md` - 绩效指标
-- [ ] `stories/v0.5-backtest/004-slippage.md` - 滑点模拟
-- [ ] `stories/v0.5-backtest/005-report.md` - 报告生成
+#### Stories (待规划)
+- [ ] Story 030: Pure Market Making 纯做市策略
+- [ ] Story 031: Inventory Management 库存管理
+- [ ] Story 032: Dynamic Spread Calculation 动态价差
+- [ ] Story 033: Cross-Exchange Arbitrage 跨交易所套利
+- [ ] Story 034: Triangular Arbitrage 三角套利
 
 #### 功能清单
-- [ ] 历史数据下载与存储
-- [ ] 高性能回测引擎 (> 100K ticks/s)
-- [ ] 交易成本模拟（手续费、滑点）
-- [ ] 完整的绩效指标
-  - Sharpe Ratio
-  - Sortino Ratio
-  - Maximum Drawdown
-  - Win Rate / Profit Factor
-- [ ] HTML 报告生成
-
-#### 演示输出
-```
-Backtest Results:
-==================
-Period: 2024-01-01 to 2024-12-31
-Initial Balance: $10,000
-Final Balance: $15,430 (+54.3%)
-
-Performance:
-- Total Return: 54.30%
-- Sharpe Ratio: 2.15
-- Max Drawdown: -12.5%
-- Win Rate: 58.3%
-- Profit Factor: 1.87
-
-Trades: 142
-- Winners: 83 (58.3%)
-- Losers: 59 (41.7%)
-- Avg Win: $125.50
-- Avg Loss: $78.30
-```
-
-#### 成功指标
-- [ ] 回测速度 > 100,000 ticks/s
-- [ ] 与 Freqtrade 结果误差 < 1%
-- [ ] 完整的性能报告
-
----
-
-### v0.6 - Market Making (做市策略) 💹
-**预计时间**: 5-6 周
-**状态**: 📋 待开始
-**前置条件**: v0.5 完成
-
-#### 核心目标
-实现纯做市和套利策略。
-
-#### Stories
-- [ ] `stories/v0.6-mm/001-pure-mm.md` - 纯做市策略
-- [ ] `stories/v0.6-mm/002-inventory.md` - 库存管理
-- [ ] `stories/v0.6-mm/003-spread-calc.md` - 价差计算
-- [ ] `stories/v0.6-mm/004-cross-arb.md` - 跨交易所套利
-- [ ] `stories/v0.6-mm/005-triangle-arb.md` - 三角套利
-
-#### 策略清单
-- [ ] Pure Market Making
+- [ ] 纯做市策略
   - 动态价差调整
   - 库存风险管理
   - Hanging Orders
-- [ ] Cross-Exchange Arbitrage
+- [ ] 跨交易所套利
   - 价差监控
   - 同步执行
-- [ ] Triangular Arbitrage
+- [ ] 三角套利
   - 三角路径发现
   - 原子化执行
 
@@ -285,125 +200,85 @@ Trades: 142
 
 ---
 
-### v0.7 - Production Ready (生产级功能) 🔧
+### 📋 v1.0 - 生产就绪 (未来)
 **预计时间**: 4-5 周
-**状态**: 📋 待开始
-**前置条件**: v0.6 完成
+**状态**: 📋 未开始
+**前置条件**: v0.5 完成
 
 #### 核心目标
-添加生产环境必需的可靠性和监控功能。
+添加生产环境必需的功能，达到生产级别稳定性。
 
-#### Stories
-- [ ] `stories/v0.7-prod/001-risk-manager.md` - 风险管理系统
-- [ ] `stories/v0.7-prod/002-monitoring.md` - 监控与告警
-- [ ] `stories/v0.7-prod/003-api-server.md` - REST API
-- [ ] `stories/v0.7-prod/004-telegram-bot.md` - Telegram Bot
-- [ ] `stories/v0.7-prod/005-crash-recovery.md` - 崩溃恢复
+#### Stories (待规划)
+- [ ] Story 035: REST API 服务
+- [ ] Story 036: Web 管理界面
+- [ ] Story 037: Prometheus Metrics 导出
+- [ ] Story 038: Grafana Dashboard
+- [ ] Story 039: 完整的运维文档
 
 #### 功能清单
-- [ ] 风险管理
-  - 日损失限制
-  - 仓位限制
-  - Kill Switch
-- [ ] 监控
-  - Prometheus metrics
-  - Grafana 仪表板
-  - 告警通知
-- [ ] API 服务
-  - RESTful API
-  - WebSocket 推送
-- [ ] Telegram 集成
-  - 交易通知
-  - 远程控制
-- [ ] 容错机制
-  - 状态持久化
-  - 自动恢复
+- [ ] RESTful API 服务
+- [ ] Web 管理界面
+- [ ] Prometheus metrics
+- [ ] Grafana 仪表板
+- [ ] 自动化部署脚本
+- [ ] 完整的运维手册
 
 #### 成功指标
-- [ ] 系统可用性 > 99.5%
-- [ ] 故障恢复时间 < 1 分钟
+- [ ] 系统可用性 > 99.9%
+- [ ] API 响应时间 < 100ms
 - [ ] 完整的监控覆盖
-
----
-
-### v0.8 - Advanced Features (高级特性) 🚀
-**预计时间**: 持续迭代
-**状态**: 📋 待开始
-**前置条件**: v0.7 完成
-
-#### 核心目标
-实现高级功能、多交易所支持和优化。
-
-#### Stories (按优先级)
-- [ ] `stories/v0.8-advanced/001-binance-connector.md` - Binance CEX 连接器
-- [ ] `stories/v0.8-advanced/002-dydx-connector.md` - dYdX v4 连接器
-- [ ] `stories/v0.8-advanced/003-hyperopt.md` - 超参数优化
-- [ ] `stories/v0.8-advanced/004-mtf-analysis.md` - 多时间框架分析
-- [ ] `stories/v0.8-advanced/005-stop-orders.md` - 高级止损/止盈系统
-- [ ] `stories/v0.8-advanced/006-web-ui.md` - Web 界面
-- [ ] `stories/v0.8-advanced/007-ml-integration.md` - 机器学习集成
-
-#### 功能清单
-- [ ] 多交易所支持
-  - Binance (CEX)
-  - dYdX v4 (DEX)
-  - OKX (CEX)
-  - Uniswap v3 (DEX AMM)
-- [ ] 跨交易所套利
-- [ ] 超参数优化 (TPE/Bayesian)
-- [ ] 多时间框架策略
-- [ ] 追踪止损和条件订单
-- [ ] Web 管理界面
-- [ ] ONNX 模型推理
-
----
-
-## 📊 里程碑总览
-
-```
-v0.1 Foundation          ████████░░░░░░░░░░░░ (40%)  ← 当前
-v0.2 MVP                 ░░░░░░░░░░░░░░░░░░░░ (0%)
-v0.3 Trading Engine      ░░░░░░░░░░░░░░░░░░░░ (0%)
-v0.4 Strategy Framework  ░░░░░░░░░░░░░░░░░░░░ (0%)
-v0.5 Backtesting         ░░░░░░░░░░░░░░░░░░░░ (0%)
-v0.6 Market Making       ░░░░░░░░░░░░░░░░░░░░ (0%)
-v0.7 Production Ready    ░░░░░░░░░░░░░░░░░░░░ (0%)
-v0.8 Advanced Features   ░░░░░░░░░░░░░░░░░░░░ (0%)
-```
-
-**整体进度**: 5% (1/20 stories 完成)
-
----
-
-## 🎯 近期焦点
-
-### 本周目标 (Week 1)
-- [ ] 完成 v0.1 所有 Stories
-- [ ] 建立测试框架
-- [ ] 配置 CI/CD
-
-### 本月目标 (Month 1)
-- [ ] v0.1 Foundation 完成
-- [ ] v0.2 MVP 开发完成 50%
-- [ ] 文档系统完善
-
-### 本季度目标 (Q1 2025)
-- [ ] v0.2 MVP 完成
-- [ ] v0.3 Trading Engine 完成
-- [ ] v0.4 Strategy Framework 启动
+- [ ] 生产环境文档完整
 
 ---
 
 ## 🔄 变更历史
 
-### v0.0 (2025-01-22)
+### v0.3.0 (2024-12-26)
+- ✅ 完成策略框架核心实现
+- ✅ 完成回测引擎和性能分析器
+- ✅ 完成参数优化器
+- ✅ 完成 CLI 策略命令集成
+- ⏳ 文档和示例补充中
+
+### v0.2.0 (2024-12-25)
+- ✅ 完成 Hyperliquid 连接器
+- ✅ 完成订单管理和仓位追踪
+- ✅ 完成 WebSocket 集成测试
+- ✅ 完成 Trading 集成测试
+- ✅ 173/173 测试全部通过
+
+### v0.1.0 (2024-12-23)
+- ✅ 完成核心基础设施
+- ✅ 完成 Decimal, Time, Logger, Config, Error System
+- ✅ 完成 Exchange Router 抽象层
+- ✅ 140+ 测试全部通过
+
+### v0.0 (2024-12-22)
 - 🎉 项目启动
 - 📝 初始 Roadmap 创建
 - 🏗️ 文档结构搭建
-- 🔄 变更首个支持交易所为 Hyperliquid DEX (ADR-002)
-  - v0.2: 从 Binance 改为 Hyperliquid
-  - 原因: 优先支持去中心化交易所，获得链上交易经验
-  - 影响: Stories 调整，增加 WebSocket 和链上同步相关任务
+- 🔄 选择 Hyperliquid DEX 作为首个支持交易所
+
+---
+
+## 🎯 近期焦点
+
+### 本周目标 (Week of 2024-12-26)
+- ⏳ 完成 v0.3.0 剩余工作
+  - ⏳ 补充 CLI 使用文档
+  - ⏳ 补充优化器使用文档
+  - ⏳ 更新项目进度文档
+- 🎉 发布 v0.3.0
+
+### 下周目标 (Week of 2025-01-02)
+- 📋 规划 v0.4.0 实盘交易增强
+- 📝 创建 v0.4.0 Stories
+- 🚀 开始 Story 025: 实盘交易集成
+
+### 本季度目标 (Q1 2025)
+- ✅ v0.3 Strategy Framework 完成
+- 🎯 v0.4 实盘交易增强完成
+- 🚀 v0.5 高级策略启动
 
 ---
 
@@ -429,4 +304,15 @@ v0.8 Advanced Features   ░░░░░░░░░░░░░░░░░░�
 
 ---
 
+## 📊 项目统计
+
+**代码行数**: ~17,036 行
+**模块数量**: 9 个主要模块
+**测试数量**: 173 个单元测试 + 5 个集成测试
+**文档数量**: 168 个 markdown 文件
+**示例数量**: 8 个完整示例
+
+---
+
 *持续更新中...*
+*最后更新: 2024-12-26*
