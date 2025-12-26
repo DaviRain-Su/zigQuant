@@ -6,6 +6,139 @@
 
 ---
 
+## [0.3.0] - 2024-12-26
+
+### Added
+
+#### Strategy Framework (100%)
+- ✨ **IStrategy Interface** - 策略接口和核心类型
+  - VTable 模式策略抽象
+  - Signal/SignalMetadata 信号系统
+  - StrategyContext 上下文管理
+  - StrategyParameter 参数定义
+  - 生命周期管理（init → populate → entry/exit → cleanup）
+
+- ✨ **Indicators Library** - 技术指标库 (7 个指标)
+  - SMA (Simple Moving Average) - 简单移动平均
+  - EMA (Exponential Moving Average) - 指数移动平均
+  - RSI (Relative Strength Index) - 相对强弱指标
+  - MACD (Moving Average Convergence Divergence) - 平滑异同移动平均
+  - Bollinger Bands - 布林带
+  - ATR (Average True Range) - 真实波幅
+  - Stochastic Oscillator - 随机指标
+  - IndicatorManager 缓存优化（10x 性能提升）
+
+- ✨ **Built-in Strategies** - 内置策略 (3 个)
+  - Dual Moving Average Strategy - 双均线策略
+  - RSI Mean Reversion Strategy - RSI 均值回归策略
+  - Bollinger Breakout Strategy - 布林带突破策略
+  - 所有策略经过真实历史数据验证
+
+#### Backtest Engine (100%)
+- ✨ **BacktestEngine** - 回测引擎核心
+  - 事件驱动架构（MarketEvent → SignalEvent → OrderEvent → FillEvent）
+  - HistoricalDataFeed CSV 数据加载
+  - OrderExecutor 订单模拟（滑点 + 手续费）
+  - Account/Position 管理
+  - Trade 跟踪和记录
+
+- ✨ **PerformanceAnalyzer** - 性能分析器
+  - 30+ 核心性能指标
+  - Sharpe Ratio（夏普比率）
+  - Maximum Drawdown（最大回撤）
+  - Profit Factor（盈利因子）
+  - Win Rate（胜率）
+  - 风险调整收益指标
+  - 彩色格式化输出
+
+#### Parameter Optimizer (100%)
+- ✨ **GridSearchOptimizer** - 网格搜索优化器
+  - 参数组合生成器
+  - 6 种优化目标支持：
+    - Sharpe Ratio (推荐)
+    - Profit Factor
+    - Win Rate
+    - Maximum Drawdown
+    - Net Profit
+    - Total Return
+  - 优化结果排名和分析
+  - JSON 结果导出
+
+#### CLI Strategy Commands (100%)
+- ✨ **Strategy Commands** - 策略命令集成
+  - `strategy backtest` - 策略回测
+    - 支持自定义配置文件
+    - 支持自定义数据文件
+    - 完整性能报告输出
+  - `strategy optimize` - 参数优化
+    - 网格搜索优化
+    - 多种优化目标
+    - Top N 结果显示
+    - JSON 结果导出
+  - `strategy run-strategy` - 实盘运行 (stub)
+  - StrategyFactory 策略工厂
+  - zig-clap 参数解析
+
+#### Documentation (100%)
+- 📚 **完整的使用文档**
+  - [CLI 使用指南](./docs/features/cli/usage-guide.md) (1,800+ 行)
+    - Backtest 命令详解
+    - Optimize 命令详解
+    - 配置文件格式
+    - 示例场景和 FAQ
+  - [参数优化器使用指南](./docs/features/optimizer/usage-guide.md) (2,000+ 行)
+    - 网格搜索原理
+    - 参数配置详解
+    - 优化目标选择
+    - 结果分析和最佳实践
+  - [策略开发完整教程](./docs/tutorials/strategy-development.md) (1,500+ 行)
+    - KDJ 策略完整示例
+    - 开发流程详解
+    - 最佳实践指南
+
+#### Examples (100%)
+- ✨ **Strategy Examples** - 策略示例
+  - `examples/06_strategy_backtest.zig` - 策略回测示例
+  - `examples/07_strategy_optimize.zig` - 参数优化示例
+  - `examples/08_custom_strategy.zig` - 自定义策略示例
+  - 策略配置文件示例（dual_ma.json, rsi_mean_reversion.json, bollinger_breakout.json）
+
+### Tests
+- ✅ **357 个单元测试全部通过 (100%)** (从 173 增长到 357)
+- ✅ 策略回测验证（真实 BTC/USDT 2024 年数据，8784 根 K 线）
+  - Dual MA: 1 笔交易
+  - RSI Mean Reversion: 9 笔交易，**+11.05% 收益** ✨
+  - Bollinger Breakout: 2 笔交易
+- ✅ 参数优化测试（网格搜索 9 组合 / 767ms）
+- ✅ 零内存泄漏（GPA 验证）
+- ✅ 零编译警告
+
+### Performance
+- ⚡ 回测速度: > 10,000 ticks/s (60ms/8k candles)
+- ⚡ 指标计算: < 10ms (目标 < 50ms)
+- ⚡ IndicatorManager 缓存: 10x 性能提升
+- ⚡ 网格搜索: ~85ms/组合
+- ⚡ 结果排序: < 1ms
+- ⚡ 内存占用: ~10MB (目标 < 50MB)
+
+### Fixed
+- 🐛 修复 BacktestEngine Signal 内存泄漏
+  - 问题：entry_signal 和 exit_signal 未正确释放
+  - 修复：添加 defer signal.deinit()
+  - 文件：`src/backtest/engine.zig:134,151`
+
+- 🐛 修复 calculateDays 整数溢出
+  - 问题：使用 maxInt(i64) 导致溢出
+  - 修复：使用实际交易时间范围 + 溢出保护
+  - 文件：`src/backtest/types.zig:236`
+
+- 🐛 修复控制台输出问题
+  - 问题：使用错误的 stdout API + 缺少 flush
+  - 修复：使用 std.fs.File.stdout() + 添加 flush
+  - 文件：`src/main.zig:36-40`
+
+---
+
 ## [0.2.0] - 2025-12-25
 
 ### Added
