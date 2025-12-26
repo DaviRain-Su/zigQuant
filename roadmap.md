@@ -20,12 +20,87 @@
 v0.1 Foundation          ████████████████████ (100%) ✅ 完成
 v0.2 MVP                 ████████████████████ (100%) ✅ 完成
 v0.3 Strategy Framework  ████████████████████ (100%) ✅ 完成
-v0.4 实盘交易增强         ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
-v0.5 高级策略            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
+v0.4 参数优化            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
+v0.5 事件驱动架构        ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
+v0.6 混合计算模式        ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
+v0.7 做市优化            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
+v0.8 风险管理            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
 v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
 ```
 
-**整体进度**: 60% (3/5 主要版本已完成)
+**整体进度**: 33% (3/9 版本已完成) → 向事件驱动架构演进
+
+---
+
+## 🏗️ 架构演进战略
+
+> 基于 [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) 对 NautilusTrader、Hummingbot、Freqtrade 的深度研究
+
+### 核心设计理念
+
+**从 NautilusTrader 学习**:
+- ✅ **事件驱动架构** - MessageBus 消息总线,处理复杂时序逻辑
+- ✅ **代码 Parity** - 回测代码 = 实盘代码(零修改)
+- ✅ **Cache 系统** - 高性能内存缓存(订单/仓位/账户)
+- ✅ **类型安全** - Zig 编译时保证 + 纳秒级精度
+
+**从 Hummingbot 学习**:
+- ✅ **订单前置追踪** - 提交前就开始追踪,防止 API 失败丢单
+- ✅ **可靠性优先** - Reliability > Simplicity,生产级容错
+- ✅ **Clock-Driven 模式** - Tick 驱动策略,适合做市场景
+
+**从 Freqtrade 学习**:
+- ✅ **向量化回测** - pandas 批量计算,快速迭代
+- ✅ **易用性设计** - 简化策略开发流程
+- ✅ **Look-ahead Bias 保护** - 防止回测偏差
+
+### zigQuant 独特优势
+
+```
+竞争力矩阵:
+         易用性
+           ↑
+Freqtrade │
+           │  zigQuant (目标)
+           │     ↗
+Hummingbot │   ↗  性能 + 易用性
+           │ ↗
+           │ ← NautilusTrader
+           └────────────→ 性能
+```
+
+**核心差异化**:
+1. 🔥 **单一语言栈** - 100% Zig (vs Rust + Python 混合)
+2. 🔥 **编译速度** - Zig 编译比 Rust 快 5-10x
+3. 🔥 **混合计算模式** - 向量化回测 + 事件驱动实盘
+4. 🔥 **性能 + 易用性** - 兼顾专业量化和零售交易员
+
+### 演进路径
+
+```
+v0.1-v0.3: 基础 + MVP        ████████████████████ (100%) ✅
+  └─ 核心类型、交易系统、策略框架
+
+v0.4: 参数优化               ░░░░░░░░░░░░░░░░░░░░ (0%)
+  └─ GridSearch + 策略扩展
+
+v0.5: 事件驱动重构           ░░░░░░░░░░░░░░░░░░░░ (0%)   ← NautilusTrader 架构
+  └─ MessageBus + Cache + DataEngine + libxev
+
+v0.6: 混合计算               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← Freqtrade 向量化
+  └─ 向量化回测 + 增量实盘
+
+v0.7: 做市优化               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← Hummingbot 做市
+  └─ Clock-Driven + MM 策略 + zig-sqlite
+
+v0.8: 风险管理               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← NautilusTrader RiskEngine
+  └─ RiskEngine + 监控 + Crash Recovery
+
+v1.0: 生产就绪               ░░░░░░░░░░░░░░░░░░░░ (0%)
+  └─ REST API + Web Dashboard
+```
+
+**整体进度**: 60% (3/5 基础版本完成) → 向生产级演进
 
 ---
 
@@ -137,93 +212,239 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 
 ---
 
-### 📋 v0.4 - 实盘交易增强 (计划中)
+### 📋 v0.4 - 参数优化和策略扩展 (计划中)
 **预计时间**: 2-3 周
 **状态**: 📋 未开始
 **前置条件**: v0.3 完成
 
 #### 核心目标
-完善实盘交易功能，增强风险管理和监控能力。
+实现参数优化器和扩展策略库，提升策略开发效率。
 
 #### Stories (待规划)
-- [ ] Story 025: 实盘交易集成
-- [ ] Story 026: 风险管理系统
-- [ ] Story 027: 实时监控和告警
-- [ ] Story 028: 崩溃恢复机制
-- [ ] Story 029: 多交易对支持
+- [ ] Story 022: GridSearchOptimizer 网格搜索优化器
+- [ ] Story 025: 扩展技术指标库 (15+ 指标)
+- [ ] Story 026: 扩展内置策略 (5+ 策略)
+- [ ] Story 027: 回测结果导出和可视化
+- [ ] Story 028: 策略开发文档和教程
 
 #### 功能清单
-- [ ] 实盘交易模式（--live 标志）
-- [ ] 风险管理（仓位限制、日损失限制、Kill Switch）
-- [ ] 实时监控（性能指标、PnL 追踪）
-- [ ] 告警系统（Telegram、邮件）
-- [ ] 状态持久化和自动恢复
-- [ ] 多交易对并行运行
+- [ ] **GridSearchOptimizer**
+  - 参数网格搜索
+  - 并行回测执行 (Thread Pool)
+  - Walk-Forward 分析
+  - 多种优化目标 (Sharpe, Profit Factor, etc.)
+- [ ] **技术指标扩展**
+  - Stochastic RSI, Williams %R, CCI
+  - ADX, Ichimoku, VWAP, OBV
+  - Fibonacci, Pivot Points
+- [ ] **策略扩展**
+  - Triple MA, MACD Histogram
+  - Trend Following, Volume Confirmation
+- [ ] **结果导出**
+  - JSON 结果保存
+  - Equity curve 导出
+  - 交易明细分析
 
 #### 成功指标
-- [ ] 系统稳定性 > 99.5%
-- [ ] 订单延迟 < 50ms
-- [ ] 故障恢复时间 < 1 分钟
-- [ ] 支持 5+ 交易对同时运行
+- [ ] 网格搜索 8 线程 5x+ 加速
+- [ ] 至少 15 个技术指标
+- [ ] 至少 5 个内置策略
+- [ ] 完整的策略开发文档
+- [ ] 400+ 单元测试通过
 
 ---
 
-### 📋 v0.5 - 高级策略 (计划中)
+### 📋 v0.5 - 事件驱动核心架构 (计划中)
 **预计时间**: 3-4 周
 **状态**: 📋 未开始
 **前置条件**: v0.4 完成
+**参考**: [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) - NautilusTrader 架构
 
 #### 核心目标
-实现做市策略和套利策略。
+重构为事件驱动架构，实现代码 Parity (回测=实盘) 和高性能消息传递。
 
 #### Stories (待规划)
-- [ ] Story 030: Pure Market Making 纯做市策略
-- [ ] Story 031: Inventory Management 库存管理
-- [ ] Story 032: Dynamic Spread Calculation 动态价差
-- [ ] Story 033: Cross-Exchange Arbitrage 跨交易所套利
-- [ ] Story 034: Triangular Arbitrage 三角套利
+- [ ] Story 029: MessageBus 消息总线
+- [ ] Story 030: Cache 高性能缓存系统
+- [ ] Story 031: DataEngine 数据引擎
+- [ ] Story 032: ExecutionEngine 执行引擎重构
+- [ ] Story 033: libxev 异步 I/O 集成
 
 #### 功能清单
-- [ ] 纯做市策略
+- [ ] **MessageBus** (借鉴 NautilusTrader)
+  - Publish/Subscribe 模式
+  - Request/Response 模式
+  - Command 模式
+  - 单线程高效消息传递
+- [ ] **Cache** (借鉴 NautilusTrader)
+  - Instruments 缓存
+  - Orders 缓存
+  - Positions 缓存
+  - 账户状态缓存
+- [ ] **DataEngine**
+  - 数据订阅管理
+  - 事件分发
+  - 多数据源支持
+- [ ] **ExecutionEngine 重构**
+  - 订单前置追踪 (借鉴 Hummingbot)
+  - 完整订单生命周期管理
+  - 可靠性优先设计
+- [ ] **libxev 集成**
+  - WebSocket 异步 I/O
+  - HTTP 异步请求
+  - 事件循环整合
+
+#### 成功指标
+- [ ] 回测代码 = 实盘代码 (Code Parity)
+- [ ] 消息传递延迟 < 1μs
+- [ ] 订单追踪 100% 可靠
+- [ ] WebSocket 异步性能 > 10x
+
+---
+
+### 📋 v0.6 - 混合计算模式 (计划中)
+**预计时间**: 2-3 周
+**状态**: 📋 未开始
+**前置条件**: v0.5 完成
+**参考**: [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) - Freqtrade 向量化
+
+#### 核心目标
+支持向量化回测和增量实盘计算，兼顾速度和灵活性。
+
+#### Stories (待规划)
+- [ ] Story 034: 向量化回测引擎
+- [ ] Story 035: 增量指标计算
+- [ ] Story 036: 混合模式切换
+- [ ] Story 037: 性能基准测试
+
+#### 功能清单
+- [ ] **向量化回测** (借鉴 Freqtrade)
+  - 批量指标计算
+  - 批量信号生成
+  - Look-ahead bias 保护
+- [ ] **增量实盘计算**
+  - 增量指标更新
+  - 事件驱动信号
+- [ ] **混合模式**
+  - 自动模式选择
+  - 性能优化
+
+#### 成功指标
+- [ ] 向量化回测速度 > 100,000 bars/s
+- [ ] 增量计算延迟 < 1ms
+- [ ] 自动模式选择准确率 > 95%
+
+---
+
+### 📋 v0.7 - 做市策略和数据持久化 (计划中)
+**预计时间**: 2-3 周
+**状态**: 📋 未开始
+**前置条件**: v0.6 完成
+**参考**: [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) - Hummingbot 做市
+
+#### 核心目标
+实现做市策略和生产级数据存储。
+
+#### Stories (待规划)
+- [ ] Story 038: Clock-Driven 模式 (Tick 驱动)
+- [ ] Story 039: Pure Market Making 策略
+- [ ] Story 040: Inventory Management 库存管理
+- [ ] Story 041: zig-sqlite 数据持久化
+- [ ] Story 042: Cross-Exchange Arbitrage 套利
+
+#### 功能清单
+- [ ] **Clock-Driven Mode** (借鉴 Hummingbot)
+  - Tick 驱动策略
+  - 定时报价更新
+- [ ] **做市策略**
+  - Pure Market Making
   - 动态价差调整
   - 库存风险管理
-  - Hanging Orders
-- [ ] 跨交易所套利
-  - 价差监控
-  - 同步执行
-- [ ] 三角套利
-  - 三角路径发现
-  - 原子化执行
+- [ ] **套利策略**
+  - 跨交易所套利
+  - 三角套利
+- [ ] **数据持久化**
+  - zig-sqlite 集成
+  - K 线数据存储
+  - 回测结果存储
 
 #### 成功指标
 - [ ] 做市策略 Sharpe > 2.0
 - [ ] 套利捕获率 > 80%
-- [ ] 订单执行延迟 < 10ms
+- [ ] 数据查询延迟 < 10ms
 
 ---
 
-### 📋 v1.0 - 生产就绪 (未来)
-**预计时间**: 4-5 周
+### 📋 v0.8 - 风险管理和监控 (计划中)
+**预计时间**: 2-3 周
 **状态**: 📋 未开始
-**前置条件**: v0.5 完成
+**前置条件**: v0.7 完成
 
 #### 核心目标
-添加生产环境必需的功能，达到生产级别稳定性。
+实现生产级风险管理和实时监控系统。
 
 #### Stories (待规划)
-- [ ] Story 035: REST API 服务
-- [ ] Story 036: Web 管理界面
-- [ ] Story 037: Prometheus Metrics 导出
-- [ ] Story 038: Grafana Dashboard
-- [ ] Story 039: 完整的运维文档
+- [ ] Story 043: RiskEngine 风险引擎
+- [ ] Story 044: 实时监控系统
+- [ ] Story 045: 告警和通知
+- [ ] Story 046: Crash Recovery 崩溃恢复
+- [ ] Story 047: 多交易对并行
 
 #### 功能清单
-- [ ] RESTful API 服务
-- [ ] Web 管理界面
-- [ ] Prometheus metrics
-- [ ] Grafana 仪表板
-- [ ] 自动化部署脚本
-- [ ] 完整的运维手册
+- [ ] **RiskEngine** (借鉴 NautilusTrader)
+  - 仓位限制
+  - 日损失限制
+  - Kill Switch
+- [ ] **实时监控**
+  - 性能指标追踪
+  - PnL 实时更新
+  - 订单状态监控
+- [ ] **告警系统**
+  - Telegram 通知
+  - 邮件告警
+  - Webhook 集成
+- [ ] **崩溃恢复** (借鉴 NautilusTrader Crash-only)
+  - 状态持久化
+  - 自动恢复
+  - 恢复作为主初始化路径
+
+#### 成功指标
+- [ ] 系统稳定性 > 99.5%
+- [ ] 故障恢复时间 < 1 分钟
+- [ ] 支持 10+ 交易对并行
+
+---
+
+### 📋 v1.0 - 生产就绪和 Web 管理 (未来)
+**预计时间**: 3-4 周
+**状态**: 📋 未开始
+**前置条件**: v0.8 完成
+
+#### 核心目标
+添加 Web 管理界面和完整的生产环境支持。
+
+#### Stories (待规划)
+- [ ] Story 048: http.zig REST API
+- [ ] Story 049: Web Dashboard UI
+- [ ] Story 050: Prometheus Metrics
+- [ ] Story 051: 完整运维文档
+- [ ] Story 052: 部署自动化
+
+#### 功能清单
+- [ ] **REST API**
+  - 策略管理 API
+  - 回测查询 API
+  - 实时监控 API
+- [ ] **Web Dashboard**
+  - 策略配置界面
+  - 回测结果可视化
+  - 实时监控仪表盘
+- [ ] **Metrics 导出**
+  - Prometheus metrics
+  - Grafana 仪表板
+- [ ] **运维工具**
+  - 自动化部署脚本
+  - 完整运维手册
 
 #### 成功指标
 - [ ] 系统可用性 > 99.9%
