@@ -1,0 +1,16 @@
+{
+  "strategy": "rsi_mean_reversion",
+  "pair": {
+    "base": "BTC",
+    "quote": "USDT"
+  },
+  "timeframe": "h1",
+  "parameters": {
+    "rsi_period": 14,
+    "oversold_level": 30,
+    "overbought_level": 70,
+    "exit_rsi_level": 50,
+    "enable_long": true,
+    "enable_short": true
+  }
+}

@@ -33,10 +33,8 @@ pub fn main() !void {
     if (strategy_commands.isStrategyCommand(command)) {
         // Strategy commands don't need exchange connection
         // They use a simple logger instead of full CLI
-        var log_buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&log_buf);
-        const WriterType = @TypeOf(fbs.writer());
-        var console = ConsoleWriter(WriterType).initWithColors(allocator, fbs.writer(), true);
+        const ConsoleWriterType = ConsoleWriter(std.fs.File);
+        var console = ConsoleWriterType.initWithColors(allocator, std.fs.File.stdout(), true);
         defer console.deinit();
         var logger = Logger.init(allocator, console.writer(), .info);
 
@@ -48,9 +46,12 @@ pub fn main() !void {
             cli_args,
         ) catch |err| {
             try logger.err("Command failed: {s}", .{@errorName(err)});
+            console.writer().flush() catch {};
             std.process.exit(1);
         };
 
+        // Flush output before exiting
+        console.writer().flush() catch {};
         return;
     }
 

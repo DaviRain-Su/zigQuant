@@ -287,6 +287,11 @@ test "StrategyContext: initialization" {
     log_ctx.init(allocator);
     defer log_ctx.deinit();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -295,6 +300,7 @@ test "StrategyContext: initialization" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -325,6 +331,11 @@ test "StrategyContext: execute order with risk validation" {
     log_ctx.init(allocator);
     defer log_ctx.deinit();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -333,6 +344,7 @@ test "StrategyContext: execute order with risk validation" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -373,6 +385,11 @@ test "StrategyContext: reject order exceeding risk limits" {
     log_ctx.init(allocator);
     defer log_ctx.deinit();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -381,6 +398,7 @@ test "StrategyContext: reject order exceeding risk limits" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -422,6 +440,11 @@ test "StrategyContext: close position" {
     log_ctx.init(allocator);
     defer log_ctx.deinit();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -430,6 +453,7 @@ test "StrategyContext: close position" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -480,6 +504,11 @@ test "StrategyContext: market data operations" {
     log_ctx.init(allocator);
     defer log_ctx.deinit();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -488,6 +517,7 @@ test "StrategyContext: market data operations" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -533,6 +563,11 @@ test "StrategyContext: no memory leak" {
     log_ctx.init(allocator);
     defer log_ctx.deinit();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -541,6 +576,7 @@ test "StrategyContext: no memory leak" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };

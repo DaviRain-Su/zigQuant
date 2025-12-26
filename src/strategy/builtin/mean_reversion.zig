@@ -433,6 +433,12 @@ pub const RSIMeanReversionStrategy = struct {
     fn getMetadata(ptr: *anyopaque) StrategyMetadata {
         const self: *RSIMeanReversionStrategy = @ptrCast(@alignCast(ptr));
 
+        const roi_targets = [_]@import("../types.zig").ROITarget{
+            .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.03) },   // 3% immediate
+            .{ .time_minutes = 15, .profit_ratio = Decimal.fromFloat(0.02) },  // 2% after 15min
+            .{ .time_minutes = 40, .profit_ratio = Decimal.fromFloat(0.01) },  // 1% after 40min
+        };
+
         return .{
             .name = "RSI Mean Reversion Strategy",
             .version = "1.0.0",
@@ -441,6 +447,7 @@ pub const RSIMeanReversionStrategy = struct {
             .strategy_type = .mean_reversion,
             .timeframe = .m15,
             .startup_candle_count = self.config.rsi_period + 1,
+            .minimal_roi = .{ .targets = &roi_targets },
             .stoploss = Decimal.fromFloat(-0.05), // -5% stop loss
             .trailing_stop = null,
         };

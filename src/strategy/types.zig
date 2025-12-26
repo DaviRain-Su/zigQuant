@@ -54,6 +54,9 @@ pub const StrategyMetadata = struct {
     /// Number of candles needed before strategy can start
     startup_candle_count: u32,
 
+    /// Minimal ROI targets (Freqtrade-style)
+    minimal_roi: MinimalROI,
+
     /// Stop loss percentage (e.g., -0.05 for -5%)
     stoploss: Decimal,
 
@@ -172,25 +175,47 @@ pub const StrategyParameter = struct {
 // ROI Configuration
 // ============================================================================
 
-/// Minimal ROI configuration
+/// ROI Target at specific time
+pub const ROITarget = struct {
+    /// Time offset in minutes from entry
+    time_minutes: u32,
+
+    /// Target profit ratio (e.g., 0.01 = 1%)
+    profit_ratio: Decimal,
+};
+
+/// Minimal ROI configuration (Freqtrade-style)
 /// Defines profit-taking targets at different time intervals
 pub const MinimalROI = struct {
-    /// Time offset in minutes from entry
-    minutes: u32,
-
-    /// Target ROI as percentage (e.g., 0.01 = 1%)
-    roi_percent: Decimal,
+    /// Array of ROI targets (sorted by time_minutes)
+    targets: []const ROITarget,
 
     /// Validate ROI configuration
     pub fn validate(self: MinimalROI) !void {
-        if (self.roi_percent.isNegative()) {
-            return error.NegativeROI;
+        for (self.targets) |target| {
+            if (target.profit_ratio.isNegative()) {
+                return error.NegativeROI;
+            }
+        }
+
+        // Validate targets are sorted by time
+        if (self.targets.len > 1) {
+            for (self.targets[0..self.targets.len - 1], 0..) |target, i| {
+                if (target.time_minutes > self.targets[i + 1].time_minutes) {
+                    return error.UnsortedROITargets;
+                }
+            }
         }
     }
 
     /// Check if ROI is valid
     pub fn isValid(self: MinimalROI) bool {
-        return !self.roi_percent.isNegative();
+        for (self.targets) |target| {
+            if (target.profit_ratio.isNegative()) {
+                return false;
+            }
+        }
+        return true;
     }
 };
 
@@ -364,6 +389,11 @@ pub const StrategyConfig = struct {
 // ============================================================================
 
 test "StrategyMetadata: validation" {
+    const test_roi_targets = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const valid = StrategyMetadata{
         .name = "Test Strategy",
         .version = "1.0.0",
@@ -372,6 +402,7 @@ test "StrategyMetadata: validation" {
         .strategy_type = .trend_following,
         .timeframe = .m15,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -386,6 +417,7 @@ test "StrategyMetadata: validation" {
         .strategy_type = .trend_following,
         .timeframe = .m15,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -437,16 +469,21 @@ test "StrategyParameter: validation" {
 }
 
 test "MinimalROI: validation" {
+    const valid_targets = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 60, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
     const valid = MinimalROI{
-        .minutes = 60,
-        .roi_percent = Decimal.fromFloat(0.01), // 1%
+        .targets = &valid_targets,
     };
     try valid.validate();
     try std.testing.expect(valid.isValid());
 
+    const invalid_targets = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(-0.01) }, // Negative ROI
+    };
     const invalid = MinimalROI{
-        .minutes = 60,
-        .roi_percent = Decimal.fromFloat(-0.01), // Negative ROI
+        .targets = &invalid_targets,
     };
     try std.testing.expectError(error.NegativeROI, invalid.validate());
     try std.testing.expect(!invalid.isValid());
@@ -488,6 +525,11 @@ test "TrailingStopConfig: validation" {
 test "StrategyConfig: initialization and cleanup" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = StrategyMetadata{
         .name = "Test Strategy",
         .version = "1.0.0",
@@ -496,6 +538,7 @@ test "StrategyConfig: initialization and cleanup" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -513,9 +556,18 @@ test "StrategyConfig: initialization and cleanup" {
         },
     };
 
+    const roi_targets_1 = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 60, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+    const roi_targets_2 = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.03) },
+        .{ .time_minutes = 120, .profit_ratio = Decimal.fromFloat(0.02) },
+    };
+
     const roi = [_]MinimalROI{
-        .{ .minutes = 60, .roi_percent = Decimal.fromFloat(0.01) },
-        .{ .minutes = 120, .roi_percent = Decimal.fromFloat(0.02) },
+        .{ .targets = &roi_targets_1 },
+        .{ .targets = &roi_targets_2 },
     };
 
     const trailing_stop = TrailingStopConfig{
@@ -547,6 +599,11 @@ test "StrategyConfig: initialization and cleanup" {
 test "StrategyConfig: parameter lookup" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = StrategyMetadata{
         .name = "Test Strategy",
         .version = "1.0.0",
@@ -555,6 +612,7 @@ test "StrategyConfig: parameter lookup" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -598,6 +656,11 @@ test "StrategyConfig: no memory leak" {
     }
     const allocator = gpa.allocator();
 
+    const test_roi_targets = [_]ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = StrategyMetadata{
         .name = "Test Strategy",
         .version = "1.0.0",
@@ -606,6 +669,7 @@ test "StrategyConfig: no memory leak" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };

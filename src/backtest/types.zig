@@ -59,6 +59,9 @@ pub const BacktestConfig = struct {
     /// Max simultaneous positions (default: 1, only 1 supported in v0.4.0)
     max_positions: u32 = 1,
 
+    /// Optional custom data file path (if not specified, uses default naming convention)
+    data_file: ?[]const u8 = null,
+
     /// Validate configuration
     pub fn validate(self: BacktestConfig) !void {
         // Validate time range
@@ -227,11 +230,34 @@ pub const BacktestResult = struct {
         return total;
     }
 
-    /// Calculate backtest duration in days
+    /// Calculate backtest duration in days based on actual trades
     pub fn calculateDays(self: *const BacktestResult) u32 {
-        const duration_ms = self.config.end_time.millis - self.config.start_time.millis;
-        const days: u32 = @intCast(@divTrunc(duration_ms, 24 * 60 * 60 * 1000));
-        return days;
+        // If no trades, use config time range (with overflow protection)
+        if (self.trades.len == 0) {
+            const duration_ms = self.config.end_time.millis - self.config.start_time.millis;
+            const days_i64 = @divTrunc(duration_ms, 24 * 60 * 60 * 1000);
+            // Cap at u32 max to prevent overflow
+            return if (days_i64 > std.math.maxInt(u32))
+                std.math.maxInt(u32)
+            else
+                @intCast(days_i64);
+        }
+
+        // Use actual trade time range
+        var min_time: i64 = std.math.maxInt(i64);
+        var max_time: i64 = std.math.minInt(i64);
+
+        for (self.trades) |trade| {
+            if (trade.entry_time.millis < min_time) min_time = trade.entry_time.millis;
+            if (trade.exit_time.millis > max_time) max_time = trade.exit_time.millis;
+        }
+
+        const duration_ms = max_time - min_time;
+        const days_i64 = @divTrunc(duration_ms, 24 * 60 * 60 * 1000);
+        return if (days_i64 > std.math.maxInt(u32))
+            std.math.maxInt(u32)
+        else
+            @intCast(days_i64);
     }
 
     /// Calculate basic statistics from trades

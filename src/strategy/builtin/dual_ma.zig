@@ -375,6 +375,12 @@ pub const DualMAStrategy = struct {
     fn getMetadata(ptr: *anyopaque) StrategyMetadata {
         const self: *DualMAStrategy = @ptrCast(@alignCast(ptr));
 
+        const roi_targets = [_]@import("../types.zig").ROITarget{
+            .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.04) },   // 4% immediate
+            .{ .time_minutes = 20, .profit_ratio = Decimal.fromFloat(0.02) },  // 2% after 20min
+            .{ .time_minutes = 60, .profit_ratio = Decimal.fromFloat(0.01) },  // 1% after 1hr
+        };
+
         return .{
             .name = "Dual Moving Average Strategy",
             .version = "1.0.0",
@@ -383,6 +389,7 @@ pub const DualMAStrategy = struct {
             .strategy_type = .trend_following,
             .timeframe = .m15,
             .startup_candle_count = self.config.slow_period,
+            .minimal_roi = .{ .targets = &roi_targets },
             .stoploss = Decimal.fromFloat(-0.05), // -5% stop loss
             .trailing_stop = null,
         };

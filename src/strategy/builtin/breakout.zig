@@ -501,6 +501,12 @@ pub const BollingerBreakoutStrategy = struct {
     fn getMetadata(ptr: *anyopaque) StrategyMetadata {
         const self: *BollingerBreakoutStrategy = @ptrCast(@alignCast(ptr));
 
+        const roi_targets = [_]@import("../types.zig").ROITarget{
+            .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.05) },   // 5% immediate
+            .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.03) },  // 3% after 30min
+            .{ .time_minutes = 90, .profit_ratio = Decimal.fromFloat(0.015) }, // 1.5% after 90min
+        };
+
         return .{
             .name = "Bollinger Bands Breakout Strategy",
             .version = "1.0.0",
@@ -509,6 +515,7 @@ pub const BollingerBreakoutStrategy = struct {
             .strategy_type = .breakout,
             .timeframe = .m15,
             .startup_candle_count = self.config.bb_period + 1,
+            .minimal_roi = .{ .targets = &roi_targets },
             .stoploss = Decimal.fromFloat(-0.05), // -5% stop loss
             .trailing_stop = null,
         };

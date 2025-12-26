@@ -69,6 +69,7 @@ pub const BacktestEngine = struct {
             config.timeframe,
             config.start_time,
             config.end_time,
+            config.data_file,
         );
         defer candles.deinit();
 
@@ -133,6 +134,7 @@ pub const BacktestEngine = struct {
                 const exit_signal = try strategy.generateExitSignal(&candles, position.*);
 
                 if (exit_signal) |signal| {
+                    defer signal.deinit(); // Free signal metadata
                     try self.handleExit(
                         &executor,
                         &position_mgr,
@@ -150,6 +152,7 @@ pub const BacktestEngine = struct {
                 const entry_signal = try strategy.generateEntrySignal(&candles, i);
 
                 if (entry_signal) |signal| {
+                    defer signal.deinit(); // Free signal metadata
                     try self.handleEntry(
                         &executor,
                         &position_mgr,

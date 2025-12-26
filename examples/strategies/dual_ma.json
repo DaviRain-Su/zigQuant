@@ -1,0 +1,13 @@
+{
+  "strategy": "dual_ma",
+  "pair": {
+    "base": "BTC",
+    "quote": "USDT"
+  },
+  "timeframe": "h1",
+  "parameters": {
+    "fast_period": 10,
+    "slow_period": 20,
+    "ma_type": "sma"
+  }
+}

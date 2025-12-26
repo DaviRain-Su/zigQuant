@@ -171,6 +171,11 @@ pub const RiskManager = struct {
 test "RiskManager: initialization" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -179,6 +184,7 @@ test "RiskManager: initialization" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -207,6 +213,11 @@ test "RiskManager: initialization" {
 test "RiskManager: reject order exceeding max open trades" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -215,6 +226,7 @@ test "RiskManager: reject order exceeding max open trades" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -274,6 +286,11 @@ test "RiskManager: reject order exceeding max open trades" {
 test "RiskManager: reject oversized position" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -282,6 +299,7 @@ test "RiskManager: reject oversized position" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -323,6 +341,11 @@ test "RiskManager: reject oversized position" {
 test "RiskManager: reject excessive total exposure" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -331,6 +354,7 @@ test "RiskManager: reject excessive total exposure" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -382,6 +406,11 @@ test "RiskManager: reject excessive total exposure" {
 test "RiskManager: calculate risk ratio" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -390,6 +419,7 @@ test "RiskManager: calculate risk ratio" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -431,6 +461,11 @@ test "RiskManager: calculate risk ratio" {
 test "RiskManager: Kelly criterion position sizing" {
     const allocator = std.testing.allocator;
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -439,6 +474,7 @@ test "RiskManager: Kelly criterion position sizing" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };
@@ -489,6 +525,11 @@ test "RiskManager: no memory leak" {
     }
     const allocator = gpa.allocator();
 
+    const test_roi_targets = [_]@import("types.zig").ROITarget{
+        .{ .time_minutes = 0, .profit_ratio = Decimal.fromFloat(0.02) },
+        .{ .time_minutes = 30, .profit_ratio = Decimal.fromFloat(0.01) },
+    };
+
     const metadata = @import("types.zig").StrategyMetadata{
         .name = "Test",
         .version = "1.0",
@@ -497,6 +538,7 @@ test "RiskManager: no memory leak" {
         .strategy_type = .trend_following,
         .timeframe = .h1,
         .startup_candle_count = 20,
+        .minimal_roi = .{ .targets = &test_roi_targets },
         .stoploss = Decimal.fromFloat(-0.05),
         .trailing_stop = null,
     };

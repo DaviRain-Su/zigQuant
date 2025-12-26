@@ -21,12 +21,15 @@ pub fn executeStrategyCommand(
     command: []const u8,
     args: []const []const u8,
 ) !void {
+    // Skip the command name itself - only pass the options/flags to the command handlers
+    const command_args = if (args.len > 1) args[1..] else &[_][]const u8{};
+
     if (std.mem.eql(u8, command, "backtest")) {
-        try backtest.cmdBacktest(allocator, logger, args);
+        try backtest.cmdBacktest(allocator, logger, command_args);
     } else if (std.mem.eql(u8, command, "optimize")) {
-        try optimize.cmdOptimize(allocator, logger, args);
+        try optimize.cmdOptimize(allocator, logger, command_args);
     } else if (std.mem.eql(u8, command, "run-strategy")) {
-        try run_strategy.cmdRunStrategy(allocator, logger, args);
+        try run_strategy.cmdRunStrategy(allocator, logger, command_args);
     } else {
         try logger.err("Unknown strategy command: {s}", .{command});
         try logger.info("", .{});

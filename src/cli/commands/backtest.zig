@@ -183,6 +183,7 @@ pub fn cmdBacktest(
         .slippage = slippage,
         .enable_short = true,
         .max_positions = 1,
+        .data_file = res.args.data, // Use custom data file if provided
     };
 
     try backtest_config.validate();

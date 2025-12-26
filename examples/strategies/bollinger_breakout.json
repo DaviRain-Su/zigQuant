@@ -1,0 +1,17 @@
+{
+  "strategy": "bollinger_breakout",
+  "pair": {
+    "base": "BTC",
+    "quote": "USDT"
+  },
+  "timeframe": "h1",
+  "parameters": {
+    "bb_period": 20,
+    "bb_std_dev": 2.0,
+    "breakout_threshold": 0.002,
+    "enable_long": true,
+    "enable_short": true,
+    "use_volume_filter": false,
+    "volume_multiplier": 1.5
+  }
+}

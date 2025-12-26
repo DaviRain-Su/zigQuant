@@ -173,11 +173,16 @@ pub const HistoricalDataFeed = struct {
         timeframe: Timeframe,
         start_time: Timestamp,
         end_time: Timestamp,
+        custom_file: ?[]const u8,
     ) !Candles {
+        // If custom file path is provided, use it directly
+        if (custom_file) |file_path| {
+            return try self.loadFromCSV(file_path, pair, timeframe);
+        }
+
+        // Otherwise, construct expected filename based on convention
         // For now, this is a stub that expects data to be pre-loaded in CSV files
         // In a production system, this would query a database or API
-
-        // Construct expected filename
         var filename_buf: [256]u8 = undefined;
         const filename = try std.fmt.bufPrint(
             &filename_buf,
