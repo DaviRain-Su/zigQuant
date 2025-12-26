@@ -25,16 +25,35 @@ v0.4.0 专注于丰富策略生态系统，提供更多开箱即用的指标和�
 
 | Story ID | 名称 | 优先级 | 预计工时 | 状态 |
 |----------|------|--------|----------|------|
+| [STORY-022](./STORY_022_OPTIMIZER_ENHANCEMENT.md) | GridSearchOptimizer 增强 | P1 | 3-4 天 | 📋 待开始 |
 | [STORY-025](./STORY_025_EXTENDED_INDICATORS.md) | 扩展技术指标库 (8+ 指标) | P1 | 3-4 天 | 📋 待开始 |
 | [STORY-026](./STORY_026_EXTENDED_STRATEGIES.md) | 扩展内置策略 (2+ 策略) | P1 | 4-5 天 | 📋 待开始 |
 | [STORY-027](./STORY_027_BACKTEST_EXPORT.md) | 回测结果导出和可视化 | P2 | 2-3 天 | 📋 待开始 |
 | [STORY-028](./STORY_028_STRATEGY_DEVELOPMENT_GUIDE.md) | 策略开发文档和教程 | P2 | 2 天 | 📋 待开始 |
 
-**总预计工时**: 11-14 天
+**总预计工时**: 14-18 天
 
 ---
 
 ## 🚀 功能增量
+
+### 优化器增强 (Story 022)
+
+**Walk-Forward 分析**:
+- 训练/测试集分割
+- 滚动窗口验证
+- 过拟合检测
+- 参数稳定性分析
+
+**新增优化目标**:
+- Sortino Ratio
+- Calmar Ratio
+- Omega Ratio
+- Tail Ratio
+- Information Ratio
+- Stability Score
+
+**总计**: v0.3.0 基础版 → v0.4.0 Walk-Forward 分析
 
 ### 新增技术指标 (Story 025)
 
