@@ -121,13 +121,13 @@ zig build run -- price BTC-USD
 zig build run -- book BTC-USD --depth 10
 
 # 2. 策略回测 (NEW in v0.3.0!)
-zig build run -- strategy backtest \
+zig build run -- backtest \
   --strategy dual_ma \
   --config examples/strategies/dual_ma.json \
   --data data/BTCUSDT_1h_2024.csv
 
 # 3. 参数优化 (NEW in v0.3.0!)
-zig build run -- strategy optimize \
+zig build run -- optimize \
   --strategy rsi_mean_reversion \
   --config examples/strategies/dual_ma_optimize.json \
   --top 10 \
@@ -244,9 +244,9 @@ cat examples/README.md
 - ✅ **结果分析** - 排名和性能对比
 
 #### CLI 命令 (NEW!)
-- ✅ `strategy backtest` - 策略回测
-- ✅ `strategy optimize` - 参数优化
-- ✅ `strategy run-strategy` - 实盘运行（stub，计划 v0.4.0）
+- ✅ `backtest` - 策略回测
+- ✅ `optimize` - 参数优化
+- ✅ `run-strategy` - 实盘运行（stub，计划 v0.4.0）
 
 #### 文档 (5,300+ 行)
 - ✅ [CLI 使用指南](./docs/features/cli/usage-guide.md) (1,800+ 行)
