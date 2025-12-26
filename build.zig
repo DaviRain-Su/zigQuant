@@ -422,6 +422,74 @@ pub fn build(b: *std.Build) void {
     const example_custom_step = b.step("run-example-custom", "Run custom strategy example");
     example_custom_step.dependOn(&run_example_custom.step);
 
+    // Example 9: New Indicators (v0.4.0)
+    const example_indicators = b.addExecutable(.{
+        .name = "example-indicators",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/09_new_indicators.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_indicators);
+    const run_example_indicators = b.addRunArtifact(example_indicators);
+    const example_indicators_step = b.step("run-example-indicators", "Run new indicators example");
+    example_indicators_step.dependOn(&run_example_indicators.step);
+
+    // Example 10: Walk-Forward Analysis (v0.4.0)
+    const example_walkforward = b.addExecutable(.{
+        .name = "example-walkforward",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/10_walk_forward.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_walkforward);
+    const run_example_walkforward = b.addRunArtifact(example_walkforward);
+    const example_walkforward_step = b.step("run-example-walkforward", "Run Walk-Forward analysis example");
+    example_walkforward_step.dependOn(&run_example_walkforward.step);
+
+    // Example 11: Result Export (v0.4.0)
+    const example_export = b.addExecutable(.{
+        .name = "example-export",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/11_result_export.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_export);
+    const run_example_export = b.addRunArtifact(example_export);
+    const example_export_step = b.step("run-example-export", "Run result export example");
+    example_export_step.dependOn(&run_example_export.step);
+
+    // Example 12: Parallel Optimization (v0.4.0)
+    const example_parallel = b.addExecutable(.{
+        .name = "example-parallel",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/12_parallel_optimize.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_parallel);
+    const run_example_parallel = b.addRunArtifact(example_parallel);
+    const example_parallel_step = b.step("run-example-parallel", "Run parallel optimization example");
+    example_parallel_step.dependOn(&run_example_parallel.step);
+
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
     examples_step.dependOn(&run_example_core.step);
@@ -432,6 +500,10 @@ pub fn build(b: *std.Build) void {
     examples_step.dependOn(&run_example_backtest.step);
     examples_step.dependOn(&run_example_optimize.step);
     examples_step.dependOn(&run_example_custom.step);
+    examples_step.dependOn(&run_example_indicators.step);
+    examples_step.dependOn(&run_example_walkforward.step);
+    examples_step.dependOn(&run_example_export.step);
+    examples_step.dependOn(&run_example_parallel.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

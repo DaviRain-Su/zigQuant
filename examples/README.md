@@ -2,7 +2,7 @@
 
 This directory contains practical examples demonstrating how to use zigQuant's various features.
 
-## 📋 Examples (8 total)
+## 📋 Examples (12 total)
 
 ### 1. Core Basics (`01_core_basics.zig`)
 
@@ -196,6 +196,103 @@ zig build run-example-custom
 
 ---
 
+### 9. New Technical Indicators (`09_new_indicators.zig`) - v0.4.0
+
+Explore v0.4.0 new technical indicators:
+- **ADX** - Average Directional Index (trend strength)
+- **Ichimoku Cloud** - Trend, support/resistance
+- **CCI** - Commodity Channel Index
+- **Williams %R** - Overbought/oversold
+- **OBV** - On-Balance Volume
+- **VWAP** - Volume Weighted Average Price
+- **ROC** - Rate of Change
+- **Parabolic SAR** - Trend reversal
+
+**Run:**
+```bash
+zig build run-example-indicators
+```
+
+**What you'll see:**
+- Explanation of each indicator's purpose and calculation
+- Example calculations with sample data
+- Trading signal interpretation
+- Indicator classification (trend/momentum/volume)
+
+---
+
+### 10. Walk-Forward Analysis (`10_walk_forward.zig`) - v0.4.0
+
+Prevent strategy overfitting with Walk-Forward analysis:
+- Split data into training and testing periods
+- Rolling window optimization
+- Out-of-sample validation
+- Overfitting detection
+
+**Run:**
+```bash
+zig build run-example-walkforward
+```
+
+**What you'll see:**
+- Walk-Forward concept explanation
+- Data splitting strategies (fixed, rolling, expanding, anchored)
+- Simulated Walk-Forward results
+- Overfitting detection metrics
+- Code usage examples
+
+**Key Feature:** Validate strategy robustness before live trading!
+
+---
+
+### 11. Result Export (`11_result_export.zig`) - v0.4.0
+
+Export and load backtest results:
+- Export to JSON format
+- Export to CSV format
+- Load historical results
+- Compare multiple strategies
+
+**Run:**
+```bash
+zig build run-example-export
+```
+
+**What you'll see:**
+- JSON/CSV export code examples
+- Output format demonstrations
+- Result loading examples
+- Multi-strategy comparison table
+- Recommended directory structure
+
+**Key Feature:** Persist results for external analysis and reporting!
+
+---
+
+### 12. Parallel Optimization (`12_parallel_optimize.zig`) - v0.4.0
+
+Speed up optimization with parallel execution:
+- Multi-threaded backtesting
+- Progress tracking
+- Performance comparison
+- Thread safety guidelines
+
+**Run:**
+```bash
+zig build run-example-parallel
+```
+
+**What you'll see:**
+- Parallel optimization concepts
+- Code examples for parallel execution
+- Progress bar demonstration
+- Performance comparison table (sequential vs parallel)
+- Best practices and safety considerations
+
+**Key Feature:** Dramatically reduce optimization time on multi-core systems!
+
+---
+
 ## 🚀 Quick Start
 
 ### Run All Examples
@@ -224,6 +321,19 @@ zig build run-example-optimize
 
 # Custom strategy
 zig build run-example-custom
+
+# v0.4.0 Examples
+# New indicators
+zig build run-example-indicators
+
+# Walk-Forward analysis
+zig build run-example-walkforward
+
+# Result export
+zig build run-example-export
+
+# Parallel optimization
+zig build run-example-parallel
 
 # Run all examples at once
 zig build run-examples
