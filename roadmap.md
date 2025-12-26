@@ -212,45 +212,114 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 
 ---
 
-### 📋 v0.4 - 参数优化和策略扩展 (计划中)
-**预计时间**: 2-3 周
-**状态**: 📋 未开始
-**前置条件**: v0.3 完成
+### 📋 v0.4 - 参数优化和策略扩展
+**预计时间**: 2-3 周 (14-18 天)
+**状态**: 📋 计划完成，待实施
+**前置条件**: ✅ v0.3.0 完成
+**文档**: [v0.4.0 概览](./docs/stories/v0.4.0/OVERVIEW.md)
 
 #### 核心目标
-实现参数优化器和扩展策略库，提升策略开发效率。
 
-#### Stories (待规划)
-- [ ] Story 022: GridSearchOptimizer 网格搜索优化器
-- [ ] Story 025: 扩展技术指标库 (15+ 指标)
-- [ ] Story 026: 扩展内置策略 (5+ 策略)
-- [ ] Story 027: 回测结果导出和可视化
-- [ ] Story 028: 策略开发文档和教程
+1. **优化器增强**: Walk-Forward 分析，防止过拟合
+2. **指标扩展**: 从 7 个增加到 15+ 个技术指标
+3. **策略扩展**: 从 3 个增加到 5+ 个内置策略
+4. **结果导出**: 支持 JSON/CSV 多格式导出
+5. **文档完善**: 完整的策略开发教程
+
+#### Stories (5个，已规划)
+
+| Story | 名称 | 优先级 | 工时 | 文档 |
+|-------|------|--------|------|------|
+| **022** | GridSearchOptimizer 增强 | P1 | 3-4天 | [STORY-022](./docs/stories/v0.4.0/STORY_022_OPTIMIZER_ENHANCEMENT.md) |
+| **025** | 扩展技术指标库 (8+ 指标) | P1 | 3-4天 | [STORY-025](./docs/stories/v0.4.0/STORY_025_EXTENDED_INDICATORS.md) |
+| **026** | 扩展内置策略 (2+ 策略) | P1 | 4-5天 | [STORY-026](./docs/stories/v0.4.0/STORY_026_EXTENDED_STRATEGIES.md) |
+| **027** | 回测结果导出 | P2 | 2-3天 | [STORY-027](./docs/stories/v0.4.0/STORY_027_BACKTEST_EXPORT.md) |
+| **028** | 策略开发文档和教程 | P2 | 2天 | [STORY-028](./docs/stories/v0.4.0/STORY_028_STRATEGY_DEVELOPMENT_GUIDE.md) |
 
 #### 功能清单
-- [ ] **GridSearchOptimizer**
-  - 参数网格搜索
-  - 并行回测执行 (Thread Pool)
-  - Walk-Forward 分析
-  - 多种优化目标 (Sharpe, Profit Factor, etc.)
-- [ ] **技术指标扩展**
-  - Stochastic RSI, Williams %R, CCI
-  - ADX, Ichimoku, VWAP, OBV
-  - Fibonacci, Pivot Points
-- [ ] **策略扩展**
-  - Triple MA, MACD Histogram
-  - Trend Following, Volume Confirmation
-- [ ] **结果导出**
-  - JSON 结果保存
-  - Equity curve 导出
-  - 交易明细分析
+
+**Story 022: 优化器增强** ✨
+- [x] v0.3.0 基础版 GridSearchOptimizer
+- [ ] Walk-Forward 分析（训练/测试集分割）
+- [ ] 滚动窗口验证
+- [ ] 过拟合检测器
+- [ ] 6 个新优化目标（Sortino, Calmar, Omega, Tail, Information Ratio, Stability）
+- [ ] 参数稳定性分析
+
+**Story 025: 技术指标扩展** ✨
+- [x] v0.3.0: SMA, EMA, RSI, MACD, BB, ATR, Stochastic (7个)
+- [ ] 动量指标: Williams %R, CCI, ROC
+- [ ] 趋势指标: ADX, Parabolic SAR
+- [ ] 成交量指标: OBV, VWAP
+- [ ] 高级指标: Ichimoku Cloud
+- [ ] **总计**: 15 个指标
+
+**Story 026: 策略扩展** ✨
+- [x] v0.3.0: Dual MA, RSI Mean Reversion, Bollinger Breakout (3个)
+- [ ] Triple MA Crossover（三均线交叉）
+- [ ] MACD Histogram Divergence（MACD 柱状图背离）
+- [ ] (可选) ADX Trend Following
+- [ ] (可选) Volume Confirmation Breakout
+- [ ] **总计**: 5+ 个策略
+
+**Story 027: 结果导出** ✨
+- [ ] JSON 完整结果导出
+- [ ] CSV 交易明细导出
+- [ ] CSV 权益曲线导出
+- [ ] Result Loader（结果加载器）
+- [ ] Result Comparison（结果对比工具）
+- [ ] CLI 参数集成 (--output, --export-trades, --export-equity)
+
+**Story 028: 文档和教程** ✨
+- [ ] 快速入门教程 (15分钟上手)
+- [ ] IStrategy 接口完整文档
+- [ ] StrategyContext API 参考
+- [ ] 技术指标使用指南
+- [ ] 调试和测试指南
+- [ ] 最佳实践文档
+- [ ] FAQ (20+ 问题)
+- [ ] 5 个示例策略（入门到高级）
 
 #### 成功指标
-- [ ] 网格搜索 8 线程 5x+ 加速
-- [ ] 至少 15 个技术指标
-- [ ] 至少 5 个内置策略
-- [ ] 完整的策略开发文档
-- [ ] 400+ 单元测试通过
+
+**定量指标**:
+- [ ] 技术指标: 7 → 15+ (增长 114%)
+- [ ] 内置策略: 3 → 5+ (增长 67%)
+- [ ] 单元测试: 359 → 400+ (增长 11%)
+- [ ] 文档页数: ~20 → ~35+ (增长 75%)
+- [ ] 优化器: 网格搜索 8 线程 5x+ 加速
+
+**定性指标**:
+- [ ] Walk-Forward 防止过拟合
+- [ ] 用户可在 15 分钟内创建第一个策略
+- [ ] 策略开发文档清晰易懂
+- [ ] 导出功能满足分析需求
+- [ ] 零内存泄漏
+
+#### 文档状态
+
+- ✅ Story 文档 (5个)
+- ✅ Feature 文档更新 (indicators, backtest/export)
+- ✅ 策略开发指南 (README)
+- ✅ OVERVIEW 和 PROGRESS_SUMMARY
+- [ ] 详细教程文档 (quickstart, interface, etc.)
+
+#### 开发时间线
+
+**Week 1**: 指标和优化器
+- Day 1-2: Story 025 - 动量和趋势指标
+- Day 3-4: Story 025 - 成交量和高级指标
+- Day 5: Story 022 - Walk-Forward 分析
+
+**Week 2**: 策略和导出
+- Day 6-7: Story 026 - 新策略实现
+- Day 8-9: Story 027 - 导出功能
+- Day 10: Story 022 - 过拟合检测
+
+**Week 3**: 文档和收尾
+- Day 11-12: Story 028 - 文档编写
+- Day 13: 集成测试
+- Day 14: 发布准备
 
 ---
 
