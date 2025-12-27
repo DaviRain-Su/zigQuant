@@ -328,7 +328,7 @@ pub const SimulatedExecutor = struct {
     pub fn processLimitOrders(self: *Self) !void {
         if (self.cache == null) return;
 
-        var orders_to_fill = std.ArrayList([]const u8).init(self.allocator);
+        var orders_to_fill: std.ArrayList([]const u8) = .{};
         defer orders_to_fill.deinit(self.allocator);
 
         // 检查所有挂单

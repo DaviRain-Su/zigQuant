@@ -2,7 +2,7 @@
 
 This directory contains practical examples demonstrating how to use zigQuant's various features.
 
-## 📋 Examples (14 total)
+## 📋 Examples (25 total)
 
 ### 1. Core Basics (`01_core_basics.zig`)
 
@@ -341,6 +341,193 @@ zig build run-example-async-engine
 
 ---
 
+### 15. Vectorized Backtest (`15_vectorized_backtest.zig`) - v0.6.0
+
+SIMD-accelerated backtesting for high performance:
+- **SIMD Operations** - Process 4 bars simultaneously
+- **Vectorized Indicators** - Fast SMA, EMA calculations
+- **Performance Comparison** - Scalar vs vectorized execution
+- **Memory Efficiency** - Aligned data structures
+
+**Run:**
+```bash
+zig build run-example-vectorized
+```
+
+**Key Feature:** Up to 4x speedup on large datasets with SIMD acceleration!
+
+---
+
+### 16. Hyperliquid Adapter (`16_hyperliquid_adapter.zig`) - v0.6.0
+
+Connect to Hyperliquid exchange:
+- **Data Provider** - Real-time and historical data
+- **Execution Client** - Order submission and tracking
+- **Symbol Mapping** - Unified ↔ exchange format
+- **WebSocket Streaming** - Live market updates
+
+**Run:**
+```bash
+zig build run-example-adapter
+```
+
+**Key Feature:** Unified interface for Hyperliquid data and trading!
+
+---
+
+### 17. Paper Trading (`17_paper_trading.zig`) - v0.6.0
+
+Risk-free strategy testing:
+- **Simulated Account** - Virtual balance and positions
+- **Order Execution** - Market and limit orders
+- **PnL Tracking** - Real-time profit/loss
+- **Position Management** - Track holdings
+
+**Run:**
+```bash
+zig build run-example-paper-trading
+```
+
+**Key Feature:** Test strategies without risking real capital!
+
+---
+
+### 18. Hot Reload Manager (`18_hot_reload.zig`) - v0.6.0
+
+Runtime parameter updates:
+- **Config Monitoring** - Watch for file changes
+- **Parameter Validation** - Min/max bounds checking
+- **Safe Reload Timing** - Apply between ticks
+- **Event Notification** - Reload success/failure events
+
+**Run:**
+```bash
+zig build run-example-hot-reload
+```
+
+**Key Feature:** Update strategy parameters without restart!
+
+---
+
+### 19. Clock-Driven Execution (`19_clock_driven.zig`) - v0.7.0
+
+Fixed-interval strategy execution:
+- **Clock Timer** - Configurable tick intervals
+- **Strategy Registration** - Add/remove strategies
+- **Tick Statistics** - Track timing precision
+- **Market Making Support** - Periodic quote refresh
+
+**Run:**
+```bash
+zig build run-example-clock
+```
+
+**Key Feature:** Precise timing control for market making strategies!
+
+---
+
+### 20. Pure Market Making (`20_pure_market_making.zig`) - v0.7.0
+
+Earn the bid-ask spread:
+- **Symmetric Quoting** - Bid and ask placement
+- **Spread Configuration** - Configurable spreads
+- **Order Management** - Refresh and cancel logic
+- **Clock Integration** - Timer-driven execution
+
+**Run:**
+```bash
+zig build run-example-pure-mm
+```
+
+**Key Feature:** Classic market making strategy implementation!
+
+---
+
+### 21. Inventory Management (`21_inventory_management.zig`) - v0.7.0
+
+Control position risk in market making:
+- **Quote Skewing** - Adjust quotes based on inventory
+- **Skew Modes** - Linear, exponential, tiered
+- **Rebalance Actions** - Suggestions for position reduction
+- **Statistics Tracking** - Peak inventory, ratio
+
+**Run:**
+```bash
+zig build run-example-inventory
+```
+
+**Key Feature:** Prevent dangerous position accumulation!
+
+---
+
+### 22. Data Persistence (`22_data_persistence.zig`) - v0.7.0
+
+Store and load market data:
+- **DataStore** - Binary and file-based storage
+- **CandleCache** - LRU caching for fast access
+- **Data Validation** - Gap detection, OHLC checks
+- **Compression** - Efficient storage
+
+**Run:**
+```bash
+zig build run-example-persistence
+```
+
+**Key Feature:** Efficient historical data management!
+
+---
+
+### 23. Cross-Exchange Arbitrage (`23_cross_exchange_arb.zig`) - v0.7.0
+
+Exploit price discrepancies:
+- **Multi-Exchange Monitoring** - Compare quotes
+- **Opportunity Detection** - Find profitable spreads
+- **Fee Consideration** - Net profit calculation
+- **Simultaneous Execution** - Minimize leg risk
+
+**Run:**
+```bash
+zig build run-example-arbitrage
+```
+
+**Key Feature:** Capitalize on cross-exchange price differences!
+
+---
+
+### 24. Queue Position Modeling (`24_queue_position.zig`) - v0.7.0
+
+Realistic limit order fill simulation:
+- **FIFO Queue Tracking** - Position in queue
+- **Fill Probability Models** - RiskAverse, Probability, PowerLaw
+- **Level-3 Order Book** - Individual order tracking
+- **More Accurate Backtests** - Realistic fill assumptions
+
+**Run:**
+```bash
+zig build run-example-queue
+```
+
+**Key Feature:** Better backtest accuracy for limit order strategies!
+
+---
+
+### 25. Dual Latency Simulation (`25_latency_simulation.zig`) - v0.7.0
+
+Model realistic network delays:
+- **Feed Latency** - Market data delay
+- **Order Latency** - Submit + response delay
+- **Latency Models** - Constant, Normal distribution
+- **Order Timeline** - Track order flow timing
+
+**Run:**
+```bash
+zig build run-example-latency
+```
+
+**Key Feature:** Understand latency impact on strategy performance!
+
+---
+
 ## 🚀 Quick Start
 
 ### Run All Examples
@@ -389,6 +576,41 @@ zig build run-example-event-driven
 
 # Async trading engine
 zig build run-example-async-engine
+
+# v0.6.0 Examples
+# Vectorized backtest
+zig build run-example-vectorized
+
+# Hyperliquid adapter
+zig build run-example-adapter
+
+# Paper trading
+zig build run-example-paper-trading
+
+# Hot reload
+zig build run-example-hot-reload
+
+# v0.7.0 Examples
+# Clock-driven execution
+zig build run-example-clock
+
+# Pure market making
+zig build run-example-pure-mm
+
+# Inventory management
+zig build run-example-inventory
+
+# Data persistence
+zig build run-example-persistence
+
+# Cross-exchange arbitrage
+zig build run-example-arbitrage
+
+# Queue position modeling
+zig build run-example-queue
+
+# Latency simulation
+zig build run-example-latency
 
 # Run all examples at once
 zig build run-examples

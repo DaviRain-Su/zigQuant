@@ -512,8 +512,8 @@ pub const LatencyStats = struct {
         if (self.count < 2) return 0;
 
         const n = @as(i128, @intCast(self.count));
-        const mean = @as(i128, self.sum_ns) / n;
-        const variance = (self.sum_squared_ns / n) - (mean * mean);
+        const mean = @divTrunc(@as(i128, self.sum_ns), n);
+        const variance = @divTrunc(self.sum_squared_ns, n) - (mean * mean);
 
         if (variance <= 0) return 0;
         return @intCast(@as(i128, @intFromFloat(@sqrt(@as(f64, @floatFromInt(variance))))));

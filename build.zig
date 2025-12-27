@@ -547,6 +547,193 @@ pub fn build(b: *std.Build) void {
     const example_async_engine_step = b.step("run-example-async-engine", "Run async trading engine example (v0.5.0)");
     example_async_engine_step.dependOn(&run_example_async_engine.step);
 
+    // Example 15: Vectorized Backtest (v0.6.0)
+    const example_vectorized = b.addExecutable(.{
+        .name = "example-vectorized",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/15_vectorized_backtest.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_vectorized);
+    const run_example_vectorized = b.addRunArtifact(example_vectorized);
+    const example_vectorized_step = b.step("run-example-vectorized", "Run vectorized backtest example (v0.6.0)");
+    example_vectorized_step.dependOn(&run_example_vectorized.step);
+
+    // Example 16: Hyperliquid Adapter (v0.6.0)
+    const example_adapter = b.addExecutable(.{
+        .name = "example-adapter",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/16_hyperliquid_adapter.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_adapter);
+    const run_example_adapter = b.addRunArtifact(example_adapter);
+    const example_adapter_step = b.step("run-example-adapter", "Run Hyperliquid adapter example (v0.6.0)");
+    example_adapter_step.dependOn(&run_example_adapter.step);
+
+    // Example 17: Paper Trading (v0.6.0)
+    const example_paper_trading = b.addExecutable(.{
+        .name = "example-paper-trading",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/17_paper_trading.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_paper_trading);
+    const run_example_paper_trading = b.addRunArtifact(example_paper_trading);
+    const example_paper_trading_step = b.step("run-example-paper-trading", "Run paper trading example (v0.6.0)");
+    example_paper_trading_step.dependOn(&run_example_paper_trading.step);
+
+    // Example 18: Hot Reload (v0.6.0)
+    const example_hot_reload = b.addExecutable(.{
+        .name = "example-hot-reload",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/18_hot_reload.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_hot_reload);
+    const run_example_hot_reload = b.addRunArtifact(example_hot_reload);
+    const example_hot_reload_step = b.step("run-example-hot-reload", "Run hot reload example (v0.6.0)");
+    example_hot_reload_step.dependOn(&run_example_hot_reload.step);
+
+    // Example 19: Clock-Driven Mode (v0.7.0)
+    const example_clock_driven = b.addExecutable(.{
+        .name = "example-clock-driven",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/19_clock_driven.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_clock_driven);
+    const run_example_clock_driven = b.addRunArtifact(example_clock_driven);
+    const example_clock_driven_step = b.step("run-example-clock-driven", "Run clock-driven mode example (v0.7.0)");
+    example_clock_driven_step.dependOn(&run_example_clock_driven.step);
+
+    // Example 20: Pure Market Making (v0.7.0)
+    const example_pure_mm = b.addExecutable(.{
+        .name = "example-pure-mm",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/20_pure_market_making.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_pure_mm);
+    const run_example_pure_mm = b.addRunArtifact(example_pure_mm);
+    const example_pure_mm_step = b.step("run-example-pure-mm", "Run pure market making example (v0.7.0)");
+    example_pure_mm_step.dependOn(&run_example_pure_mm.step);
+
+    // Example 21: Inventory Management (v0.7.0)
+    const example_inventory = b.addExecutable(.{
+        .name = "example-inventory",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/21_inventory_management.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_inventory);
+    const run_example_inventory = b.addRunArtifact(example_inventory);
+    const example_inventory_step = b.step("run-example-inventory", "Run inventory management example (v0.7.0)");
+    example_inventory_step.dependOn(&run_example_inventory.step);
+
+    // Example 22: Data Persistence (v0.7.0)
+    const example_persistence = b.addExecutable(.{
+        .name = "example-persistence",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/22_data_persistence.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_persistence);
+    const run_example_persistence = b.addRunArtifact(example_persistence);
+    const example_persistence_step = b.step("run-example-persistence", "Run data persistence example (v0.7.0)");
+    example_persistence_step.dependOn(&run_example_persistence.step);
+
+    // Example 23: Cross-Exchange Arbitrage (v0.7.0)
+    const example_arbitrage = b.addExecutable(.{
+        .name = "example-arbitrage",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/23_cross_exchange_arb.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_arbitrage);
+    const run_example_arbitrage = b.addRunArtifact(example_arbitrage);
+    const example_arbitrage_step = b.step("run-example-arbitrage", "Run cross-exchange arbitrage example (v0.7.0)");
+    example_arbitrage_step.dependOn(&run_example_arbitrage.step);
+
+    // Example 24: Queue Position Modeling (v0.7.0)
+    const example_queue = b.addExecutable(.{
+        .name = "example-queue",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/24_queue_position.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_queue);
+    const run_example_queue = b.addRunArtifact(example_queue);
+    const example_queue_step = b.step("run-example-queue", "Run queue position modeling example (v0.7.0)");
+    example_queue_step.dependOn(&run_example_queue.step);
+
+    // Example 25: Latency Simulation (v0.7.0)
+    const example_latency = b.addExecutable(.{
+        .name = "example-latency",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/25_latency_simulation.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_latency);
+    const run_example_latency = b.addRunArtifact(example_latency);
+    const example_latency_step = b.step("run-example-latency", "Run latency simulation example (v0.7.0)");
+    example_latency_step.dependOn(&run_example_latency.step);
+
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
     examples_step.dependOn(&run_example_core.step);
@@ -563,6 +750,17 @@ pub fn build(b: *std.Build) void {
     examples_step.dependOn(&run_example_parallel.step);
     examples_step.dependOn(&run_example_event_driven.step);
     examples_step.dependOn(&run_example_async_engine.step);
+    examples_step.dependOn(&run_example_vectorized.step);
+    examples_step.dependOn(&run_example_adapter.step);
+    examples_step.dependOn(&run_example_paper_trading.step);
+    examples_step.dependOn(&run_example_hot_reload.step);
+    examples_step.dependOn(&run_example_clock_driven.step);
+    examples_step.dependOn(&run_example_pure_mm.step);
+    examples_step.dependOn(&run_example_inventory.step);
+    examples_step.dependOn(&run_example_persistence.step);
+    examples_step.dependOn(&run_example_arbitrage.step);
+    examples_step.dependOn(&run_example_queue.step);
+    examples_step.dependOn(&run_example_latency.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
