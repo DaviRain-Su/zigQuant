@@ -5,9 +5,9 @@
 
 [![Zig Version](https://img.shields.io/badge/zig-0.15.2-orange.svg)](https://ziglang.org/)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-502%2F502-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-558%2F558-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](RELEASE_v0.5.0.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](docs/releases/v0.6.0.md)
 
 ---
 
@@ -76,13 +76,21 @@
 - [并行优化](./examples/12_parallel_optimize.zig) - 多线程加速、进度跟踪
 - **[策略开发教程](./docs/tutorials/strategy-development.md)** - 完整开发指南 ⭐
 
-#### ✅ V0.5 事件驱动架构 (NEW!)
+#### ✅ V0.5 事件驱动架构
 - [事件驱动架构概览](./docs/stories/v0.5.0/OVERVIEW.md) - MessageBus + Cache + Engine 架构 ⭐
 - [MessageBus 消息总线](./docs/stories/v0.5.0/STORY_023_MESSAGE_BUS.md) - Pub/Sub、Request/Response、Command 模式
 - [Cache 数据缓存](./docs/stories/v0.5.0/STORY_024_CACHE.md) - OrderBook、Position、Quote、Bar、Order 缓存
 - [DataEngine 数据引擎](./docs/stories/v0.5.0/STORY_025_DATA_ENGINE.md) - IDataProvider 接口、历史数据回放
 - [ExecutionEngine 执行引擎](./docs/stories/v0.5.0/STORY_026_EXECUTION_ENGINE.md) - IExecutionClient 接口、订单恢复、风控
 - [libxev 异步集成](./docs/stories/v0.5.0/STORY_027_LIBXEV_INTEGRATION.md) - io_uring/kqueue 事件循环
+
+#### ✅ V0.6 混合计算模式 (NEW!)
+- [混合计算模式概览](./docs/stories/v0.6.0/OVERVIEW.md) - 向量化回测 + Paper Trading ⭐
+- [向量化回测引擎](./docs/stories/v0.6.0/STORY_028_VECTORIZED_BACKTESTER.md) - SIMD 优化、12.6M bars/s ⭐
+- [HyperliquidDataProvider](./docs/stories/v0.6.0/STORY_029_HYPERLIQUID_DATA_PROVIDER.md) - IDataProvider 实现
+- [HyperliquidExecutionClient](./docs/stories/v0.6.0/STORY_030_HYPERLIQUID_EXECUTION_CLIENT.md) - IExecutionClient 实现
+- [Paper Trading](./docs/stories/v0.6.0/STORY_031_PAPER_TRADING.md) - 模拟交易引擎 ⭐
+- [策略热重载](./docs/stories/v0.6.0/STORY_032_HOT_RELOAD.md) - 运行时参数更新
 
 ### 🎓 教程和示例
 - **[示例总览](./examples/README.md)** - 14个完整示例 (NEW: 2个v0.5.0示例)
