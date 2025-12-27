@@ -4,7 +4,7 @@
 
 本目录包含 ZigQuant 所有核心功能的详细文档。
 
-**当前版本**: v0.4.0
+**当前版本**: v0.5.0
 **更新时间**: 2025-12-27
 
 ---
@@ -16,6 +16,8 @@
 | v0.2.0 | 7 个模块 | ✅ 完成 |
 | v0.3.0 | 4 个模块 | ✅ 完成 |
 | v0.4.0 | 增强更新 | ✅ 完成 |
+| v0.5.0 | 5 个模块 | ✅ 完成 |
+| v0.6.0 | 4 个模块 | 📋 规划中 |
 
 ---
 
@@ -231,7 +233,7 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ---
 
-## v0.5.0 功能模块 (计划中)
+## v0.5.0 功能模块 ✅
 
 ### 12. MessageBus (消息总线)
 
@@ -313,6 +315,92 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ---
 
+## v0.6.0 功能模块 📋
+
+### 17. Vectorized Backtest (向量化回测)
+
+利用 SIMD 指令加速的高性能批量回测引擎。
+
+- [功能概览](./vectorized-backtest/README.md)
+- [API 参考](./vectorized-backtest/api.md)
+- [实现细节](./vectorized-backtest/implementation.md)
+- [测试文档](./vectorized-backtest/testing.md)
+- [Bug 追踪](./vectorized-backtest/bugs.md)
+- [变更日志](./vectorized-backtest/changelog.md)
+
+**核心特性**:
+- SIMD 加速 (@Vector 类型)
+- 内存映射 (mmap) 数据加载
+- 批量信号生成
+- 目标: > 100,000 bars/s
+
+**Story**: [Story 028](../../stories/v0.6.0/STORY_028_VECTORIZED_BACKTESTER.md)
+
+---
+
+### 18. Hyperliquid Adapter (交易所适配器)
+
+Hyperliquid DEX 的数据源和执行客户端适配器。
+
+- [功能概览](./hyperliquid-adapter/README.md)
+- [API 参考](./hyperliquid-adapter/api.md)
+- [实现细节](./hyperliquid-adapter/implementation.md)
+- [测试文档](./hyperliquid-adapter/testing.md)
+- [Bug 追踪](./hyperliquid-adapter/bugs.md)
+- [变更日志](./hyperliquid-adapter/changelog.md)
+
+**核心特性**:
+- HyperliquidDataProvider (实现 IDataProvider)
+- HyperliquidExecutionClient (实现 IExecutionClient)
+- WebSocket 实时数据
+- EIP-712 签名
+
+**Story**: [Story 029](../../stories/v0.6.0/STORY_029_HYPERLIQUID_DATA_PROVIDER.md), [Story 030](../../stories/v0.6.0/STORY_030_HYPERLIQUID_EXECUTION_CLIENT.md)
+
+---
+
+### 19. Paper Trading (模拟交易)
+
+使用真实市场数据的无风险策略验证环境。
+
+- [功能概览](./paper-trading/README.md)
+- [API 参考](./paper-trading/api.md)
+- [实现细节](./paper-trading/implementation.md)
+- [测试文档](./paper-trading/testing.md)
+- [Bug 追踪](./paper-trading/bugs.md)
+- [变更日志](./paper-trading/changelog.md)
+
+**核心特性**:
+- 真实市场数据 + 模拟执行
+- 滑点和手续费模拟
+- 实时 PnL 统计
+- SimulatedAccount 账户管理
+
+**Story**: [Story 031](../../stories/v0.6.0/STORY_031_PAPER_TRADING.md)
+
+---
+
+### 20. Hot Reload (策略热重载)
+
+运行时策略参数更新，无需重启交易引擎。
+
+- [功能概览](./hot-reload/README.md)
+- [API 参考](./hot-reload/api.md)
+- [实现细节](./hot-reload/implementation.md)
+- [测试文档](./hot-reload/testing.md)
+- [Bug 追踪](./hot-reload/bugs.md)
+- [变更日志](./hot-reload/changelog.md)
+
+**核心特性**:
+- 配置文件监控
+- 参数验证
+- 安全重载调度
+- 备份和回滚
+
+**Story**: [Story 032](../../stories/v0.6.0/STORY_032_HOT_RELOAD.md)
+
+---
+
 ## 文档结构
 
 ```
@@ -344,7 +432,7 @@ docs/features/
 ├── optimizer/                          # 参数优化器
 │   └── README.md
 │
-├── ─────── v0.5.0 模块 (计划中) ───────
+├── ─────── v0.5.0 模块 ───────
 ├── message-bus/                        # 消息总线
 │   └── README.md
 ├── cache/                              # 高性能缓存
@@ -355,6 +443,36 @@ docs/features/
 │   └── README.md
 ├── live-trading/                       # 实时交易
 │   └── README.md
+│
+├── ─────── v0.6.0 模块 (规划中) ───────
+├── vectorized-backtest/                # 向量化回测
+│   ├── README.md
+│   ├── api.md
+│   ├── implementation.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── hyperliquid-adapter/                # Hyperliquid 适配器
+│   ├── README.md
+│   ├── api.md
+│   ├── implementation.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── paper-trading/                      # 模拟交易
+│   ├── README.md
+│   ├── api.md
+│   ├── implementation.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+├── hot-reload/                         # 策略热重载
+│   ├── README.md
+│   ├── api.md
+│   ├── implementation.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
 │
 ├── ─────── 基础设施模块 ───────
 ├── decimal/                            # 高精度小数
@@ -387,12 +505,18 @@ docs/features/
 - [优化指南](../guides/OPTIMIZATION_GUIDE.md) - 使用教程
 - [Walk-Forward](./optimizer/README.md#walk-forward-分析) - 过拟合检测
 
-**事件驱动架构** (v0.5.0 计划中):
+**事件驱动架构** (v0.5.0):
 - [MessageBus](./message-bus/README.md) - 消息总线
 - [Cache](./cache/README.md) - 高性能缓存
 - [DataEngine](./data-engine/README.md) - 数据引擎
 - [ExecutionEngine](./execution-engine/README.md) - 执行引擎
 - [LiveTrading](./live-trading/README.md) - 实时交易
+
+**混合计算模式** (v0.6.0 规划中):
+- [VectorizedBacktest](./vectorized-backtest/README.md) - 向量化回测 (SIMD 加速)
+- [HyperliquidAdapter](./hyperliquid-adapter/README.md) - Hyperliquid 交易所适配器
+- [PaperTrading](./paper-trading/README.md) - 模拟交易
+- [HotReload](./hot-reload/README.md) - 策略热重载
 
 **市场数据**:
 - [订单簿维护](./orderbook/README.md)
@@ -459,6 +583,8 @@ docs/features/
 - **Stories v0.2**: [v0.2 技术设计](../../stories/v0.2-mvp/) - MVP 设计文档
 - **Stories v0.3**: [v0.3 技术设计](../../stories/v0.3.0/) - 策略框架设计
 - **Stories v0.4**: [v0.4 技术设计](../../stories/v0.4.0/) - 优化增强设计
+- **Stories v0.5**: [v0.5 技术设计](../../stories/v0.5.0/) - 事件驱动架构设计
+- **Stories v0.6**: [v0.6 技术设计](../../stories/v0.6.0/) - 混合计算模式设计
 - **使用指南**: [回测指南](../guides/BACKTEST_GUIDE.md) | [优化指南](../guides/OPTIMIZATION_GUIDE.md)
 - **示例代码**: [Examples](../../examples/README.md) - 12 个完整示例
 
@@ -468,7 +594,8 @@ docs/features/
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
-| v0.5.0 | 计划中 | 添加事件驱动架构：MessageBus、Cache、DataEngine、ExecutionEngine、LiveTrading |
+| v0.6.0 | 规划中 | 添加混合计算模式：VectorizedBacktest、HyperliquidAdapter、PaperTrading、HotReload |
+| v0.5.0 | 2025-12-27 | 添加事件驱动架构：MessageBus、Cache、DataEngine、ExecutionEngine、LiveTrading |
 | v0.4.0 | 2025-12-27 | 添加优化器增强、8个新指标、使用指南 |
 | v0.3.0 | 2025-12-26 | 添加策略框架、回测引擎、指标库、优化器 |
 | v0.2.0 | 2025-12-23 | 初始版本，7 个核心功能模块 |
