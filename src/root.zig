@@ -101,6 +101,12 @@ pub const market_making = @import("market_making/mod.zig");
 // v0.7.0 Storage modules
 pub const storage = @import("storage/mod.zig");
 
+// v0.8.0 Risk Management modules
+pub const risk = @import("risk/mod.zig");
+
+// v0.8.0 Recovery modules
+pub const recovery = @import("recovery/mod.zig");
+
 // Backtest modules
 pub const backtest_types = @import("backtest/types.zig");
 pub const backtest_event = @import("backtest/event.zig");
@@ -333,6 +339,68 @@ pub const BacktestRecord = storage.BacktestRecord;
 pub const TradeRecord = storage.TradeRecord;
 pub const DbStats = storage.DbStats;
 pub const StorageError = storage.StorageError;
+
+// Re-export v0.8.0 Risk Management types (Stories 040-044)
+pub const RiskEngine = risk.RiskEngine;
+pub const RiskEngineConfig = risk.RiskConfig;
+pub const RiskCheckResult = risk.RiskCheckResult;
+pub const RiskRejectReason = risk.RiskRejectReason;
+pub const RiskEngineStats = risk.RiskEngineStats;
+
+pub const StopLossManager = risk.StopLossManager;
+pub const StopConfig = risk.StopConfig;
+pub const StopType = risk.StopType;
+pub const TimeStopAction = risk.TimeStopAction;
+pub const StopTrigger = risk.StopTrigger;
+pub const StopLossStats = risk.StopLossStats;
+
+pub const MoneyManager = risk.MoneyManager;
+pub const MoneyManagementConfig = risk.MoneyManagementConfig;
+pub const MoneyManagementMethod = risk.MoneyManagementMethod;
+pub const KellyResult = risk.KellyResult;
+pub const FixedFractionResult = risk.FixedFractionResult;
+pub const RiskParityResult = risk.RiskParityResult;
+pub const AntiMartingaleResult = risk.AntiMartingaleResult;
+pub const PositionContext = risk.PositionContext;
+pub const PositionRecommendation = risk.PositionRecommendation;
+pub const MoneyTradeResult = risk.TradeResult;
+pub const MoneyManagerStats = risk.MoneyManagerStats;
+
+pub const RiskMetricsMonitor = risk.RiskMetricsMonitor;
+pub const RiskMetricsConfig = risk.RiskMetricsConfig;
+pub const RiskEquitySnapshot = risk.EquitySnapshot;
+pub const VaRResult = risk.VaRResult;
+pub const CVaRResult = risk.CVaRResult;
+pub const DrawdownResult = risk.DrawdownResult;
+pub const SharpeResult = risk.SharpeResult;
+pub const SortinoResult = risk.SortinoResult;
+pub const CalmarResult = risk.CalmarResult;
+pub const RiskMetricsReport = risk.RiskMetricsReport;
+
+pub const AlertManager = risk.AlertManager;
+pub const AlertConfig = risk.AlertConfig;
+pub const Alert = risk.Alert;
+pub const AlertLevel = risk.AlertLevel;
+pub const AlertCategory = risk.AlertCategory;
+pub const ChannelType = risk.ChannelType;
+pub const AlertDetails = risk.AlertDetails;
+pub const AlertStats = risk.AlertStats;
+pub const IAlertChannel = risk.IAlertChannel;
+pub const ConsoleChannel = risk.ConsoleChannel;
+
+// Re-export v0.8.0 Recovery types (Story 045)
+pub const RecoveryManager = recovery.RecoveryManager;
+pub const RecoveryConfig = recovery.RecoveryConfig;
+pub const RecoveryResult = recovery.RecoveryResult;
+pub const RecoveryStatus = recovery.RecoveryStatus;
+pub const RecoveryStats = recovery.RecoveryStats;
+pub const SystemState = recovery.SystemState;
+pub const AccountState = recovery.AccountState;
+pub const PositionState = recovery.PositionState;
+pub const OrderState = recovery.OrderState;
+pub const RecoveryOrderType = recovery.OrderType;
+pub const RecoveryOrderStatus = recovery.OrderStatus;
+pub const SyncResult = recovery.SyncResult;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -604,6 +672,12 @@ test {
 
     // v0.7.0 Storage modules
     _ = storage;
+
+    // v0.8.0 Risk Management modules
+    _ = risk;
+
+    // v0.8.0 Recovery modules
+    _ = recovery;
 
     // Optimizer modules
     _ = optimizer_types;
