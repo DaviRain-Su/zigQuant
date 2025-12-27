@@ -5,6 +5,7 @@
 //! - IClockStrategy interface for clock-driven strategies
 //! - Pure Market Making strategy
 //! - Inventory Management with skew adjustments
+//! - Cross-Exchange Arbitrage
 //!
 //! ## Story 033: Clock-Driven Mode
 //!
@@ -18,6 +19,11 @@
 //! ## Story 035: Inventory Management
 //!
 //! Inventory-based quote adjustment to manage position risk through skew.
+//!
+//! ## Story 037: Cross-Exchange Arbitrage
+//!
+//! Monitors price differences between exchanges and executes simultaneous
+//! buy/sell operations for risk-free profit.
 //!
 //! ## Usage
 //!
@@ -45,6 +51,7 @@ pub const interfaces = @import("interfaces.zig");
 pub const types = @import("types.zig");
 pub const pure_mm = @import("pure_mm.zig");
 pub const inventory = @import("inventory.zig");
+pub const arbitrage = @import("arbitrage.zig");
 
 // Re-export Clock types (Story 033)
 pub const Clock = clock.Clock;
@@ -70,6 +77,15 @@ pub const InventoryConfig = inventory.InventoryConfig;
 pub const SkewMode = inventory.SkewMode;
 pub const RebalanceAction = inventory.RebalanceAction;
 pub const InventoryStats = inventory.InventoryStats;
+
+// Re-export Arbitrage types (Story 037)
+pub const CrossExchangeArbitrage = arbitrage.CrossExchangeArbitrage;
+pub const ArbitrageConfig = arbitrage.ArbitrageConfig;
+pub const ArbitrageOpportunity = arbitrage.ArbitrageOpportunity;
+pub const ArbitrageResult = arbitrage.ArbitrageResult;
+pub const ArbStats = arbitrage.ArbStats;
+pub const Quote = arbitrage.Quote;
+pub const Direction = arbitrage.Direction;
 
 // ============================================================================
 // Tests

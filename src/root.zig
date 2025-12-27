@@ -292,6 +292,15 @@ pub const SkewMode = market_making.SkewMode;
 pub const RebalanceAction = market_making.RebalanceAction;
 pub const InventoryStats = market_making.InventoryStats;
 
+// Re-export v0.7.0 Arbitrage types (Story 037)
+pub const CrossExchangeArbitrage = market_making.CrossExchangeArbitrage;
+pub const ArbitrageConfig = market_making.ArbitrageConfig;
+pub const ArbitrageOpportunity = market_making.ArbitrageOpportunity;
+pub const ArbitrageResult = market_making.ArbitrageResult;
+pub const ArbStats = market_making.ArbStats;
+pub const ArbQuote = market_making.Quote;
+pub const ArbDirection = market_making.Direction;
+
 // Re-export v0.7.0 Storage types (Story 036)
 pub const DataStore = storage.DataStore;
 pub const CandleCache = storage.CandleCache;
