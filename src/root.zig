@@ -120,6 +120,9 @@ pub const backtest_result_loader = @import("backtest/result_loader.zig");
 // v0.7.0 Queue Position Modeling (Story 038)
 pub const queue_position = @import("backtest/queue_position.zig");
 
+// v0.7.0 Dual Latency Simulation (Story 039)
+pub const latency_model = @import("backtest/latency_model.zig");
+
 // v0.6.0 Vectorized backtest modules
 pub const vectorized = @import("backtest/vectorized/mod.zig");
 
@@ -245,6 +248,16 @@ pub const QueuePosition = queue_position.QueuePosition;
 pub const QueuedOrder = queue_position.QueuedOrder;
 pub const PriceLevel = queue_position.PriceLevel;
 pub const Level3OrderBook = queue_position.Level3OrderBook;
+
+// Re-export v0.7.0 Latency Simulation types (Story 039)
+pub const LatencyModel = latency_model.LatencyModel;
+pub const LatencyModelType = latency_model.LatencyModelType;
+pub const LatencyDataPoint = latency_model.LatencyDataPoint;
+pub const OrderTimeline = latency_model.OrderTimeline;
+pub const OrderLatencyModel = latency_model.OrderLatencyModel;
+pub const FeedLatencyModel = latency_model.FeedLatencyModel;
+pub const LatencySimulator = latency_model.LatencySimulator;
+pub const LatencyStats = latency_model.LatencyStats;
 
 // Re-export v0.6.0 vectorized backtest types
 pub const VectorizedBacktester = vectorized.VectorizedBacktester;
@@ -573,6 +586,9 @@ test {
 
     // v0.7.0 Queue Position Modeling
     _ = queue_position;
+
+    // v0.7.0 Dual Latency Simulation
+    _ = latency_model;
 
     // v0.6.0 Vectorized backtest modules
     _ = vectorized;
