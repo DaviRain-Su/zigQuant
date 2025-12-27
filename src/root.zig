@@ -105,6 +105,9 @@ pub const backtest_json_exporter = @import("backtest/json_exporter.zig");
 pub const backtest_csv_exporter = @import("backtest/csv_exporter.zig");
 pub const backtest_result_loader = @import("backtest/result_loader.zig");
 
+// v0.6.0 Vectorized backtest modules
+pub const vectorized = @import("backtest/vectorized/mod.zig");
+
 // Optimizer modules
 pub const optimizer_types = @import("optimizer/types.zig");
 pub const optimizer_combination = @import("optimizer/combination.zig");
@@ -217,6 +220,22 @@ pub const CSVExporter = backtest_csv_exporter.CSVExporter;
 pub const ResultLoader = backtest_result_loader.ResultLoader;
 pub const LoadedResult = backtest_result_loader.LoadedResult;
 pub const ResultComparison = backtest_result_loader.ResultComparison;
+
+// Re-export v0.6.0 vectorized backtest types
+pub const VectorizedBacktester = vectorized.VectorizedBacktester;
+pub const VecBacktestResult = vectorized.BacktestResult;
+pub const VecStrategyConfig = vectorized.StrategyConfig;
+pub const VecDataSet = vectorized.DataSet;
+pub const VecCandle = vectorized.VecCandle;
+pub const VecSignal = vectorized.Signal;
+pub const VecSignalDirection = vectorized.SignalDirection;
+pub const SimdIndicators = vectorized.SimdIndicators;
+pub const MmapDataLoader = vectorized.MmapDataLoader;
+pub const BatchSignalGenerator = vectorized.BatchSignalGenerator;
+pub const BatchOrderSimulator = vectorized.BatchOrderSimulator;
+pub const VecSimulationResult = vectorized.SimulationResult;
+pub const VecTrade = vectorized.Trade;
+pub const VecPerformanceAnalyzer = vectorized.PerformanceAnalyzer;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -467,6 +486,9 @@ test {
     _ = backtest_json_exporter;
     _ = backtest_csv_exporter;
     _ = backtest_result_loader;
+
+    // v0.6.0 Vectorized backtest modules
+    _ = vectorized;
 
     // Optimizer modules
     _ = optimizer_types;
