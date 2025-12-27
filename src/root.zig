@@ -98,6 +98,9 @@ pub const simulated_executor = @import("trading/simulated_executor.zig");
 // v0.7.0 Market Making modules
 pub const market_making = @import("market_making/mod.zig");
 
+// v0.7.0 Storage modules
+pub const storage = @import("storage/mod.zig");
+
 // Backtest modules
 pub const backtest_types = @import("backtest/types.zig");
 pub const backtest_event = @import("backtest/event.zig");
@@ -288,6 +291,16 @@ pub const InventoryConfig = market_making.InventoryConfig;
 pub const SkewMode = market_making.SkewMode;
 pub const RebalanceAction = market_making.RebalanceAction;
 pub const InventoryStats = market_making.InventoryStats;
+
+// Re-export v0.7.0 Storage types (Story 036)
+pub const DataStore = storage.DataStore;
+pub const CandleCache = storage.CandleCache;
+pub const StorageCacheStats = storage.CacheStats;
+pub const StoredCandle = storage.StoredCandle;
+pub const BacktestRecord = storage.BacktestRecord;
+pub const TradeRecord = storage.TradeRecord;
+pub const DbStats = storage.DbStats;
+pub const StorageError = storage.StorageError;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -550,6 +563,9 @@ test {
 
     // v0.7.0 Market Making modules
     _ = market_making;
+
+    // v0.7.0 Storage modules
+    _ = storage;
 
     // Optimizer modules
     _ = optimizer_types;
