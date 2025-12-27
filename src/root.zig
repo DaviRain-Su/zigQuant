@@ -89,6 +89,12 @@ pub const position = @import("trading/position.zig");
 pub const account = @import("trading/account.zig");
 pub const position_tracker = @import("trading/position_tracker.zig");
 
+// v0.6.0 Paper Trading modules
+pub const trading = @import("trading/mod.zig");
+pub const paper_trading = @import("trading/paper_trading.zig");
+pub const simulated_account = @import("trading/simulated_account.zig");
+pub const simulated_executor = @import("trading/simulated_executor.zig");
+
 // Backtest modules
 pub const backtest_types = @import("backtest/types.zig");
 pub const backtest_event = @import("backtest/event.zig");
@@ -243,6 +249,13 @@ pub const VecPerformanceAnalyzer = vectorized.PerformanceAnalyzer;
 // Re-export v0.6.0 adapter types
 pub const HyperliquidDataProvider = adapters.HyperliquidDataProvider;
 pub const HyperliquidExecutionClient = adapters.HyperliquidExecutionClient;
+
+// Re-export v0.6.0 paper trading types
+pub const PaperTradingEngine = trading.PaperTradingEngine;
+pub const PaperTradingConfig = trading.PaperTradingConfig;
+pub const SimulatedAccount = trading.SimulatedAccount;
+pub const SimulatedExecutor = trading.SimulatedExecutor;
+pub const SimulatedExecutorConfig = trading.SimulatedExecutorConfig;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -499,6 +512,9 @@ test {
 
     // v0.6.0 Exchange adapters
     _ = adapters;
+
+    // v0.6.0 Paper Trading modules
+    _ = trading;
 
     // Optimizer modules
     _ = optimizer_types;
