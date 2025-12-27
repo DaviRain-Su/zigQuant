@@ -269,11 +269,18 @@ pub const IHotReloadable = trading.IHotReloadable;
 pub const ParamValidator = trading.ParamValidator;
 pub const SafeReloadScheduler = trading.SafeReloadScheduler;
 
-// Re-export v0.7.0 market making types
+// Re-export v0.7.0 market making types (Story 033)
 pub const Clock = market_making.Clock;
 pub const ClockStats = market_making.ClockStats;
 pub const ClockError = market_making.ClockError;
 pub const IClockStrategy = market_making.IClockStrategy;
+
+// Re-export v0.7.0 Pure Market Making types (Story 034)
+pub const PureMarketMaking = market_making.PureMarketMaking;
+pub const PureMMConfig = market_making.PureMMConfig;
+pub const MMOrderInfo = market_making.OrderInfo;
+pub const MMOrderFill = market_making.OrderFill;
+pub const MMStats = market_making.MMStats;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
