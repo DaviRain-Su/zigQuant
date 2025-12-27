@@ -95,6 +95,9 @@ pub const paper_trading = @import("trading/paper_trading.zig");
 pub const simulated_account = @import("trading/simulated_account.zig");
 pub const simulated_executor = @import("trading/simulated_executor.zig");
 
+// v0.7.0 Market Making modules
+pub const market_making = @import("market_making/mod.zig");
+
 // Backtest modules
 pub const backtest_types = @import("backtest/types.zig");
 pub const backtest_event = @import("backtest/event.zig");
@@ -265,6 +268,12 @@ pub const ConfigParam = trading.ConfigParam;
 pub const IHotReloadable = trading.IHotReloadable;
 pub const ParamValidator = trading.ParamValidator;
 pub const SafeReloadScheduler = trading.SafeReloadScheduler;
+
+// Re-export v0.7.0 market making types
+pub const Clock = market_making.Clock;
+pub const ClockStats = market_making.ClockStats;
+pub const ClockError = market_making.ClockError;
+pub const IClockStrategy = market_making.IClockStrategy;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -524,6 +533,9 @@ test {
 
     // v0.6.0 Paper Trading modules
     _ = trading;
+
+    // v0.7.0 Market Making modules
+    _ = market_making;
 
     // Optimizer modules
     _ = optimizer_types;
