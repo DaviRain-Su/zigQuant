@@ -257,6 +257,15 @@ pub const SimulatedAccount = trading.SimulatedAccount;
 pub const SimulatedExecutor = trading.SimulatedExecutor;
 pub const SimulatedExecutorConfig = trading.SimulatedExecutorConfig;
 
+// Re-export v0.6.0 hot reload types
+pub const HotReloadManager = trading.HotReloadManager;
+pub const HotReloadManagerConfig = trading.HotReloadManagerConfig;
+pub const HotReloadConfig = trading.HotReloadConfig;
+pub const ConfigParam = trading.ConfigParam;
+pub const IHotReloadable = trading.IHotReloadable;
+pub const ParamValidator = trading.ParamValidator;
+pub const SafeReloadScheduler = trading.SafeReloadScheduler;
+
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
 pub const OptimizerParameterValue = optimizer_types.ParameterValue;
