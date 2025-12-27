@@ -108,6 +108,9 @@ pub const backtest_result_loader = @import("backtest/result_loader.zig");
 // v0.6.0 Vectorized backtest modules
 pub const vectorized = @import("backtest/vectorized/mod.zig");
 
+// v0.6.0 Exchange adapters
+pub const adapters = @import("adapters/mod.zig");
+
 // Optimizer modules
 pub const optimizer_types = @import("optimizer/types.zig");
 pub const optimizer_combination = @import("optimizer/combination.zig");
@@ -236,6 +239,9 @@ pub const BatchOrderSimulator = vectorized.BatchOrderSimulator;
 pub const VecSimulationResult = vectorized.SimulationResult;
 pub const VecTrade = vectorized.Trade;
 pub const VecPerformanceAnalyzer = vectorized.PerformanceAnalyzer;
+
+// Re-export v0.6.0 adapter types
+pub const HyperliquidDataProvider = adapters.HyperliquidDataProvider;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -489,6 +495,9 @@ test {
 
     // v0.6.0 Vectorized backtest modules
     _ = vectorized;
+
+    // v0.6.0 Exchange adapters
+    _ = adapters;
 
     // Optimizer modules
     _ = optimizer_types;
