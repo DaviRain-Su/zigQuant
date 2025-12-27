@@ -5,9 +5,9 @@
 
 [![Zig Version](https://img.shields.io/badge/zig-0.15.2-orange.svg)](https://ziglang.org/)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-453%2F453-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-502%2F502-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](RELEASE_v0.4.0.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](RELEASE_v0.5.0.md)
 
 ---
 
@@ -69,15 +69,23 @@
 - [Parameter Optimizer](./docs/features/optimizer/README.md) - 网格搜索、6种优化目标
 - **[CLI 策略命令](./docs/features/cli/usage-guide.md)** - backtest, optimize 完整指南 ⭐
 
-#### ✅ V0.4 优化器增强与指标扩展 (NEW!)
+#### ✅ V0.4 优化器增强与指标扩展
 - [Walk-Forward 分析](./docs/stories/v0.4.0/STORY_022_OPTIMIZER_ENHANCEMENT.md) - 前向验证、过拟合检测
 - [扩展技术指标](./docs/stories/v0.4.0/STORY_025_EXTENDED_INDICATORS.md) - 15个指标 (+8新增: ADX/Ichimoku/CCI/OBV/VWAP/MFI/StochRSI/Williams%R)
 - [回测结果导出](./docs/stories/v0.4.0/STORY_027_BACKTEST_EXPORT.md) - JSON/CSV导出、结果加载
 - [并行优化](./examples/12_parallel_optimize.zig) - 多线程加速、进度跟踪
 - **[策略开发教程](./docs/tutorials/strategy-development.md)** - 完整开发指南 ⭐
 
+#### ✅ V0.5 事件驱动架构 (NEW!)
+- [事件驱动架构概览](./docs/stories/v0.5.0/OVERVIEW.md) - MessageBus + Cache + Engine 架构 ⭐
+- [MessageBus 消息总线](./docs/stories/v0.5.0/STORY_023_MESSAGE_BUS.md) - Pub/Sub、Request/Response、Command 模式
+- [Cache 数据缓存](./docs/stories/v0.5.0/STORY_024_CACHE.md) - OrderBook、Position、Quote、Bar、Order 缓存
+- [DataEngine 数据引擎](./docs/stories/v0.5.0/STORY_025_DATA_ENGINE.md) - IDataProvider 接口、历史数据回放
+- [ExecutionEngine 执行引擎](./docs/stories/v0.5.0/STORY_026_EXECUTION_ENGINE.md) - IExecutionClient 接口、订单恢复、风控
+- [libxev 异步集成](./docs/stories/v0.5.0/STORY_027_LIBXEV_INTEGRATION.md) - io_uring/kqueue 事件循环
+
 ### 🎓 教程和示例
-- **[示例总览](./examples/README.md)** - 12个完整示例 (NEW: 4个v0.4.0示例)
+- **[示例总览](./examples/README.md)** - 14个完整示例 (NEW: 2个v0.5.0示例)
 - **[策略开发完整教程](./docs/tutorials/strategy-development.md)** - KDJ 策略从零到完整 ⭐
 - **[参数优化指南](./docs/features/optimizer/usage-guide.md)** - 网格搜索详解 ⭐
 
@@ -167,11 +175,15 @@ zig build run-example-optimize
 # 自定义策略
 zig build run-example-custom
 
-# v0.4.0 新示例
+# v0.4.0 示例
 zig build run-example-indicators   # 新技术指标
 zig build run-example-walkforward  # Walk-Forward 分析
 zig build run-example-export       # 结果导出
 zig build run-example-parallel     # 并行优化
+
+# v0.5.0 新示例 (事件驱动架构)
+zig build run-example-event-driven  # 事件驱动架构演示
+zig build run-example-async-engine  # 异步交易引擎演示
 
 # 查看完整说明
 cat examples/README.md
@@ -325,7 +337,57 @@ cat examples/README.md
 - ✅ `12_parallel_optimize.zig` - 并行优化演示
 
 **完成时间**: 2024-12-27
-**发布说明**: [RELEASE_v0.4.0.md](./RELEASE_v0.4.0.md)
+
+---
+
+### ✅ V0.5 - 事件驱动架构 - 已完成 ⭐
+
+**核心功能** (502 测试):
+
+#### 消息总线 (MessageBus)
+- ✅ **Pub/Sub 模式** - 主题发布订阅、通配符匹配
+- ✅ **Request/Response 模式** - 同步请求响应
+- ✅ **Command 模式** - 异步命令发送
+
+#### 数据缓存 (Cache)
+- ✅ **OrderBook 缓存** - 订单簿快照、增量更新
+- ✅ **Position 缓存** - 仓位追踪
+- ✅ **Quote 缓存** - 报价数据
+- ✅ **Bar 缓存** - K线数据序列
+- ✅ **Order 缓存** - 订单状态追踪
+
+#### 数据引擎 (DataEngine)
+- ✅ **IDataProvider 接口** - VTable 模式数据源抽象
+- ✅ **历史数据回放** - CSV 加载、速度控制
+- ✅ **实时数据处理** - 事件发布到 MessageBus
+
+#### 执行引擎 (ExecutionEngine)
+- ✅ **IExecutionClient 接口** - VTable 模式执行抽象
+- ✅ **订单恢复** - 启动时恢复未完成订单
+- ✅ **超时检测** - 订单超时自动处理
+- ✅ **风控检查** - 订单大小、数量限制
+
+#### 交易引擎
+- ✅ **LiveTradingEngine** - 同步交易引擎
+- ✅ **AsyncLiveTradingEngine** - 基于 libxev 的异步引擎
+
+#### 新增示例 (+2)
+- ✅ `13_event_driven.zig` - 事件驱动架构演示
+- ✅ `14_async_engine.zig` - 异步交易引擎演示
+
+#### 集成测试
+- ✅ `v050_integration_test.zig` - 7 个集成测试用例
+
+**代码统计**:
+- MessageBus: 863 行
+- Cache: 939 行
+- DataEngine: 1039 行
+- ExecutionEngine: 1036 行
+- LiveTradingEngine: 859 行
+- **总计**: 4736 行核心代码
+
+**完成时间**: 2025-12-27
+**发布说明**: [RELEASE_v0.5.0.md](./RELEASE_v0.5.0.md)
 
 ---
 
@@ -336,14 +398,14 @@ v0.1 Foundation          ██████████████████�
 v0.2 MVP                 ████████████████████ (100%) ✅ 完成
 v0.3 Strategy Framework  ████████████████████ (100%) ✅ 完成
 v0.4 优化器增强          ████████████████████ (100%) ✅ 完成
-v0.5 事件驱动架构        ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
-v0.6 混合计算模式        ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
-v0.7 做市优化            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
+v0.5 事件驱动架构        ████████████████████ (100%) ✅ 完成
+v0.6 混合计算模式        ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
+v0.7 做市优化            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
 v0.8 风险管理            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
 v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
 ```
 
-**整体进度**: 44% (4/9 版本完成) → 向事件驱动架构演进
+**整体进度**: 56% (5/9 版本完成) → 向混合计算模式演进
 
 ### ✅ V0.4 - 优化器增强与指标扩展 - 已完成 ⭐
 
@@ -357,17 +419,17 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 - [x] 策略开发教程 (完整文档)
 - [x] 12个示例程序 (+4新增)
 
-### 📋 V0.5 - 事件驱动核心架构 (3-4 周后)
+### ✅ V0.5 - 事件驱动核心架构 - 已完成
 
 **核心目标**: 重构为事件驱动架构 (借鉴 NautilusTrader)
 
-- [ ] MessageBus 消息总线
-- [ ] Cache 高性能缓存系统
-- [ ] DataEngine 数据引擎
-- [ ] ExecutionEngine 执行引擎重构
-- [ ] libxev 异步 I/O 集成
+- [x] MessageBus 消息总线 (Pub/Sub, Request/Response, Command)
+- [x] Cache 高性能缓存系统 (OrderBook, Position, Quote, Bar, Order)
+- [x] DataEngine 数据引擎 (IDataProvider, 历史回放)
+- [x] ExecutionEngine 执行引擎重构 (IExecutionClient, 订单恢复, 风控)
+- [x] libxev 依赖集成 (AsyncLiveTradingEngine 框架)
 
-### 📋 V0.6 - 混合计算模式 (5-7 周后)
+### 📋 V0.6 - 混合计算模式 (下一步)
 
 **核心目标**: 向量化回测 + 增量实盘 (借鉴 Freqtrade)
 
@@ -431,8 +493,8 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 ### 📚 开发体验
 
 - **完整中文文档** - 6,000+ 行策略文档
-- **12 个完整示例** - 从基础到高级 (v0.4.0 +4新增)
-- **453 个测试** - 100% 通过
+- **14 个完整示例** - 从基础到高级 (v0.5.0 +2新增)
+- **502 个测试** - 100% 通过
 - **故障排查指南** - 详细的问题解决方案
 
 ### 🏗️ 架构优势
@@ -470,12 +532,12 @@ zig test src/backtest/engine.zig
 zig build test -freference-trace=10
 ```
 
-**当前测试状态**: **453/453 tests passed** ✅ (100%)
+**当前测试状态**: **502/502 tests passed** ✅ (100%)
 
 ### 测试覆盖
 
-- ✅ 单元测试: 453 个
-- ✅ 集成测试: 5 个 (HTTP, WebSocket, Trading, Strategy)
+- ✅ 单元测试: 502 个
+- ✅ 集成测试: 12 个 (HTTP, WebSocket, Trading, Strategy, v0.5.0 组件)
 - ✅ 真实数据验证: Binance BTC/USDT 2024 年完整数据
 - ✅ 内存泄漏检测: GPA 验证通过
 - ✅ 代码覆盖率: > 90%
@@ -568,6 +630,6 @@ zig build test -freference-trace=10
 
 ---
 
-**状态**: ✅ V0.4.0 优化器增强完成 | **版本**: 0.4.0 | **更新时间**: 2024-12-27
-**测试**: 453/453 全部通过 ✅ | **示例**: 12 个完整示例 | **文档**: 6,000+ 行 | **性能**: 全部达标 ✅
-**下一步**: v0.5.0 事件驱动架构 → **v0.8.0 推荐开始实盘** (3-4 个月后)
+**状态**: ✅ V0.5.0 事件驱动架构完成 | **版本**: 0.5.0 | **更新时间**: 2025-12-27
+**测试**: 502/502 全部通过 ✅ | **示例**: 14 个完整示例 | **文档**: 6,000+ 行 | **性能**: 全部达标 ✅
+**下一步**: v0.6.0 混合计算模式 → **v0.8.0 推荐开始实盘** (2-3 个月后)

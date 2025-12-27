@@ -2,7 +2,7 @@
 
 This directory contains practical examples demonstrating how to use zigQuant's various features.
 
-## 📋 Examples (12 total)
+## 📋 Examples (14 total)
 
 ### 1. Core Basics (`01_core_basics.zig`)
 
@@ -293,6 +293,54 @@ zig build run-example-parallel
 
 ---
 
+### 13. Event-Driven Architecture (`13_event_driven.zig`) - v0.5.0
+
+Explore v0.5.0 event-driven architecture:
+- **MessageBus** - Pub/Sub message passing with wildcards
+- **Cache** - Central data store with notifications
+- **DataEngine** - Market data processing
+- **ExecutionEngine** - Order execution management
+- **LiveTradingEngine** - Unified trading interface
+
+**Run:**
+```bash
+zig build run-example-event-driven
+```
+
+**What you'll see:**
+- MessageBus event subscription and publishing
+- Cache quote updates with notification
+- DataEngine and ExecutionEngine initialization
+- Component statistics and event flow
+
+**Key Feature:** Foundation for real-time live trading systems!
+
+---
+
+### 14. Async Trading Engine (`14_async_engine.zig`) - v0.5.0
+
+Build high-performance async trading systems:
+- **libxev Integration** - io_uring (Linux) / kqueue (macOS)
+- **Async Event Loop** - Non-blocking I/O processing
+- **Timer-Driven Execution** - Heartbeat and tick events
+- **Zero-Copy Messaging** - Efficient event passing
+
+**Run:**
+```bash
+zig build run-example-async-engine
+```
+
+**What you'll see:**
+- Core component initialization (MessageBus, Cache, DataEngine, ExecutionEngine)
+- Event subscription with wildcard patterns
+- Simulated market data and order execution
+- System tick events and statistics
+- Architecture diagram and usage examples
+
+**Key Feature:** Production-ready async trading infrastructure!
+
+---
+
 ## 🚀 Quick Start
 
 ### Run All Examples
@@ -334,6 +382,13 @@ zig build run-example-export
 
 # Parallel optimization
 zig build run-example-parallel
+
+# v0.5.0 Examples
+# Event-driven architecture
+zig build run-example-event-driven
+
+# Async trading engine
+zig build run-example-async-engine
 
 # Run all examples at once
 zig build run-examples
