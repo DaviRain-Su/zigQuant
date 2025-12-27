@@ -119,15 +119,15 @@ pub const PaperTradingEngine = struct {
         self.start_time = Timestamp.now();
         self.tick_count = 0;
 
-        std.debug.print("\n", .{});
-        std.debug.print("════════════════════════════════════════════════════\n", .{});
-        std.debug.print("           Paper Trading Started\n", .{});
-        std.debug.print("════════════════════════════════════════════════════\n", .{});
-        std.debug.print("  Initial Balance: {d:.2} USDT\n", .{self.config.initial_balance.toFloat()});
-        std.debug.print("  Commission Rate: {d:.4}%\n", .{self.config.commission_rate.toFloat() * 100});
-        std.debug.print("  Slippage: {d:.4}%\n", .{self.config.slippage.toFloat() * 100});
-        std.debug.print("════════════════════════════════════════════════════\n", .{});
-        std.debug.print("\n", .{});
+        // std.debug.print("\n", .{});
+        // std.debug.print("════════════════════════════════════════════════════\n", .{});
+        // std.debug.print("           Paper Trading Started\n", .{});
+        // std.debug.print("════════════════════════════════════════════════════\n", .{});
+        // std.debug.print("  Initial Balance: {d:.2} USDT\n", .{self.config.initial_balance.toFloat()});
+        // std.debug.print("  Commission Rate: {d:.4}%\n", .{self.config.commission_rate.toFloat() * 100});
+        // std.debug.print("  Slippage: {d:.4}%\n", .{self.config.slippage.toFloat() * 100});
+        // std.debug.print("════════════════════════════════════════════════════\n", .{});
+        // std.debug.print("\n", .{});
     }
 
     /// 停止 Paper Trading
@@ -225,39 +225,40 @@ pub const PaperTradingEngine = struct {
 
     /// 打印统计摘要
     pub fn printSummary(self: *const Self) void {
-        const stats = self.account.getStats();
-        const run_duration = if (self.start_time) |start_ts|
-            @as(f64, @floatFromInt(Timestamp.now().millis - start_ts.millis)) / 1000.0
-        else
-            0;
+        _ = self;
+        // const stats = self.account.getStats();
+        // const run_duration = if (self.start_time) |start_ts|
+        //     @as(f64, @floatFromInt(Timestamp.now().millis - start_ts.millis)) / 1000.0
+        // else
+        //     0;
 
-        std.debug.print("\n", .{});
-        std.debug.print("════════════════════════════════════════════════════\n", .{});
-        std.debug.print("           Paper Trading Summary\n", .{});
-        std.debug.print("════════════════════════════════════════════════════\n", .{});
-        std.debug.print("  Run Duration:     {d:.1}s\n", .{run_duration});
-        std.debug.print("  Ticks Processed:  {d}\n", .{self.tick_count});
-        std.debug.print("────────────────────────────────────────────────────\n", .{});
-        std.debug.print("  Initial Balance:  {d:.2} USDT\n", .{self.config.initial_balance.toFloat()});
-        std.debug.print("  Final Balance:    {d:.2} USDT\n", .{stats.current_balance.toFloat()});
-        std.debug.print("  Total PnL:        {d:.2} USDT ({d:.2}%)\n", .{
-            stats.total_pnl.toFloat(),
-            stats.total_return_pct,
-        });
-        std.debug.print("────────────────────────────────────────────────────\n", .{});
-        std.debug.print("  Total Trades:     {d}\n", .{stats.total_trades});
-        std.debug.print("  Winning Trades:   {d}\n", .{stats.winning_trades});
-        std.debug.print("  Losing Trades:    {d}\n", .{stats.losing_trades});
-        std.debug.print("  Win Rate:         {d:.1}%\n", .{stats.win_rate * 100});
-        std.debug.print("────────────────────────────────────────────────────\n", .{});
-        std.debug.print("  Avg Win:          {d:.2} USDT\n", .{stats.avg_win.toFloat()});
-        std.debug.print("  Avg Loss:         {d:.2} USDT\n", .{stats.avg_loss.toFloat()});
-        std.debug.print("  Profit Factor:    {d:.2}\n", .{stats.profit_factor});
-        std.debug.print("  Max Drawdown:     {d:.2}%\n", .{stats.max_drawdown * 100});
-        std.debug.print("────────────────────────────────────────────────────\n", .{});
-        std.debug.print("  Total Commission: {d:.4} USDT\n", .{stats.total_commission.toFloat()});
-        std.debug.print("════════════════════════════════════════════════════\n", .{});
-        std.debug.print("\n", .{});
+        // std.debug.print("\n", .{});
+        // std.debug.print("════════════════════════════════════════════════════\n", .{});
+        // std.debug.print("           Paper Trading Summary\n", .{});
+        // std.debug.print("════════════════════════════════════════════════════\n", .{});
+        // std.debug.print("  Run Duration:     {d:.1}s\n", .{run_duration});
+        // std.debug.print("  Ticks Processed:  {d}\n", .{self.tick_count});
+        // std.debug.print("────────────────────────────────────────────────────\n", .{});
+        // std.debug.print("  Initial Balance:  {d:.2} USDT\n", .{self.config.initial_balance.toFloat()});
+        // std.debug.print("  Final Balance:    {d:.2} USDT\n", .{stats.current_balance.toFloat()});
+        // std.debug.print("  Total PnL:        {d:.2} USDT ({d:.2}%)\n", .{
+        //     stats.total_pnl.toFloat(),
+        //     stats.total_return_pct,
+        // });
+        // std.debug.print("────────────────────────────────────────────────────\n", .{});
+        // std.debug.print("  Total Trades:     {d}\n", .{stats.total_trades});
+        // std.debug.print("  Winning Trades:   {d}\n", .{stats.winning_trades});
+        // std.debug.print("  Losing Trades:    {d}\n", .{stats.losing_trades});
+        // std.debug.print("  Win Rate:         {d:.1}%\n", .{stats.win_rate * 100});
+        // std.debug.print("────────────────────────────────────────────────────\n", .{});
+        // std.debug.print("  Avg Win:          {d:.2} USDT\n", .{stats.avg_win.toFloat()});
+        // std.debug.print("  Avg Loss:         {d:.2} USDT\n", .{stats.avg_loss.toFloat()});
+        // std.debug.print("  Profit Factor:    {d:.2}\n", .{stats.profit_factor});
+        // std.debug.print("  Max Drawdown:     {d:.2}%\n", .{stats.max_drawdown * 100});
+        // std.debug.print("────────────────────────────────────────────────────\n", .{});
+        // std.debug.print("  Total Commission: {d:.4} USDT\n", .{stats.total_commission.toFloat()});
+        // std.debug.print("════════════════════════════════════════════════════\n", .{});
+        // std.debug.print("\n", .{});
     }
 
     /// 重置引擎

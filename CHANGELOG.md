@@ -6,6 +6,25 @@
 
 ---
 
+## [0.7.0] - 进行中 (In Progress)
+
+### 计划功能
+
+#### 做市优化 (Market Making Optimization)
+- 🔄 **Queue Position Modeling** - 队列位置建模 (进行中)
+- 🔄 **Dual Latency** - 双向延迟模拟 (计划中)
+- 📋 **Clock-Driven 模式** (计划中)
+- 📋 **Pure Market Making 策略** (计划中)
+- 📋 **Inventory Management** - 库存管理 (计划中)
+- 📋 **zig-sqlite 数据持久化** (计划中)
+- 📋 **Cross-Exchange Arbitrage** - 跨交易所套利 (计划中)
+
+### Tests
+- 当前: 617/625 tests passed
+- 修复进行中: segmentation fault 问题
+
+---
+
 ## [0.6.0] - 2025-12-27
 
 ### Added

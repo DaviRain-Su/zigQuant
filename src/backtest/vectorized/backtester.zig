@@ -424,7 +424,7 @@ test "VectorizedBacktester performance benchmark" {
     defer result.deinit();
 
     // 输出性能信息
-    std.debug.print("\nBenchmark: {d:.0} bars/s (target: 100,000)\n", .{result.bars_per_second});
+    // std.debug.print("\nBenchmark: {d:.0} bars/s (target: 100,000)\n", .{result.bars_per_second});
 
     // 性能应该合理 (在测试环境中可能不达标)
     try std.testing.expect(result.bars_per_second > 10_000);
