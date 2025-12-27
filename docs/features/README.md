@@ -2,7 +2,22 @@
 
 > 导航: [首页](../../README.md) / Features
 
-本目录包含 ZigQuant v0.2 MVP 所有核心功能的详细文档。
+本目录包含 ZigQuant 所有核心功能的详细文档。
+
+**当前版本**: v0.4.0
+**更新时间**: 2025-12-27
+
+---
+
+## 📊 版本概览
+
+| 版本 | 功能模块数 | 状态 |
+|------|-----------|------|
+| v0.2.0 | 7 个模块 | ✅ 完成 |
+| v0.3.0 | 4 个模块 | ✅ 完成 |
+| v0.4.0 | 增强更新 | ✅ 完成 |
+
+---
 
 ## 📖 文档结构说明
 
@@ -124,67 +139,229 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ---
 
+## v0.3.0 功能模块
+
+### 8. 策略框架 (Strategy Framework)
+
+统一的策略开发框架，支持自定义策略和内置策略。
+
+- [功能概览](./strategy/README.md)
+- [实现细节](./strategy/implementation.md)
+- [API 参考](./strategy/api.md)
+- [测试文档](./strategy/testing.md)
+
+**核心特性**:
+- IStrategy 接口 (VTable 模式)
+- 三个内置策略 (DualMA, RSI Mean Reversion, Bollinger Breakout)
+- StrategyContext 执行上下文
+- 信号生成和仓位管理
+
+**Story**: [Story 016-019](../../stories/v0.3.0/)
+
+---
+
+### 9. 回测引擎 (Backtest Engine)
+
+使用历史数据验证策略效果的回测系统。
+
+- [功能概览](./backtest/README.md)
+- [使用指南](../guides/BACKTEST_GUIDE.md)
+
+**核心特性**:
+- BacktestEngine - 核心回测引擎
+- PerformanceAnalyzer - 性能分析器
+- CSV/API 数据加载
+- 手续费和滑点模拟
+- 权益曲线生成
+
+**Story**: [Story 016-019](../../stories/v0.3.0/)
+
+---
+
+### 10. 技术指标库 (Indicators Library)
+
+完整的技术指标实现，支持趋势、动量、波动率等多种指标。
+
+- [功能概览](./indicators/README.md)
+- [实现细节](./indicators/implementation.md)
+- [API 参考](./indicators/api.md)
+
+**v0.3.0 指标** (7 个):
+- SMA, EMA - 移动平均
+- RSI - 相对强弱指标
+- MACD - 移动平均收敛散度
+- Bollinger Bands - 布林带
+- ATR - 平均真实范围
+- Volume Profile - 成交量分布
+
+**v0.4.0 新增指标** (8 个):
+- ADX - 趋势强度
+- Ichimoku Cloud - 一目均衡表
+- Stochastic RSI - 随机 RSI
+- Williams %R - 威廉指标
+- CCI - 商品通道指数
+- OBV - 能量潮
+- MFI - 资金流量指标
+- VWAP - 成交量加权平均价
+
+**Story**: [Story 020](../../stories/v0.3.0/), [Story 021](../../stories/v0.4.0/)
+
+---
+
+### 11. 参数优化器 (Optimizer)
+
+自动寻找最佳策略参数组合的优化系统。
+
+- [功能概览](./optimizer/README.md)
+- [使用指南](../guides/OPTIMIZATION_GUIDE.md)
+
+**v0.3.0 功能**:
+- GridSearchOptimizer - 网格搜索
+- 6 个基础优化目标 (Sharpe, Profit Factor, Win Rate, Max Drawdown, Net Profit, Total Return)
+- 完整回测验证
+
+**v0.4.0 增强功能**:
+- Walk-Forward 分析 (避免过拟合)
+- 并行优化 (多线程加速)
+- 6 个高级优化目标 (Sortino, Calmar, Omega, Tail, Stability, Risk-Adjusted)
+- 过拟合检测
+- 结果导出 (JSON/CSV)
+
+**Story**: [Story 020](../../stories/v0.3.0/), [Story 022](../../stories/v0.4.0/)
+
+---
+
+## v0.5.0 功能模块 (计划中)
+
+### 12. MessageBus (消息总线)
+
+事件驱动架构的核心基础设施，提供高效的组件间通信。
+
+- [功能概览](./message-bus/README.md)
+
+**核心特性**:
+- Publish-Subscribe 模式 (一对多)
+- Request-Response 模式 (一对一)
+- Command 模式 (Fire-and-Forget)
+- 通配符订阅支持
+
+**Story**: [Story 023](../../stories/v0.5.0/STORY_023_MESSAGE_BUS.md)
+
+---
+
+### 13. Cache (高性能缓存)
+
+高性能内存缓存系统，提供纳秒级访问常用对象。
+
+- [功能概览](./cache/README.md)
+
+**核心特性**:
+- 订单、仓位、账户缓存
+- 多索引加速查询
+- 与 MessageBus 自动同步
+- 纳秒级查询延迟
+
+**Story**: [Story 024](../../stories/v0.5.0/STORY_024_CACHE.md)
+
+---
+
+### 14. DataEngine (数据引擎)
+
+数据引擎重构，实现回测与实盘代码统一 (Code Parity)。
+
+- [功能概览](./data-engine/README.md)
+
+**核心特性**:
+- 多数据源支持 (WebSocket, REST, Historical)
+- 统一事件发布
+- Code Parity (回测/实盘代码相同)
+- 自动缓存更新
+
+**Story**: [Story 025](../../stories/v0.5.0/STORY_025_DATA_ENGINE.md)
+
+---
+
+### 15. ExecutionEngine (执行引擎)
+
+订单执行引擎，支持订单前置追踪确保零丢单。
+
+- [功能概览](./execution-engine/README.md)
+
+**核心特性**:
+- 订单前置追踪 (Hummingbot 模式)
+- 零订单丢失
+- API 超时容错
+- 订单状态恢复
+
+**Story**: [Story 026](../../stories/v0.5.0/STORY_026_EXECUTION_ENGINE.md)
+
+---
+
+### 16. LiveTrading (实时交易)
+
+基于 libxev 的实时交易引擎，支持高性能异步 I/O。
+
+- [功能概览](./live-trading/README.md)
+
+**核心特性**:
+- libxev 事件循环 (io_uring)
+- WebSocket 异步连接
+- 自动重连机制
+- Event-Driven & Clock-Driven 模式
+
+**Story**: [Story 027](../../stories/v0.5.0/STORY_027_LIBXEV_INTEGRATION.md)
+
+---
+
 ## 文档结构
 
 ```
 docs/features/
 ├── README.md (本文件)
 ├── templates/                          # 文档模板
+│
+├── ─────── v0.2.0 模块 ───────
+├── hyperliquid-connector/              # Hyperliquid 连接器
+├── orderbook/                          # 订单簿
+├── order-system/                       # 订单系统
+├── order-manager/                      # 订单管理器
+├── position-tracker/                   # 仓位追踪器
+├── exchange-router/                    # Exchange Router
+├── cli/                                # CLI 界面
+│
+├── ─────── v0.3.0 模块 ───────
+├── strategy/                           # 策略框架
 │   ├── README.md
 │   ├── implementation.md
 │   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-├── hyperliquid-connector/              # Hyperliquid 连接器 (6 文件)
+│   └── testing.md
+├── backtest/                           # 回测引擎
+│   └── README.md
+├── indicators/                         # 技术指标库
 │   ├── README.md
 │   ├── implementation.md
-│   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-├── orderbook/                          # 订单簿 (6 文件)
-│   ├── README.md
-│   ├── implementation.md
-│   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-├── order-system/                       # 订单系统 (6 文件)
-│   ├── README.md
-│   ├── implementation.md
-│   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-├── order-manager/                      # 订单管理器 (6 文件)
-│   ├── README.md
-│   ├── implementation.md
-│   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-├── position-tracker/                   # 仓位追踪器 (6 文件)
-│   ├── README.md
-│   ├── implementation.md
-│   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-├── exchange-router/                    # Exchange Router (6 文件)
-│   ├── README.md
-│   ├── implementation.md
-│   ├── api.md
-│   ├── testing.md
-│   ├── bugs.md
-│   └── changelog.md
-└── cli/                                # CLI 界面 (6 文件)
-    ├── README.md
-    ├── implementation.md
-    ├── api.md
-    ├── testing.md
-    ├── bugs.md
-    └── changelog.md
+│   └── api.md
+├── optimizer/                          # 参数优化器
+│   └── README.md
+│
+├── ─────── v0.5.0 模块 (计划中) ───────
+├── message-bus/                        # 消息总线
+│   └── README.md
+├── cache/                              # 高性能缓存
+│   └── README.md
+├── data-engine/                        # 数据引擎
+│   └── README.md
+├── execution-engine/                   # 执行引擎
+│   └── README.md
+├── live-trading/                       # 实时交易
+│   └── README.md
+│
+├── ─────── 基础设施模块 ───────
+├── decimal/                            # 高精度小数
+├── time/                               # 时间处理
+├── logger/                             # 日志系统
+├── config/                             # 配置管理
+└── error-system/                       # 错误处理
 ```
 
 ---
@@ -192,6 +369,30 @@ docs/features/
 ## 快速导航
 
 ### 按功能分类
+
+**策略与回测** (v0.3.0+):
+- [策略框架](./strategy/README.md) - 策略开发和执行
+- [内置策略](./strategy/README.md#内置策略) - DualMA, RSI, Bollinger
+- [回测引擎](./backtest/README.md) - 历史数据验证
+- [回测指南](../guides/BACKTEST_GUIDE.md) - 使用教程
+
+**技术指标** (v0.3.0+):
+- [指标库](./indicators/README.md) - 15 个技术指标
+- [趋势指标](./indicators/README.md#趋势指标) - SMA, EMA, ADX, Ichimoku
+- [动量指标](./indicators/README.md#动量指标) - RSI, MACD, CCI, Williams %R
+- [成交量指标](./indicators/README.md#成交量指标) - OBV, MFI, VWAP
+
+**参数优化** (v0.3.0+):
+- [优化器](./optimizer/README.md) - 参数寻优
+- [优化指南](../guides/OPTIMIZATION_GUIDE.md) - 使用教程
+- [Walk-Forward](./optimizer/README.md#walk-forward-分析) - 过拟合检测
+
+**事件驱动架构** (v0.5.0 计划中):
+- [MessageBus](./message-bus/README.md) - 消息总线
+- [Cache](./cache/README.md) - 高性能缓存
+- [DataEngine](./data-engine/README.md) - 数据引擎
+- [ExecutionEngine](./execution-engine/README.md) - 执行引擎
+- [LiveTrading](./live-trading/README.md) - 实时交易
 
 **市场数据**:
 - [订单簿维护](./orderbook/README.md)
@@ -255,16 +456,22 @@ docs/features/
 ## 相关资源
 
 - **Templates**: [文档模板](./templates/) - 用于创建新功能文档的标准模板
-- **Stories**: [技术设计文档](../../stories/v0.2-mvp/) - 详细的技术设计和任务分解
-- **API Research**: [Hyperliquid API 研究](../../stories/v0.2-mvp/HYPERLIQUID_API_RESEARCH.md) - API 完整研究文档
-- **Official Docs**: [Hyperliquid 官方文档](https://hyperliquid.gitbook.io/hyperliquid-docs/)
+- **Stories v0.2**: [v0.2 技术设计](../../stories/v0.2-mvp/) - MVP 设计文档
+- **Stories v0.3**: [v0.3 技术设计](../../stories/v0.3.0/) - 策略框架设计
+- **Stories v0.4**: [v0.4 技术设计](../../stories/v0.4.0/) - 优化增强设计
+- **使用指南**: [回测指南](../guides/BACKTEST_GUIDE.md) | [优化指南](../guides/OPTIMIZATION_GUIDE.md)
+- **示例代码**: [Examples](../../examples/README.md) - 12 个完整示例
 
 ---
 
 ## 文档版本
 
-- **v0.2.0**: 初始版本，包含 7 个核心功能模块的完整文档
-- **最后更新**: 2025-12-23
+| 版本 | 日期 | 变更内容 |
+|------|------|----------|
+| v0.5.0 | 计划中 | 添加事件驱动架构：MessageBus、Cache、DataEngine、ExecutionEngine、LiveTrading |
+| v0.4.0 | 2025-12-27 | 添加优化器增强、8个新指标、使用指南 |
+| v0.3.0 | 2025-12-26 | 添加策略框架、回测引擎、指标库、优化器 |
+| v0.2.0 | 2025-12-23 | 初始版本，7 个核心功能模块 |
 
 ---
 
