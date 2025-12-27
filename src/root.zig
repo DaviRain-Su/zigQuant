@@ -242,6 +242,7 @@ pub const VecPerformanceAnalyzer = vectorized.PerformanceAnalyzer;
 
 // Re-export v0.6.0 adapter types
 pub const HyperliquidDataProvider = adapters.HyperliquidDataProvider;
+pub const HyperliquidExecutionClient = adapters.HyperliquidExecutionClient;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;

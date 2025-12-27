@@ -20,15 +20,22 @@
 //! // 创建 Hyperliquid 数据提供者
 //! var provider = adapters.HyperliquidDataProvider.init(allocator, .{}, logger);
 //! defer provider.deinit();
-//!
-//! // 添加到 DataEngine
 //! try engine.addProvider(provider.asProvider());
+//!
+//! // 创建 Hyperliquid 执行客户端
+//! var exec = try adapters.HyperliquidExecutionClient.init(allocator, .{
+//!     .testnet = true,
+//!     .private_key = pk,
+//! }, logger, null);
+//! defer exec.deinit();
+//! engine.setClient(exec.asClient());
 //! ```
 
 pub const hyperliquid = @import("hyperliquid/mod.zig");
 
 // 重新导出主要类型
 pub const HyperliquidDataProvider = hyperliquid.HyperliquidDataProvider;
+pub const HyperliquidExecutionClient = hyperliquid.HyperliquidExecutionClient;
 
 // 测试
 test {
