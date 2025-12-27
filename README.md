@@ -7,7 +7,7 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-624%2F624-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](docs/releases/v0.7.0.md)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](docs/stories/v0.7.0/OVERVIEW.md)
 
 ---
 
@@ -33,7 +33,7 @@
 - **[🚀 快速开始](./QUICK_START.md)** - 5 分钟上手指南
 - **[📊 Roadmap](./roadmap.md)** - 产品路线图和架构演进
 - **[📝 CHANGELOG](./CHANGELOG.md)** - 详细变更日志
-- **[🎯 下一步行动](./docs/NEXT_STEPS.md)** - v0.7.0 开发计划
+- **[🎯 下一步行动](./NEXT_STEPS.md)** - v0.8.0 开发计划
 
 ### 🏗️ 架构设计
 - **[🔍 竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md)** - 深度分析 4 大顶级平台 ⭐
@@ -92,8 +92,18 @@
 - [Paper Trading](./docs/stories/v0.6.0/STORY_031_PAPER_TRADING.md) - 模拟交易引擎 ⭐
 - [策略热重载](./docs/stories/v0.6.0/STORY_032_HOT_RELOAD.md) - 运行时参数更新
 
+#### ✅ V0.7 做市策略 (NEW!)
+- [做市优化概览](./docs/stories/v0.7.0/OVERVIEW.md) - 做市 + 回测精度 ⭐
+- [Clock-Driven 模式](./docs/stories/v0.7.0/STORY_033_CLOCK_DRIVEN.md) - Tick 驱动策略执行
+- [Pure Market Making](./docs/stories/v0.7.0/STORY_034_PURE_MM.md) - 双边报价做市策略
+- [Inventory Management](./docs/stories/v0.7.0/STORY_035_INVENTORY.md) - 库存风险控制
+- [Data Persistence](./docs/stories/v0.7.0/STORY_036_SQLITE.md) - 数据持久化 (DataStore/CandleCache)
+- [Cross-Exchange Arbitrage](./docs/stories/v0.7.0/STORY_037_ARBITRAGE.md) - 跨交易所套利
+- [Queue Position Modeling](./docs/stories/v0.7.0/STORY_038_QUEUE_POSITION.md) - 队列位置建模 (HFTBacktest) ⭐
+- [Dual Latency Simulation](./docs/stories/v0.7.0/STORY_039_DUAL_LATENCY.md) - 双向延迟模拟 (HFTBacktest) ⭐
+
 ### 🎓 教程和示例
-- **[示例总览](./examples/README.md)** - 14个完整示例 (NEW: 2个v0.5.0示例)
+- **[示例总览](./examples/README.md)** - 25个完整示例 (NEW: 11个v0.6-v0.7示例)
 - **[策略开发完整教程](./docs/tutorials/strategy-development.md)** - KDJ 策略从零到完整 ⭐
 - **[参数优化指南](./docs/features/optimizer/usage-guide.md)** - 网格搜索详解 ⭐
 
@@ -192,6 +202,21 @@ zig build run-example-parallel     # 并行优化
 # v0.5.0 新示例 (事件驱动架构)
 zig build run-example-event-driven  # 事件驱动架构演示
 zig build run-example-async-engine  # 异步交易引擎演示
+
+# v0.6.0 新示例 (混合计算)
+zig build run-example-vectorized    # 向量化回测
+zig build run-example-adapter       # Hyperliquid 适配器
+zig build run-example-paper-trading # Paper Trading
+zig build run-example-hot-reload    # 策略热重载
+
+# v0.7.0 新示例 (做市策略)
+zig build run-example-clock         # Clock-Driven 执行
+zig build run-example-pure-mm       # Pure Market Making
+zig build run-example-inventory     # 库存管理
+zig build run-example-persistence   # 数据持久化
+zig build run-example-arbitrage     # 跨交易所套利
+zig build run-example-queue         # 队列位置建模
+zig build run-example-latency       # 延迟模拟
 
 # 查看完整说明
 cat examples/README.md
@@ -408,12 +433,12 @@ v0.3 Strategy Framework  ██████████████████�
 v0.4 优化器增强          ████████████████████ (100%) ✅ 完成
 v0.5 事件驱动架构        ████████████████████ (100%) ✅ 完成
 v0.6 混合计算模式        ████████████████████ (100%) ✅ 完成
-v0.7 做市优化            ██████░░░░░░░░░░░░░░ (30%)   ← 进行中
-v0.8 风险管理            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
+v0.7 做市策略            ████████████████████ (100%) ✅ 完成
+v0.8 风险管理            ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
 v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
 ```
 
-**整体进度**: 73% (6.3/9 版本完成) → v0.7.0 做市优化进行中
+**整体进度**: 78% (7/9 版本完成) → v0.8.0 风险管理规划中
 
 ### ✅ V0.4 - 优化器增强与指标扩展 - 已完成 ⭐
 
@@ -448,26 +473,31 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 - [x] 策略热重载功能
 - [x] 558/558 测试全部通过
 
-### 📋 V0.7 - 做市优化 (下一步)
+### ✅ V0.7 - 做市策略 - 已完成
 
 **核心目标**: 做市策略和微观市场结构 (借鉴 Hummingbot + HFTBacktest)
 
-- [ ] **Queue Position Modeling** - 队列位置建模 ⭐
-- [ ] **Dual Latency** - 双向延迟模拟 ⭐
-- [ ] Clock-Driven 模式
-- [ ] Pure Market Making 策略
-- [ ] Inventory Management 库存管理
-- [ ] zig-sqlite 数据持久化
-- [ ] Cross-Exchange Arbitrage 跨交易所套利
+- [x] **Clock-Driven 模式** - Tick 驱动策略执行
+- [x] **Pure Market Making 策略** - 双边报价做市
+- [x] **Inventory Management** - 库存风险控制
+- [x] **Data Persistence** - 数据持久化 (DataStore/CandleCache)
+- [x] **Cross-Exchange Arbitrage** - 跨交易所套利
+- [x] **Queue Position Modeling** - 队列位置建模 ⭐
+- [x] **Dual Latency Simulation** - 双向延迟模拟 ⭐
 
-### 📋 V0.8 - 风险管理 (3-4 周后) - **推荐开始实盘** ✅
+**完成时间**: 2025-12-27
+**发布说明**: 7 个 Stories (033-039) 全部完成
+
+### 📋 V0.8 - 风险管理 (下一步) - **推荐开始实盘** ✅
 
 **核心目标**: 生产级风险管理和监控 (借鉴 NautilusTrader)
 
-- [ ] RiskEngine 风险引擎
-- [ ] 实时监控和告警
-- [ ] Crash Recovery 崩溃恢复
-- [ ] 多交易对并行
+- [ ] **RiskEngine** - 风险引擎 (仓位限制、杠杆控制)
+- [ ] **止损/止盈** - 自动平仓逻辑
+- [ ] **资金管理** - Kelly 公式、固定分数
+- [ ] **风险指标** - VaR、最大回撤监控
+- [ ] **实时监控** - 监控和告警系统
+- [ ] **Crash Recovery** - 崩溃恢复机制
 
 ### 📋 V1.0 - 生产就绪 (6-8 周后)
 
@@ -505,9 +535,9 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 
 ### 📚 开发体验
 
-- **完整中文文档** - 6,000+ 行策略文档
-- **14 个完整示例** - 从基础到高级 (v0.5.0 +2新增)
-- **502 个测试** - 100% 通过
+- **完整中文文档** - 8,000+ 行策略文档
+- **25 个完整示例** - 从基础到高级 (v0.7.0 +11新增)
+- **624 个测试** - 100% 通过
 - **故障排查指南** - 详细的问题解决方案
 
 ### 🏗️ 架构优势
@@ -516,10 +546,10 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 
 | 来源 | 借鉴内容 | 应用版本 |
 |------|---------|---------|
-| **NautilusTrader** | 事件驱动 + MessageBus + Cache | v0.5.0 |
-| **Hummingbot** | 订单前置追踪 + Clock-Driven | v0.5.0, v0.7.0 |
-| **Freqtrade** | 向量化回测 + 易用性 | v0.6.0 |
-| **HFTBacktest** | Queue Position + Dual Latency | v0.7.0 ⭐ |
+| **NautilusTrader** | 事件驱动 + MessageBus + Cache | v0.5.0 ✅ |
+| **Hummingbot** | 订单前置追踪 + Clock-Driven | v0.5.0, v0.7.0 ✅ |
+| **Freqtrade** | 向量化回测 + 易用性 | v0.6.0 ✅ |
+| **HFTBacktest** | Queue Position + Dual Latency | v0.7.0 ✅ |
 
 详见 [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) (750+ 行深度分析)
 
@@ -549,8 +579,8 @@ zig build test -freference-trace=10
 
 ### 测试覆盖
 
-- ✅ 单元测试: 502 个
-- ✅ 集成测试: 12 个 (HTTP, WebSocket, Trading, Strategy, v0.5.0 组件)
+- ✅ 单元测试: 624 个
+- ✅ 集成测试: 15+ 个 (HTTP, WebSocket, Trading, Strategy, v0.5.0-v0.7.0 组件)
 - ✅ 真实数据验证: Binance BTC/USDT 2024 年完整数据
 - ✅ 内存泄漏检测: GPA 验证通过
 - ✅ 代码覆盖率: > 90%
@@ -643,6 +673,6 @@ zig build test -freference-trace=10
 
 ---
 
-**状态**: ✅ V0.7.0 做市优化进行中 | **版本**: 0.7.0 | **更新时间**: 2025-12-27
-**测试**: 617/617 全部通过 ✅ | **示例**: 14+ 个完整示例 | **文档**: 6,500+ 行 | **性能**: 全部达标 ✅
-**下一步**: v0.8.0 风险管理 → **生产就绪** (3-4 周后)
+**状态**: ✅ V0.7.0 做市策略已完成 | **版本**: 0.7.0 | **更新时间**: 2025-12-27
+**测试**: 624/624 全部通过 ✅ | **示例**: 25 个完整示例 | **文档**: 8,000+ 行 | **性能**: 全部达标 ✅
+**下一步**: v0.8.0 风险管理 → **生产就绪**

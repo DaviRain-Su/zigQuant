@@ -6,22 +6,95 @@
 
 ---
 
-## [0.7.0] - 进行中 (In Progress)
+## [0.7.0] - 2025-12-27
 
-### 计划功能
+### Added
 
-#### 做市优化 (Market Making Optimization)
-- 🔄 **Queue Position Modeling** - 队列位置建模 (进行中)
-- 🔄 **Dual Latency** - 双向延迟模拟 (计划中)
-- 📋 **Clock-Driven 模式** (计划中)
-- 📋 **Pure Market Making 策略** (计划中)
-- 📋 **Inventory Management** - 库存管理 (计划中)
-- 📋 **zig-sqlite 数据持久化** (计划中)
-- 📋 **Cross-Exchange Arbitrage** - 跨交易所套利 (计划中)
+#### 做市策略 (Market Making)
+
+##### Clock-Driven 模式 (Story 033)
+- ✨ **Clock** - Tick 驱动策略执行
+  - 可配置 tick interval
+  - 策略注册和生命周期管理
+  - ClockStats 统计信息
+- ✨ **IClockStrategy** - Clock 策略接口
+  - VTable 模式实现
+  - onTick/onStart/onStop 回调
+
+##### Pure Market Making (Story 034)
+- ✨ **PureMarketMaking** - 双边报价做市策略
+  - 可配置价差 (spread_bps)
+  - 可配置订单量 (order_amount)
+  - 自动刷新报价
+  - Clock 集成
+
+##### Inventory Management (Story 035)
+- ✨ **InventoryManager** - 库存风险控制
+  - 多种 Skew 模式 (Linear/Exponential/StepFunction)
+  - 动态报价调整
+  - 再平衡建议
+
+##### Data Persistence (Story 036)
+- ✨ **DataStore** - 数据持久化
+  - 二进制存储格式
+  - 文件系统存储
+- ✨ **CandleCache** - K 线缓存
+  - LRU 淘汰策略
+  - 自动加载/卸载
+
+##### Cross-Exchange Arbitrage (Story 037)
+- ✨ **CrossExchangeArbitrage** - 跨交易所套利
+  - 套利机会检测
+  - 利润计算 (含手续费)
+  - 统计跟踪
+
+#### 回测精度 (Backtest Accuracy)
+
+##### Queue Position Modeling (Story 038)
+- ✨ **Level3OrderBook** - Level-3 订单簿 (Market-By-Order)
+  - 单个订单粒度追踪
+  - 价格层级管理
+- ✨ **QueuePosition** - 队列位置追踪
+  - 4 种成交概率模型:
+    - RiskAverse (保守模型)
+    - Probability (概率模型)
+    - PowerLaw (幂函数模型)
+    - Logarithmic (对数模型)
+  - 队列推进逻辑
+
+##### Dual Latency Simulation (Story 039)
+- ✨ **FeedLatencyModel** - 行情延迟模拟
+  - Constant 固定延迟
+  - Normal 正态分布
+  - Interpolated 插值模型
+- ✨ **OrderLatencyModel** - 订单延迟模拟
+  - 提交延迟 (entry latency)
+  - 响应延迟 (response latency)
+- ✨ **LatencyStats** - 延迟统计
+
+### Examples
+- ✨ 11 个新示例 (15-25):
+  - `15_vectorized_backtest.zig` - 向量化回测
+  - `16_hyperliquid_adapter.zig` - 交易所适配器
+  - `17_paper_trading.zig` - Paper Trading
+  - `18_hot_reload.zig` - 策略热重载
+  - `19_clock_driven.zig` - Clock-Driven 执行
+  - `20_pure_market_making.zig` - 做市策略
+  - `21_inventory_management.zig` - 库存管理
+  - `22_data_persistence.zig` - 数据持久化
+  - `23_cross_exchange_arb.zig` - 跨交易所套利
+  - `24_queue_position.zig` - 队列位置建模
+  - `25_latency_simulation.zig` - 延迟模拟
 
 ### Tests
-- 当前: 617/625 tests passed
-- 修复进行中: segmentation fault 问题
+- ✅ 624 个单元测试通过 (从 558 增长)
+- ✅ 所有集成测试通过
+- ✅ 零内存泄漏
+
+### Fixed
+- 🐛 修复 ArrayList Zig 0.15 API 兼容性问题
+- 🐛 修复 signed integer division 需要 @divTrunc 问题
+- 🐛 修复多个 example 中的 API 不匹配问题
 
 ---
 
@@ -492,26 +565,27 @@
 
 ## 下一版本计划
 
-### v0.3.0 - 策略框架 (计划中)
-- [ ] 策略接口定义
-- [ ] 信号生成器
-- [ ] 风险管理模块
-- [ ] 回测框架基础
+### v0.8.0 - 风险管理 (规划中)
+- [ ] RiskEngine 风险引擎
+- [ ] 止损/止盈系统
+- [ ] 资金管理模块
+- [ ] 风险指标监控
+- [ ] 告警和通知系统
+- [ ] Crash Recovery 崩溃恢复
 
-### v0.4.0 - 回测引擎 (计划中)
-- [ ] 历史数据管理
-- [ ] 回测执行引擎
-- [ ] 性能分析工具
-- [ ] 策略优化器
+### v0.9.0 - 多交易所支持 (计划中)
+- [ ] 多交易所并行
+- [ ] 投资组合管理
+- [ ] 统一账户视图
 
 ### v1.0.0 - 生产就绪 (未来)
-- [ ] 完整的量化交易系统
-- [ ] 多交易所支持
-- [ ] Web 管理界面
-- [ ] 监控和告警系统
+- [ ] REST API 服务
+- [ ] Web Dashboard
+- [ ] Prometheus Metrics
+- [ ] 完整运维文档
 
 ---
 
-*更新时间: 2025-12-25*
-*当前版本: v0.2.0*
-*MVP 完成度: 99%*
+*更新时间: 2025-12-27*
+*当前版本: v0.7.0*
+*完成度: 78% (7/9 版本完成)*
