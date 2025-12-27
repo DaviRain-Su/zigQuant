@@ -1,8 +1,8 @@
 # ZigQuant 完整文档索引
 
-> **最后更新**: 2025-12-25
-> **当前版本**: v0.2.0
-> **MVP 完成度**: 99%
+> **最后更新**: 2025-12-27
+> **当前版本**: v0.6.0
+> **整体进度**: 67% (6/9 版本完成)
 
 ---
 
@@ -25,8 +25,8 @@
 
 ### 项目规划和进度
 - **[PROJECT_OUTLINE.md](PROJECT_OUTLINE.md)** - 项目愿景和 Phase 0-7 路线图
-- **[MVP_V0.2.0_PROGRESS.md](MVP_V0.2.0_PROGRESS.md)** - MVP v0.2.0 开发进度 (99%)
-- **[NEXT_STEPS.md](NEXT_STEPS.md)** - v0.2.0 发布准备和后续计划
+- **[roadmap.md](../roadmap.md)** - 产品路线图和架构演进战略
+- **[NEXT_STEPS.md](NEXT_STEPS.md)** - v0.7.0 开发计划
 
 ### 架构和设计
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - 系统架构设计和模块说明
@@ -268,28 +268,23 @@ docs/
 
 ---
 
-## ✅ MVP v0.2.0 完成度
+## ✅ 版本完成度总览
 
-| 模块 | 代码 | 文档 | 测试 | 状态 |
-|------|------|------|------|------|
-| Decimal | 100% | 100% | 140/140 | ✅ |
-| Time | 100% | 100% | 100% | ✅ |
-| Error System | 100% | 100% | 100% | ✅ |
-| Logger | 100% | 100% | 38/38 | ✅ |
-| Config | 100% | 100% | 100% | ✅ |
-| Exchange Router | 100% | 100% | 100% | ✅ |
-| Hyperliquid Connector | 100% | 100% | 100% | ✅ |
-| OrderBook | 100% | 100% | 100% | ✅ |
-| Order System | 100% | 100% | 100% | ✅ |
-| Order Manager | 100% | 100% | 100% | ✅ |
-| Position Tracker | 100% | 100% | 100% | ✅ |
-| CLI | 100% | 100% | 100% | ✅ |
-| **总计** | **99%** | **100%** | **178/178 + 3/3** | **✅** |
+| 版本 | 核心功能 | 测试 | 状态 |
+|------|---------|------|------|
+| v0.1.0 | Foundation 基础设施 | 140+ | ✅ 完成 |
+| v0.2.0 | MVP 交易系统 | 178 | ✅ 完成 |
+| v0.3.0 | 策略回测框架 | 343 | ✅ 完成 |
+| v0.4.0 | 优化器增强 | 453 | ✅ 完成 |
+| v0.5.0 | 事件驱动架构 | 502 | ✅ 完成 |
+| v0.6.0 | 混合计算模式 | 558 | ✅ 完成 |
+| v0.7.0 | 做市优化 | - | 📋 规划中 |
+| **总计** | **67% (6/9)** | **558** | **进行中** |
 
-**集成测试**:
-- ✅ WebSocket Orderbook (0.22ms 延迟)
-- ✅ Position Management (完整生命周期)
-- ✅ WebSocket Events (回调系统)
+**性能指标**:
+- ✅ 向量化回测: 12.6M bars/s
+- ✅ WebSocket 延迟: 0.23ms
+- ✅ 零内存泄漏
 
 ---
 
@@ -323,23 +318,29 @@ docs/
 - 内置策略实现
 - 策略回测引擎
 
-### v0.4.0 - 回测引擎
-- 历史数据管理
-- 回测执行引擎
-- 性能分析工具
+### v0.7.0 - 做市优化 (下一步)
+- Clock-Driven 模式
+- Pure Market Making 策略
+- Queue Position Modeling
+- Dual Latency Simulation
+
+### v0.8.0 - 风险管理
+- RiskEngine 风险引擎
+- Crash Recovery 崩溃恢复
+- 实时监控告警
 
 ### v1.0.0 - 生产就绪
 - 完整的量化交易系统
-- 多交易所支持
-- Web 管理界面
+- REST API 和 Web Dashboard
+- Prometheus Metrics
 
-查看 [PROJECT_OUTLINE.md](PROJECT_OUTLINE.md) 了解完整路线图。
+查看 [roadmap.md](../roadmap.md) 了解完整路线图。
 
 ---
 
-**文档总数**: 100 个文档
-**最后更新**: 2025-12-25
-**当前版本**: v0.2.0
-**MVP 完成度**: 99%
+**文档总数**: 190+ 个文档
+**最后更新**: 2025-12-27
+**当前版本**: v0.6.0
+**整体进度**: 67% (6/9 版本完成)
 
 🎉 Generated with [Claude Code](https://claude.com/claude-code)

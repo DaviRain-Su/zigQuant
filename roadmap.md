@@ -2,8 +2,8 @@
 
 > 从 0 到生产级量化交易框架的演进路径
 
-**当前版本**: v0.5.0 (事件驱动架构)
-**状态**: v0.5.0 已完成 ✅ (100%)
+**当前版本**: v0.6.0 (混合计算模式)
+**状态**: v0.6.0 已完成 ✅ (100%)
 **最后更新**: 2025-12-27
 
 ---
@@ -22,13 +22,13 @@ v0.2 MVP                 ██████████████████�
 v0.3 Strategy Framework  ████████████████████ (100%) ✅ 完成
 v0.4 优化器增强          ████████████████████ (100%) ✅ 完成
 v0.5 事件驱动架构        ████████████████████ (100%) ✅ 完成
-v0.6 混合计算模式        ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
-v0.7 做市优化            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
-v0.8 风险管理            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
+v0.6 混合计算模式        ████████████████████ (100%) ✅ 完成
+v0.7 做市优化            ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
+v0.8 风险管理            ░░░░░░░░░░░░░░░░░░░░ (0%)   计划中
 v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   未来
 ```
 
-**整体进度**: 56% (5/9 版本已完成) → 向混合计算模式演进
+**整体进度**: 67% (6/9 版本已完成) → 向做市优化演进
 
 ---
 
@@ -87,11 +87,11 @@ v0.4: 优化器增强             ███████████████�
 v0.5: 事件驱动架构           ████████████████████ (100%) ✅
   └─ MessageBus + Cache + DataEngine + ExecutionEngine + LiveTradingEngine
 
-v0.6: 混合计算               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
-  └─ 向量化回测 + 实盘适配器 + Paper Trading
+v0.6: 混合计算               ████████████████████ (100%) ✅ 完成
+  └─ 向量化回测 12.6M bars/s + Paper Trading + 策略热重载
 
-v0.7: 做市优化               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← Hummingbot 做市
-  └─ Clock-Driven + MM 策略 + zig-sqlite
+v0.7: 做市优化               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
+  └─ Clock-Driven + MM 策略 + Inventory + zig-sqlite + 套利
 
 v0.8: 风险管理               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← NautilusTrader RiskEngine
   └─ RiskEngine + 监控 + Crash Recovery
@@ -100,7 +100,7 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
   └─ REST API + Web Dashboard
 ```
 
-**整体进度**: 56% (5/9 版本完成) → 向生产级演进
+**整体进度**: 67% (6/9 版本完成) → 向生产级演进
 
 ---
 
@@ -361,80 +361,121 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 
 ---
 
-### 📋 v0.6 - 混合计算模式 (下一步)
-**预计时间**: 3-4 周
-**状态**: 📋 计划中 ← 下一步
+### ✅ v0.6 - 混合计算模式 - 已完成
+**完成时间**: 2025-12-27
+**状态**: ✅ 100% 完成
 **前置条件**: ✅ v0.5 完成
-**参考**: [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) - Freqtrade 向量化
+**文档**: [v0.6.0 概览](./docs/stories/v0.6.0/OVERVIEW.md)
 
-#### 核心目标
+#### 核心目标 (全部达成)
 支持向量化回测和增量实盘计算，实现交易所适配器连接实盘。
 
-#### Stories (待规划)
-- [ ] Story 028: 向量化回测引擎 (SIMD 优化)
-- [ ] Story 029: HyperliquidDataProvider (实现 IDataProvider)
-- [ ] Story 030: HyperliquidExecutionClient (实现 IExecutionClient)
-- [ ] Story 031: Paper Trading 模式
-- [ ] Story 032: 策略热重载
+#### Stories (5个，全部完成)
 
-#### 功能清单
-- [ ] **向量化回测** (借鉴 Freqtrade)
-  - SIMD 批量指标计算
-  - 内存映射数据加载
-  - 并行多策略回测
-- [ ] **实盘交易适配器**
-  - HyperliquidDataProvider (WebSocket 数据流)
-  - HyperliquidExecutionClient (订单执行)
-  - 订单状态同步
-- [ ] **Paper Trading**
-  - 模拟订单执行
-  - 实时 PnL 计算
-  - CLI: `zigquant run-strategy --paper`
+| Story | 名称 | 状态 | 文档 |
+|-------|------|------|------|
+| **028** | 向量化回测引擎 (12.6M bars/s) | ✅ | [STORY-028](./docs/stories/v0.6.0/STORY_028_VECTORIZED_BACKTESTER.md) |
+| **029** | HyperliquidDataProvider | ✅ | [STORY-029](./docs/stories/v0.6.0/STORY_029_HYPERLIQUID_DATA_PROVIDER.md) |
+| **030** | HyperliquidExecutionClient | ✅ | [STORY-030](./docs/stories/v0.6.0/STORY_030_HYPERLIQUID_EXECUTION_CLIENT.md) |
+| **031** | Paper Trading 模式 | ✅ | [STORY-031](./docs/stories/v0.6.0/STORY_031_PAPER_TRADING.md) |
+| **032** | 策略热重载 | ✅ | [STORY-032](./docs/stories/v0.6.0/STORY_032_HOT_RELOAD.md) |
 
-#### 成功指标
-- [ ] 向量化回测速度 > 100,000 bars/s
-- [ ] 实盘数据延迟 < 10ms
-- [ ] Paper Trading 功能完整
-- [ ] 550+ 单元测试通过
+#### 功能清单 (全部完成)
+
+**Story 028: 向量化回测引擎** ✅
+- [x] SIMD 优化批量计算
+- [x] 12.6M bars/s 回测速度 (目标 100K，超越 126 倍)
+- [x] 内存映射数据加载
+- [x] 并行多策略回测
+
+**Story 029-030: 交易所适配器** ✅
+- [x] HyperliquidDataProvider (实现 IDataProvider)
+- [x] HyperliquidExecutionClient (实现 IExecutionClient)
+- [x] WebSocket 实时数据流
+- [x] 订单状态同步
+
+**Story 031: Paper Trading** ✅
+- [x] PaperTradingEngine 模拟交易引擎
+- [x] SimulatedAccount 虚拟账户
+- [x] SimulatedExecutor 模拟执行器
+- [x] 滑点和手续费模拟
+
+**Story 032: 策略热重载** ✅
+- [x] HotReloadManager 配置监控
+- [x] ParamValidator 参数验证
+- [x] SafeReloadScheduler 安全调度
+- [x] JSON 配置文件支持
+
+#### 成功指标 (全部达成)
+- [x] 向量化回测速度 12.6M bars/s (目标 100K) ✅
+- [x] 实盘数据延迟 0.23ms (目标 < 10ms) ✅
+- [x] Paper Trading 功能完整 ✅
+- [x] 558 单元测试通过 ✅
 
 ---
 
-### 📋 v0.7 - 做市策略和数据持久化 (计划中)
+### 📋 v0.7 - 做市策略和数据持久化 (下一步)
 **预计时间**: 2-3 周
-**状态**: 📋 未开始
-**前置条件**: v0.6 完成
+**状态**: 📋 规划完成 ← 下一步
+**前置条件**: ✅ v0.6 完成
+**文档**: [v0.7.0 概览](./docs/stories/v0.7.0/OVERVIEW.md)
 **参考**: [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md) - Hummingbot 做市
 
 #### 核心目标
-实现做市策略和生产级数据存储。
+实现 Clock-Driven 做市策略、库存管理和数据持久化。
 
-#### Stories (待规划)
-- [ ] Story 038: Clock-Driven 模式 (Tick 驱动)
-- [ ] Story 039: Pure Market Making 策略
-- [ ] Story 040: Inventory Management 库存管理
-- [ ] Story 041: zig-sqlite 数据持久化
-- [ ] Story 042: Cross-Exchange Arbitrage 套利
+#### Stories (7个，已规划)
+
+| Story | 名称 | 优先级 | 文档 |
+|-------|------|--------|------|
+| **033** | Clock-Driven 模式 | P0 | [STORY-033](./docs/stories/v0.7.0/STORY_033_CLOCK_DRIVEN.md) |
+| **034** | Pure Market Making 策略 | P0 | [STORY-034](./docs/stories/v0.7.0/STORY_034_PURE_MM.md) |
+| **035** | Inventory Management | P1 | [STORY-035](./docs/stories/v0.7.0/STORY_035_INVENTORY.md) |
+| **036** | zig-sqlite 数据持久化 | P1 | [STORY-036](./docs/stories/v0.7.0/STORY_036_SQLITE.md) |
+| **037** | Cross-Exchange Arbitrage | P2 | [STORY-037](./docs/stories/v0.7.0/STORY_037_ARBITRAGE.md) |
+| **038** | Queue Position Modeling | P1 | [STORY-038](./docs/stories/v0.7.0/STORY_038_QUEUE_POSITION.md) |
+| **039** | Dual Latency Simulation | P1 | [STORY-039](./docs/stories/v0.7.0/STORY_039_DUAL_LATENCY.md) |
 
 #### 功能清单
 - [ ] **Clock-Driven Mode** (借鉴 Hummingbot)
-  - Tick 驱动策略
-  - 定时报价更新
+  - Clock 定时器 (1s tick interval)
+  - IClockStrategy 接口
+  - Tick 精度优化 (< 10ms 抖动)
 - [ ] **做市策略**
-  - Pure Market Making
-  - 动态价差调整
-  - 库存风险管理
-- [ ] **套利策略**
-  - 跨交易所套利
-  - 三角套利
+  - Pure Market Making (双边报价)
+  - 多层级订单
+  - 自动刷新报价
+- [ ] **库存管理**
+  - Inventory Skew (库存偏斜)
+  - 动态报价调整
+  - 再平衡机制
 - [ ] **数据持久化**
   - zig-sqlite 集成
   - K 线数据存储
   - 回测结果存储
+- [ ] **套利策略**
+  - 跨交易所套利机会检测
+  - 利润计算 (含费用)
+  - 同步执行
+- [ ] **队列位置建模** (借鉴 HFTBacktest)
+  - Level-3 订单簿 (Market-By-Order)
+  - QueuePosition 队列位置追踪
+  - 4 种成交概率模型 (RiskAverse/Probability/PowerLaw/Logarithmic)
+  - 提升做市策略回测精度
+- [ ] **双向延迟模拟** (借鉴 HFTBacktest)
+  - Feed Latency 行情延迟
+  - Order Latency 订单延迟 (提交+响应)
+  - 3 种延迟模型 (Constant/Normal/Interpolated)
+  - 纳秒级时间精度
 
 #### 成功指标
+- [ ] Tick 精度 < 10ms 抖动
 - [ ] 做市策略 Sharpe > 2.0
 - [ ] 套利捕获率 > 80%
 - [ ] 数据查询延迟 < 10ms
+- [ ] 队列建模回测精度提升 > 10%
+- [ ] 延迟模拟精度 < 1μs
+- [ ] 650+ 单元测试
 
 ---
 
@@ -447,11 +488,11 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 实现生产级风险管理和实时监控系统。
 
 #### Stories (待规划)
-- [ ] Story 043: RiskEngine 风险引擎
-- [ ] Story 044: 实时监控系统
-- [ ] Story 045: 告警和通知
-- [ ] Story 046: Crash Recovery 崩溃恢复
-- [ ] Story 047: 多交易对并行
+- [ ] Story 040: RiskEngine 风险引擎
+- [ ] Story 041: 实时监控系统
+- [ ] Story 042: 告警和通知
+- [ ] Story 043: Crash Recovery 崩溃恢复
+- [ ] Story 044: 多交易对并行
 
 #### 功能清单
 - [ ] **RiskEngine** (借鉴 NautilusTrader)
@@ -487,11 +528,11 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 添加 Web 管理界面和完整的生产环境支持。
 
 #### Stories (待规划)
-- [ ] Story 048: http.zig REST API
-- [ ] Story 049: Web Dashboard UI
-- [ ] Story 050: Prometheus Metrics
-- [ ] Story 051: 完整运维文档
-- [ ] Story 052: 部署自动化
+- [ ] Story 045: http.zig REST API
+- [ ] Story 046: Web Dashboard UI
+- [ ] Story 047: Prometheus Metrics
+- [ ] Story 048: 完整运维文档
+- [ ] Story 049: 部署自动化
 
 #### 功能清单
 - [ ] **REST API**
@@ -518,6 +559,16 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 ---
 
 ## 🔄 变更历史
+
+### v0.6.0 (2025-12-27)
+- ✅ 完成混合计算模式核心实现
+- ✅ 向量化回测引擎 (12.6M bars/s，超越目标 126 倍)
+- ✅ HyperliquidDataProvider (实现 IDataProvider)
+- ✅ HyperliquidExecutionClient (实现 IExecutionClient)
+- ✅ Paper Trading 模拟交易系统
+- ✅ 策略热重载功能
+- ✅ 558/558 测试全部通过
+- ✅ 零内存泄漏
 
 ### v0.5.0 (2025-12-27)
 - ✅ 完成事件驱动架构核心实现
@@ -567,19 +618,20 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 ## 🎯 近期焦点
 
 ### 本周目标 (Week of 2025-12-27)
-- ✅ v0.5.0 事件驱动架构完成
-- ✅ 所有文档更新完成
-- 🎉 v0.5.0 发布
+- ✅ v0.6.0 混合计算模式完成
+- ✅ v0.7.0 文档规划完成
+- 🎉 v0.6.0 发布
 
 ### 下周目标 (Week of 2025-01-02)
-- 📋 规划 v0.6.0 混合计算模式
-- 📝 创建 v0.6.0 Stories
-- 🚀 开始 Story 028: 向量化回测引擎
+- 🚀 开始 Story 033: Clock-Driven 模式
+- 📝 实现 Clock 定时器和 IClockStrategy 接口
+- 🎯 开始 Story 034: Pure Market Making 策略
 
 ### 本季度目标 (Q1 2025)
 - ✅ v0.5 事件驱动架构完成
-- 🎯 v0.6 混合计算模式完成
-- 🚀 v0.7 做市优化启动
+- ✅ v0.6 混合计算模式完成
+- 🎯 v0.7 做市优化完成
+- 🚀 v0.8 风险管理启动
 
 ---
 
@@ -607,13 +659,13 @@ v1.0: 生产就绪               ░░░░░░░░░░░░░░░�
 
 ## 📊 项目统计
 
-**代码行数**: ~22,000+ 行 (含 v0.5.0 新增 4736 行)
-**模块数量**: 12 个主要模块
-**测试数量**: 502 个单元测试 + 7 个集成测试
-**文档数量**: 180+ 个 markdown 文件
+**代码行数**: ~27,000+ 行 (含 v0.6.0 新增 ~4400 行)
+**模块数量**: 15 个主要模块
+**测试数量**: 558 个单元测试 + 集成测试
+**文档数量**: 190+ 个 markdown 文件
 **示例数量**: 14 个完整示例
 **技术指标**: 15 个
-**内置策略**: 4 个
+**内置策略**: 5 个
 
 ---
 

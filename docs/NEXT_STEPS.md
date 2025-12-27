@@ -275,110 +275,129 @@
 
 ### 📋 v0.7.0 目标概览
 
-**主题**: 做市优化 + 风险管理
-**核心目标**: 实现 Clock-Driven 做市策略和风险控制 (借鉴 Hummingbot)
+**主题**: 做市策略与数据持久化
+**核心目标**: 实现 Clock-Driven 做市策略、库存管理和数据存储 (借鉴 Hummingbot)
+**详细文档**: [docs/stories/v0.7.0/OVERVIEW.md](./stories/v0.7.0/OVERVIEW.md)
 
 ---
 
-## 🎯 优先级排序
+## 🎯 v0.7.0 Stories 规划 (7个 Story)
 
 ### P0 - 必须完成
 
-#### 1. 向量化回测引擎
-**预计时间**: 1 周
-**价值**: 极高 - 回测性能提升 10-100x
+#### Story 033: Clock-Driven 模式
+**预计时间**: 3-4 天
+**价值**: 极高 - 做市策略的执行基础
 
 **功能清单**:
-- [ ] 向量化指标计算 (SIMD 优化)
-- [ ] 批量订单处理
-- [ ] 内存映射数据加载
-- [ ] 并行多策略回测
+- [ ] Clock 定时器实现 (1s tick interval)
+- [ ] IClockStrategy 接口
+- [ ] 策略注册/注销
+- [ ] Tick 精度优化 (< 10ms 抖动)
 
-#### 2. 实盘交易适配器
-**预计时间**: 1 周
-**价值**: 极高 - 将事件驱动架构连接到真实交易所
+**文档**: [STORY_033_CLOCK_DRIVEN.md](./stories/v0.7.0/STORY_033_CLOCK_DRIVEN.md)
+
+#### Story 034: Pure Market Making 策略
+**预计时间**: 3-4 天
+**价值**: 极高 - 基础做市策略
 
 **功能清单**:
-- [ ] HyperliquidDataProvider (实现 IDataProvider)
-- [ ] HyperliquidExecutionClient (实现 IExecutionClient)
-- [ ] WebSocket 实时数据流
-- [ ] 订单执行和状态同步
+- [ ] PureMarketMaking 策略实现
+- [ ] 双边报价 (bid/ask spread)
+- [ ] 多层级订单
+- [ ] 自动刷新报价
+
+**文档**: [STORY_034_PURE_MM.md](./stories/v0.7.0/STORY_034_PURE_MM.md)
 
 ### P1 - 高优先级
 
-#### 1. Paper Trading 模式
-**预计时间**: 3-4 天
-
-**功能**:
-- [ ] 模拟订单执行
-- [ ] 实时 PnL 计算
-- [ ] 策略性能监控
-- [ ] CLI: `zigquant run-strategy --paper`
-
-#### 2. 策略热重载
+#### Story 035: Inventory Management 库存管理
 **预计时间**: 2-3 天
+**价值**: 高 - 做市风险控制
 
-**功能**:
-- [ ] 运行时策略参数更新
-- [ ] 无需重启切换策略
-- [ ] 配置文件监控
+**功能清单**:
+- [ ] InventoryManager 库存管理器
+- [ ] 库存偏斜 (Inventory Skew)
+- [ ] 动态报价调整
+- [ ] 再平衡机制
+
+**文档**: [STORY_035_INVENTORY.md](./stories/v0.7.0/STORY_035_INVENTORY.md)
+
+#### Story 036: zig-sqlite 数据持久化
+**预计时间**: 3-4 天
+**价值**: 高 - 数据存储基础
+
+**功能清单**:
+- [ ] zig-sqlite 集成
+- [ ] K 线数据存储/加载
+- [ ] 回测结果存储
+- [ ] CandleCache 内存缓存
+
+**文档**: [STORY_036_SQLITE.md](./stories/v0.7.0/STORY_036_SQLITE.md)
+
+#### Story 038: Queue Position Modeling 队列位置建模
+**预计时间**: 3-4 天
+**价值**: 高 - HFTBacktest 核心特性，提升做市回测精度
+
+**功能清单**:
+- [ ] Level-3 OrderBook (Market-By-Order)
+- [ ] QueuePosition 队列位置追踪
+- [ ] 4 种成交概率模型 (RiskAverse/Probability/PowerLaw/Logarithmic)
+- [ ] 回测精度提升 (回测 vs 实盘 Sharpe 差异 < 10%)
+
+**文档**: [STORY_038_QUEUE_POSITION.md](./stories/v0.7.0/STORY_038_QUEUE_POSITION.md)
+
+#### Story 039: Dual Latency Simulation 双向延迟模拟
+**预计时间**: 2-3 天
+**价值**: 高 - HFTBacktest 核心特性，真实模拟 HFT/做市延迟
+
+**功能清单**:
+- [ ] Feed Latency 行情延迟模拟
+- [ ] Order Latency 订单延迟 (提交延迟 + 响应延迟)
+- [ ] 3 种延迟模型 (Constant/Normal/Interpolated)
+- [ ] 纳秒级时间精度
+
+**文档**: [STORY_039_DUAL_LATENCY.md](./stories/v0.7.0/STORY_039_DUAL_LATENCY.md)
 
 ### P2 - 中优先级
 
-#### 1. 风险管理增强
-- [ ] 仓位大小计算 (Kelly, Fixed Fractional)
-- [ ] 动态止损止盈
-- [ ] 最大回撤控制
-- [ ] 每日损失限制
+#### Story 037: Cross-Exchange Arbitrage 跨交易所套利
+**预计时间**: 3-4 天
+**价值**: 中 - 高级策略
 
-#### 2. 监控和报告
-- [ ] 实时性能仪表盘
-- [ ] HTML/PDF 报告生成
-- [ ] 策略对比功能
-- [ ] Webhook 通知
+**功能清单**:
+- [ ] 套利机会检测
+- [ ] 利润计算 (含费用)
+- [ ] 同步执行
+- [ ] 风险控制
 
-### P3 - 低优先级
-
-#### 1. 多交易所支持
-- [ ] Binance 适配器
-- [ ] 通用交易所接口
-- [ ] 跨交易所套利支持
-
-#### 2. Web 管理界面
-- [ ] REST API 服务
-- [ ] Web Dashboard
-- [ ] 远程策略管理
+**文档**: [STORY_037_ARBITRAGE.md](./stories/v0.7.0/STORY_037_ARBITRAGE.md)
 
 ---
 
-## 📅 开发时间线（v0.6.0）
+## 📅 v0.7.0 开发时间线
 
-| 任务 | 优先级 | 预计时间 | 状态 |
-|------|--------|---------|------|
-| 向量化回测引擎 | P0 | 1 周 | 🔜 下一步 |
-| 实盘交易适配器 | P0 | 1 周 | ⏳ 待开始 |
-| Paper Trading 模式 | P1 | 3-4 天 | ⏳ 待开始 |
-| 策略热重载 | P1 | 2-3 天 | ⏳ 待开始 |
-| 风险管理增强 | P2 | 1 周 | ⏳ 待开始 |
-| 监控和报告 | P2 | 1 周 | ⏳ 待开始 |
+| Story | 名称 | 优先级 | 预计时间 | 状态 |
+|-------|------|--------|---------|------|
+| 033 | Clock-Driven 模式 | P0 | 3-4 天 | 🔜 下一步 |
+| 034 | Pure Market Making | P0 | 3-4 天 | ⏳ 待开始 |
+| 035 | Inventory Management | P1 | 2-3 天 | ⏳ 待开始 |
+| 036 | zig-sqlite 持久化 | P1 | 3-4 天 | ⏳ 待开始 |
+| 037 | Cross-Exchange Arbitrage | P2 | 3-4 天 | ⏳ 待开始 |
+| 038 | Queue Position Modeling | P1 | 3-4 天 | ⏳ 待开始 |
+| 039 | Dual Latency Simulation | P1 | 2-3 天 | ⏳ 待开始 |
 
-**v0.6.0 总预计时间**: 3-4 周
+**v0.7.0 总预计时间**: 3-4 周
 
 ---
 
-## 🔮 长期愿景（v0.7.0+）
-
-### Phase 4: 做市优化 (v0.7.0)
-- Clock-Driven 策略执行 (借鉴 Hummingbot)
-- 订单前置追踪优化
-- 做市策略模板
-- 库存管理
+## 🔮 长期愿景（v0.8.0+）
 
 ### Phase 5: 风险管理 (v0.8.0)
 - RiskEngine 集成 (借鉴 NautilusTrader)
 - Crash Recovery
-- 持久化存储
 - 状态恢复
+- 更多做市策略模板
 
 ### Phase 6: 生产就绪 (v1.0.0)
 - REST API 服务
