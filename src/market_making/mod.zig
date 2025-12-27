@@ -4,6 +4,7 @@
 //! - Clock-driven execution mode for periodic quote updates
 //! - IClockStrategy interface for clock-driven strategies
 //! - Pure Market Making strategy
+//! - Inventory Management with skew adjustments
 //!
 //! ## Story 033: Clock-Driven Mode
 //!
@@ -13,6 +14,10 @@
 //! ## Story 034: Pure Market Making
 //!
 //! Basic market making strategy that places orders on both sides of the mid price.
+//!
+//! ## Story 035: Inventory Management
+//!
+//! Inventory-based quote adjustment to manage position risk through skew.
 //!
 //! ## Usage
 //!
@@ -39,6 +44,7 @@ pub const clock = @import("clock.zig");
 pub const interfaces = @import("interfaces.zig");
 pub const types = @import("types.zig");
 pub const pure_mm = @import("pure_mm.zig");
+pub const inventory = @import("inventory.zig");
 
 // Re-export Clock types (Story 033)
 pub const Clock = clock.Clock;
@@ -57,6 +63,13 @@ pub const QuoteUpdate = types.QuoteUpdate;
 pub const PureMarketMaking = pure_mm.PureMarketMaking;
 pub const PureMMConfig = pure_mm.PureMMConfig;
 pub const ConfigError = pure_mm.ConfigError;
+
+// Re-export Inventory Management types (Story 035)
+pub const InventoryManager = inventory.InventoryManager;
+pub const InventoryConfig = inventory.InventoryConfig;
+pub const SkewMode = inventory.SkewMode;
+pub const RebalanceAction = inventory.RebalanceAction;
+pub const InventoryStats = inventory.InventoryStats;
 
 // ============================================================================
 // Tests

@@ -282,6 +282,13 @@ pub const MMOrderInfo = market_making.OrderInfo;
 pub const MMOrderFill = market_making.OrderFill;
 pub const MMStats = market_making.MMStats;
 
+// Re-export v0.7.0 Inventory Management types (Story 035)
+pub const InventoryManager = market_making.InventoryManager;
+pub const InventoryConfig = market_making.InventoryConfig;
+pub const SkewMode = market_making.SkewMode;
+pub const RebalanceAction = market_making.RebalanceAction;
+pub const InventoryStats = market_making.InventoryStats;
+
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
 pub const OptimizerParameterValue = optimizer_types.ParameterValue;
