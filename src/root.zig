@@ -117,6 +117,9 @@ pub const backtest_json_exporter = @import("backtest/json_exporter.zig");
 pub const backtest_csv_exporter = @import("backtest/csv_exporter.zig");
 pub const backtest_result_loader = @import("backtest/result_loader.zig");
 
+// v0.7.0 Queue Position Modeling (Story 038)
+pub const queue_position = @import("backtest/queue_position.zig");
+
 // v0.6.0 Vectorized backtest modules
 pub const vectorized = @import("backtest/vectorized/mod.zig");
 
@@ -235,6 +238,13 @@ pub const CSVExporter = backtest_csv_exporter.CSVExporter;
 pub const ResultLoader = backtest_result_loader.ResultLoader;
 pub const LoadedResult = backtest_result_loader.LoadedResult;
 pub const ResultComparison = backtest_result_loader.ResultComparison;
+
+// Re-export v0.7.0 Queue Position types (Story 038)
+pub const QueueModel = queue_position.QueueModel;
+pub const QueuePosition = queue_position.QueuePosition;
+pub const QueuedOrder = queue_position.QueuedOrder;
+pub const PriceLevel = queue_position.PriceLevel;
+pub const Level3OrderBook = queue_position.Level3OrderBook;
 
 // Re-export v0.6.0 vectorized backtest types
 pub const VectorizedBacktester = vectorized.VectorizedBacktester;
@@ -560,6 +570,9 @@ test {
     _ = backtest_json_exporter;
     _ = backtest_csv_exporter;
     _ = backtest_result_loader;
+
+    // v0.7.0 Queue Position Modeling
+    _ = queue_position;
 
     // v0.6.0 Vectorized backtest modules
     _ = vectorized;
