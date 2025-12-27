@@ -1,8 +1,8 @@
 # Parameter Optimizer
 
-**Version**: v0.3.0
+**Version**: v0.4.0
 **Status**: ✅ Completed
-**Last Updated**: 2025-12-26
+**Last Updated**: 2025-12-27
 
 ---
 
@@ -19,13 +19,25 @@ The Parameter Optimizer module provides automated parameter search and optimizat
 - **Progress Tracking**: Real-time progress updates and result reporting
 - **Result Ranking**: Automatically ranks and sorts all tested combinations
 
+### Walk-Forward Analysis (v0.4.0 NEW!)
+- **Forward Validation**: Prevent overfitting with out-of-sample testing
+- **Data Splitting**: Fixed, rolling, expanding, and anchored window modes
+- **Overfitting Detection**: Analyze train/test performance gap
+- **Stability Scoring**: R² coefficient for equity curve stability
+
+### Parallel Optimization (v0.4.0 NEW!)
+- **Multi-threaded Execution**: Utilize all CPU cores
+- **Thread Pool**: Work-stealing pattern for load balancing
+- **Progress Callback**: Real-time progress tracking
+- **Linear Speedup**: Near-linear scaling with thread count
+
 ### Parameter Management
 - **Parameter Ranges**: Define search spaces with min, max, and step values
 - **Parameter Sets**: Manage parameter combinations efficiently
 - **Optimization Config**: Flexible configuration for optimization runs
 
 ### Performance
-- **Fast Execution**: Optimized for speed with optional parallel processing
+- **Fast Execution**: Optimized for speed with parallel processing
 - **Memory Efficient**: Careful memory management for large search spaces
 - **Result Caching**: Stores all backtest results for later analysis
 
@@ -33,10 +45,13 @@ The Parameter Optimizer module provides automated parameter search and optimizat
 
 ```
 optimizer/
-├── types.zig              # Type definitions
+├── types.zig              # Type definitions + 12 optimization objectives
 ├── grid_search.zig        # Grid search implementation
 ├── combination.zig        # Parameter combination generator
-└── result.zig             # Result analysis and ranking
+├── result.zig             # Result analysis and ranking
+├── walk_forward.zig       # Walk-Forward analyzer (v0.4.0)
+├── data_split.zig         # Data splitting strategies (v0.4.0)
+└── overfitting_detector.zig # Overfitting detection (v0.4.0)
 ```
 
 ## Quick Start
@@ -130,6 +145,8 @@ Contains optimization results with best parameters and all tested combinations.
 
 ## Optimization Objectives
 
+### Basic Objectives (v0.3.0)
+
 | Objective | Description | Formula |
 |-----------|-------------|---------|
 | `maximize_sharpe_ratio` | Risk-adjusted returns | `(return - rf_rate) / volatility` |
@@ -139,12 +156,23 @@ Contains optimization results with best parameters and all tested combinations.
 | `maximize_net_profit` | Total profit | `total_profit - total_loss` |
 | `custom` | User-defined metric | Custom function |
 
+### Advanced Objectives (v0.4.0 NEW!)
+
+| Objective | Description | Formula |
+|-----------|-------------|---------|
+| `maximize_sortino_ratio` | Downside risk-adjusted | `(return - rf_rate) / downside_deviation` |
+| `maximize_calmar_ratio` | Return vs drawdown | `annual_return / max_drawdown` |
+| `maximize_omega_ratio` | Gain/loss probability | `sum(gains) / sum(losses)` |
+| `maximize_tail_ratio` | Extreme performance | `percentile_95 / percentile_5` |
+| `maximize_stability` | Equity curve stability | `R² of linear regression` |
+| `maximize_risk_adjusted_return` | Combined metric | `return * (1 - max_drawdown)` |
+
 ## Performance Characteristics
 
 - **Speed**: Single backtest < 100ms
 - **Memory**: Linear with number of combinations
 - **Scalability**: Supports 1000+ combinations efficiently
-- **Parallel**: Optional parallel execution (future)
+- **Parallel**: Multi-threaded execution (v0.4.0)
 
 ## Validation & Testing
 
@@ -159,19 +187,25 @@ Contains optimization results with best parameters and all tested combinations.
 - Performance benchmarks
 - Overfitting detection tests
 
-## Limitations (v0.3.0)
+## Limitations (v0.4.0)
 
 - **Grid Search Only**: Advanced algorithms (genetic, Bayesian) in future versions
-- **Sequential Execution**: Parallel processing optional
 - **Single Objective**: Multi-objective optimization in future
 - **Memory Bound**: Large search spaces may require chunking
 
-## Future Enhancements (v0.4.0+)
+## Completed in v0.4.0
+
+- ✅ Parallel optimization with thread pool
+- ✅ Walk-Forward analysis built-in
+- ✅ Overfitting detection
+- ✅ 6 new optimization objectives
+- ✅ Data splitting strategies
+
+## Future Enhancements (v0.5.0+)
 
 - Genetic algorithm optimizer
 - Bayesian optimization
-- Distributed/parallel optimization
-- Walk-forward analysis built-in
+- Distributed optimization (multi-machine)
 - Multi-objective optimization
 - Adaptive parameter ranges
 
@@ -180,13 +214,14 @@ Contains optimization results with best parameters and all tested combinations.
 - [API Reference](api.md) - Complete API documentation
 - [Implementation Details](implementation.md) - Internal architecture
 - [Testing Guide](testing.md) - Test strategy and examples
-- [Story 022](../../stories/v0.3.0/STORY_022_GRID_SEARCH_OPTIMIZER.md) - Original user story
+- [Story 022 (v0.3.0)](../../stories/v0.3.0/STORY_022_GRID_SEARCH_OPTIMIZER.md) - Original user story
+- [Story 022 (v0.4.0)](../../stories/v0.4.0/STORY_022_OPTIMIZER_ENHANCEMENT.md) - v0.4.0 enhancements
 
 ---
 
-## ✅ v0.3.0 完成情况
+## ✅ v0.4.0 完成情况
 
-### 已实现功能
+### v0.3.0 已实现功能
 
 - ✅ GridSearchOptimizer - 网格搜索优化器
 - ✅ CombinationGenerator - 参数组合生成器
@@ -196,21 +231,40 @@ Contains optimization results with best parameters and all tested combinations.
 - ✅ 6种优化目标 (Sharpe, Profit Factor, Win Rate, Max Drawdown, Net Profit, Custom)
 - ✅ 参数类型支持 (integer, decimal, boolean, discrete)
 
+### v0.4.0 新增功能
+
+- ✅ WalkForwardAnalyzer - 前向验证分析器
+- ✅ DataSplitter - 数据分割策略 (Fixed, Rolling, Expanding, Anchored)
+- ✅ OverfittingDetector - 过拟合检测器
+- ✅ ThreadPool - 并行执行线程池
+- ✅ ParallelExecutor - 并行回测执行器
+- ✅ 6种新优化目标 (Sortino, Calmar, Omega, Tail, Stability, Risk-Adjusted)
+- ✅ 进度回调支持
+
 ### 核心组件
 
 **文件结构**:
 ```
 src/optimizer/
-├── grid_search.zig        # GridSearchOptimizer 实现
-├── types.zig              # OptimizationConfig, OptimizationResult
-├── combination.zig        # CombinationGenerator
-└── result.zig             # 结果分析和排序
+├── grid_search.zig           # GridSearchOptimizer 实现
+├── types.zig                 # OptimizationConfig, OptimizationResult, 12种目标
+├── combination.zig           # CombinationGenerator
+├── result.zig                # 结果分析和排序
+├── walk_forward.zig          # Walk-Forward 分析器 (v0.4.0)
+├── data_split.zig            # 数据分割策略 (v0.4.0)
+└── overfitting_detector.zig  # 过拟合检测器 (v0.4.0)
+
+src/backtest/
+├── thread_pool.zig           # 线程池 (v0.4.0)
+└── parallel_executor.zig     # 并行执行器 (v0.4.0)
 ```
 
 ### 示例和测试
 
 **示例代码**:
-- `examples/06_strategy_optimize.zig` - 完整优化示例 ✅
+- `examples/07_strategy_optimize.zig` - 基础优化示例 ✅
+- `examples/10_walk_forward.zig` - Walk-Forward 分析示例 ✅ (v0.4.0)
+- `examples/12_parallel_optimize.zig` - 并行优化示例 ✅ (v0.4.0)
 
 **测试代码**:
 - `tests/integration/strategy_full_test.zig` - 集成测试 ✅
@@ -224,12 +278,18 @@ src/optimizer/
 # 运行优化示例
 zig build run-example-optimize
 
+# Walk-Forward 分析示例
+zig build run-example-walkforward
+
+# 并行优化示例
+zig build run-example-parallel
+
 # 运行集成测试
 zig build test-strategy-full
 ```
 
 ---
 
-**Version**: v0.3.0
+**Version**: v0.4.0
 **Status**: ✅ 已完成
-**Last Updated**: 2025-12-26
+**Last Updated**: 2025-12-27

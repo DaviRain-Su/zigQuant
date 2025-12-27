@@ -1,7 +1,7 @@
 # Technical Indicators Library - 技术指标库
 
-**版本**: v0.3.0 → v0.4.0
-**状态**: v0.3.0 ✅ 完成 | v0.4.0 📋 计划中
+**版本**: v0.4.0
+**状态**: ✅ 完成
 **层级**: Strategy Layer
 **依赖**: Core (Decimal, Time), Market (Candles)
 
@@ -56,40 +56,35 @@ Technical Indicators Library 是 zigQuant 的技术指标计算库，提供常�
 | **ATR** | Average True Range | 波动率 | 平均真实波幅 | ✅ v0.3.0 |
 | **Stochastic** | Stochastic Oscillator | 动量 | 随机振荡器 | ✅ v0.3.0 |
 
-### v0.4.0 新增指标 (8 个) 📋
+### v0.4.0 新增指标 (8 个) ✅
 
 #### 动量指标 (Momentum)
 
 | 指标 | 全称 | 描述 | 默认参数 | 状态 |
 |------|------|------|---------|------|
-| **Williams %R** | Williams Percent Range | 威廉指标，衡量超买超卖 | period=14 | 📋 计划 |
-| **CCI** | Commodity Channel Index | 商品路径指标 | period=20 | 📋 计划 |
-| **ROC** | Rate of Change | 变动率指标 | period=12 | 📋 计划 |
+| **Stochastic RSI** | Stochastic RSI | 随机RSI，更灵敏的超买超卖 | period=14 | ✅ v0.4.0 |
+| **Williams %R** | Williams Percent Range | 威廉指标，衡量超买超卖 | period=14 | ✅ v0.4.0 |
+| **CCI** | Commodity Channel Index | 商品路径指标 | period=20 | ✅ v0.4.0 |
 
 #### 趋势指标 (Trend)
 
 | 指标 | 全称 | 描述 | 默认参数 | 状态 |
 |------|------|------|---------|------|
-| **ADX** | Average Directional Index | 平均趋向指标，衡量趋势强度 | period=14 | 📋 计划 |
-| **Parabolic SAR** | Parabolic Stop and Reverse | 抛物线转向，追踪止损 | AF=0.02, Max=0.2 | 📋 计划 |
+| **ADX** | Average Directional Index | 平均趋向指标，衡量趋势强度 | period=14 | ✅ v0.4.0 |
+| **Ichimoku** | Ichimoku Cloud | 一目均衡表（5 条线） | (9, 26, 52) | ✅ v0.4.0 |
 
 #### 成交量指标 (Volume)
 
 | 指标 | 全称 | 描述 | 默认参数 | 状态 |
 |------|------|------|---------|------|
-| **OBV** | On Balance Volume | 能量潮指标 | - | 📋 计划 |
-| **VWAP** | Volume Weighted Average Price | 成交量加权平均价 | - | 📋 计划 |
-
-#### 高级指标 (Advanced)
-
-| 指标 | 全称 | 描述 | 默认参数 | 状态 |
-|------|------|------|---------|------|
-| **Ichimoku** | Ichimoku Cloud | 一目均衡表（5 条线） | (9, 26, 52) | 📋 计划 |
+| **OBV** | On Balance Volume | 能量潮指标 | - | ✅ v0.4.0 |
+| **MFI** | Money Flow Index | 资金流量指数 | period=14 | ✅ v0.4.0 |
+| **VWAP** | Volume Weighted Average Price | 成交量加权平均价 | - | ✅ v0.4.0 |
 
 ### 总计
 
 - **v0.3.0**: 7 个指标 ✅
-- **v0.4.0**: +8 个新指标 = **15 个指标** 📋
+- **v0.4.0**: +8 个新指标 = **15 个指标** ✅
 - **未来版本**: 持续扩展至 30+ 指标
 
 ---
@@ -502,17 +497,28 @@ pub fn tripleConfirmation(
 
 ---
 
-## ✅ v0.3.0 完成情况
+## ✅ v0.4.0 完成情况
 
-### 已实现指标 (7个)
+### v0.3.0 已实现指标 (7个)
 
-- ✅ **SMA** - 简单移动平均 (`src/strategy/indicators/sma.zig`)
-- ✅ **EMA** - 指数移动平均 (`src/strategy/indicators/ema.zig`)
-- ✅ **RSI** - 相对强弱指标 (`src/strategy/indicators/rsi.zig`)
-- ✅ **MACD** - 移动平均收敛散度 (`src/strategy/indicators/macd.zig`)
-- ✅ **Bollinger Bands** - 布林带 (`src/strategy/indicators/bollinger.zig`)
-- ✅ **ATR** - 平均真实波幅 (`src/strategy/indicators/atr.zig`)
-- ✅ **Volume Profile** - 成交量分布 (`src/strategy/indicators/volume_profile.zig`)
+- ✅ **SMA** - 简单移动平均 (`src/indicators/sma.zig`)
+- ✅ **EMA** - 指数移动平均 (`src/indicators/ema.zig`)
+- ✅ **RSI** - 相对强弱指标 (`src/indicators/rsi.zig`)
+- ✅ **MACD** - 移动平均收敛散度 (`src/indicators/macd.zig`)
+- ✅ **Bollinger Bands** - 布林带 (`src/indicators/bollinger.zig`)
+- ✅ **ATR** - 平均真实波幅 (`src/indicators/atr.zig`)
+- ✅ **Stochastic** - 随机振荡器 (`src/indicators/stochastic.zig`)
+
+### v0.4.0 新增指标 (8个)
+
+- ✅ **ADX** - 平均趋向指数 (`src/indicators/adx.zig`)
+- ✅ **Ichimoku** - 一目均衡表 (`src/indicators/ichimoku.zig`)
+- ✅ **Stochastic RSI** - 随机RSI (`src/indicators/stoch_rsi.zig`)
+- ✅ **Williams %R** - 威廉指标 (`src/indicators/williams_r.zig`)
+- ✅ **CCI** - 商品通道指数 (`src/indicators/cci.zig`)
+- ✅ **OBV** - 能量潮 (`src/indicators/obv.zig`)
+- ✅ **MFI** - 资金流量指数 (`src/indicators/mfi.zig`)
+- ✅ **VWAP** - 成交量加权平均价 (`src/indicators/vwap.zig`)
 
 ### 核心组件
 
@@ -525,17 +531,23 @@ pub fn tripleConfirmation(
 
 **文件结构**:
 ```
-src/strategy/indicators/
-├── interface.zig       # IIndicator 接口
-├── manager.zig         # IndicatorManager (缓存)
-├── helpers.zig         # 辅助函数
+src/indicators/
+├── root.zig           # 模块入口
 ├── sma.zig            # 简单移动平均
 ├── ema.zig            # 指数移动平均
 ├── rsi.zig            # 相对强弱指标
 ├── macd.zig           # MACD
 ├── bollinger.zig      # 布林带
 ├── atr.zig            # ATR
-└── volume_profile.zig # 成交量分布
+├── stochastic.zig     # 随机振荡器
+├── adx.zig            # 平均趋向指数 (v0.4.0)
+├── ichimoku.zig       # 一目均衡表 (v0.4.0)
+├── stoch_rsi.zig      # 随机RSI (v0.4.0)
+├── williams_r.zig     # 威廉指标 (v0.4.0)
+├── cci.zig            # CCI (v0.4.0)
+├── obv.zig            # OBV (v0.4.0)
+├── mfi.zig            # MFI (v0.4.0)
+└── vwap.zig           # VWAP (v0.4.0)
 ```
 
 ### 测试覆盖
@@ -557,13 +569,14 @@ zig build test-strategy-full
 ### 使用示例
 
 参见：
-- `examples/05_strategy_backtest.zig` - 策略中使用指标
-- `examples/07_custom_strategy.zig` - 自定义策略使用 EMA
+- `examples/06_strategy_backtest.zig` - 策略中使用指标
+- `examples/08_custom_strategy.zig` - 自定义策略使用 EMA
+- `examples/09_new_indicators.zig` - v0.4.0 新指标演示 ✨
 - 所有内置策略源码 (`src/strategy/builtin/`)
 
 ---
 
-**版本**: v0.3.0
-**状态**: ✅ 已完成 (2025-12-26)
-**更新时间**: 2025-12-26
+**版本**: v0.4.0
+**状态**: ✅ 已完成 (2025-12-27)
+**更新时间**: 2025-12-27
 **参考**: TA-Lib, TradingView

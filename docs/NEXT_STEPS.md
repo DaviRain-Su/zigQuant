@@ -1,7 +1,7 @@
 # 下一步行动计划
 
-**更新时间**: 2024-12-26
-**当前阶段**: 🎉 v0.3.0 完成 (Story 023) → v0.4.0 规划
+**更新时间**: 2024-12-27
+**当前阶段**: 🎉 v0.4.0 完成 → v0.5.0 规划
 **架构参考**: [竞争分析](./architecture/COMPETITIVE_ANALYSIS.md) - NautilusTrader/Hummingbot/Freqtrade 深度研究
 
 ---
@@ -10,8 +10,8 @@
 
 基于对三大顶级量化交易平台的深度分析,zigQuant 的长期架构演进路径:
 
-- **v0.4**: 参数优化 + 策略扩展 (当前焦点)
-- **v0.5**: 事件驱动架构 (借鉴 NautilusTrader: MessageBus + Cache + DataEngine)
+- **v0.4**: 参数优化 + 策略扩展 ✅ 已完成
+- **v0.5**: 事件驱动架构 (借鉴 NautilusTrader: MessageBus + Cache + DataEngine) ← 当前焦点
 - **v0.6**: 混合计算模式 (借鉴 Freqtrade: 向量化回测 + 增量实盘)
 - **v0.7**: 做市优化 (借鉴 Hummingbot: Clock-Driven + 订单前置追踪)
 - **v0.8**: 风险管理 (借鉴 NautilusTrader: RiskEngine + Crash Recovery)
@@ -101,13 +101,67 @@
 
 ---
 
-## 🚀 当前任务: v0.4.0 规划
+### MVP v0.4.0 - 优化器增强与指标扩展 (100%) ✅
 
-### 📋 v0.4.0 目标概览
+**完成时间**: 2025-12-27
 
-**主题**: 参数优化和策略扩展
-**预计时间**: 2-3 周
-**核心目标**: 实现 GridSearchOptimizer + 扩展策略库
+#### 核心功能
+- ✅ **Walk-Forward 分析** (Story 022)
+  - WalkForwardAnalyzer 前向验证分析器
+  - DataSplitter 数据分割策略 (Fixed/Rolling/Expanding/Anchored)
+  - OverfittingDetector 过拟合检测器
+  - 6 种新优化目标 (Sortino, Calmar, Omega, Tail, Stability, Risk-Adjusted)
+
+- ✅ **扩展技术指标** (Story 025) - 8 个新指标
+  - ADX (平均趋向指数)
+  - Ichimoku Cloud (一目均衡表)
+  - Stochastic RSI (随机RSI)
+  - Williams %R (威廉指标)
+  - CCI (商品通道指数)
+  - OBV (能量潮)
+  - MFI (资金流量指数)
+  - VWAP (成交量加权平均价)
+
+- ✅ **回测结果导出** (Story 027)
+  - JSONExporter (JSON格式导出)
+  - CSVExporter (CSV格式导出)
+  - ResultLoader (历史结果加载)
+  - ResultComparator (多策略对比)
+
+- ✅ **并行优化**
+  - ThreadPool 线程池实现
+  - ParallelExecutor 并行回测执行器
+  - 进度回调支持
+
+- ✅ **新增策略**
+  - MACD Divergence (MACD背离策略)
+
+- ✅ **新增示例** (+4个)
+  - 09_new_indicators.zig
+  - 10_walk_forward.zig
+  - 11_result_export.zig
+  - 12_parallel_optimize.zig
+
+#### 测试结果
+- ✅ **453/453 单元测试通过** (从 343 增长到 453)
+- ✅ **零内存泄漏** (GPA 验证)
+- ✅ **12个示例程序** (从 8 个增长到 12 个)
+
+#### 文档更新
+- ✅ README.md 更新到 v0.4.0
+- ✅ 优化器文档更新
+- ✅ 指标库文档更新
+- ✅ 回测指南 (BACKTEST_GUIDE.md)
+- ✅ 优化指南 (OPTIMIZATION_GUIDE.md)
+
+---
+
+## 🚀 当前任务: v0.5.0 规划
+
+### 📋 v0.5.0 目标概览
+
+**主题**: 事件驱动核心架构
+**核心目标**: 重构为事件驱动架构 (借鉴 NautilusTrader)
 
 ---
 
