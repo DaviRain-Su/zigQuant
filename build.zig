@@ -39,6 +39,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add libxev dependency for high-performance event loop
+    const libxev = b.dependency("libxev", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -60,6 +66,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "zigeth", .module = zigeth.module("zigeth") },
             .{ .name = "websocket", .module = websocket.module("websocket") },
+            .{ .name = "xev", .module = libxev.module("xev") },
         },
     });
 
@@ -264,6 +271,22 @@ pub fn build(b: *std.Build) void {
     const run_strategy_full_test = b.addRunArtifact(strategy_full_test);
     const strategy_full_step = b.step("test-strategy-full", "Run full strategy system integration test");
     strategy_full_step.dependOn(&run_strategy_full_test.step);
+
+    // v0.5.0 Integration test - tests event-driven architecture components
+    const v050_integration_test = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/v050_integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+
+    const run_v050_integration_test = b.addRunArtifact(v050_integration_test);
+    const v050_integration_step = b.step("test-v050", "Run v0.5.0 event-driven architecture integration test");
+    v050_integration_step.dependOn(&run_v050_integration_test.step);
 
     // Verify Keys tool - helps verify private key and wallet address match
     const verify_keys = b.addExecutable(.{
@@ -490,6 +513,40 @@ pub fn build(b: *std.Build) void {
     const example_parallel_step = b.step("run-example-parallel", "Run parallel optimization example");
     example_parallel_step.dependOn(&run_example_parallel.step);
 
+    // Example 13: Event-Driven Architecture (v0.5.0)
+    const example_event_driven = b.addExecutable(.{
+        .name = "example-event-driven",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/13_event_driven.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_event_driven);
+    const run_example_event_driven = b.addRunArtifact(example_event_driven);
+    const example_event_driven_step = b.step("run-example-event-driven", "Run event-driven architecture example (v0.5.0)");
+    example_event_driven_step.dependOn(&run_example_event_driven.step);
+
+    // Example 14: Async Trading Engine (v0.5.0)
+    const example_async_engine = b.addExecutable(.{
+        .name = "example-async-engine",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/14_async_engine.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_async_engine);
+    const run_example_async_engine = b.addRunArtifact(example_async_engine);
+    const example_async_engine_step = b.step("run-example-async-engine", "Run async trading engine example (v0.5.0)");
+    example_async_engine_step.dependOn(&run_example_async_engine.step);
+
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
     examples_step.dependOn(&run_example_core.step);
@@ -504,6 +561,8 @@ pub fn build(b: *std.Build) void {
     examples_step.dependOn(&run_example_walkforward.step);
     examples_step.dependOn(&run_example_export.step);
     examples_step.dependOn(&run_example_parallel.step);
+    examples_step.dependOn(&run_example_event_driven.step);
+    examples_step.dependOn(&run_example_async_engine.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

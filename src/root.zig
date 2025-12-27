@@ -9,6 +9,11 @@ pub const errors = @import("core/errors.zig");
 pub const logger = @import("core/logger.zig");
 pub const config = @import("core/config.zig");
 pub const decimal = @import("core/decimal.zig");
+pub const message_bus = @import("core/message_bus.zig");
+pub const cache = @import("core/cache.zig");
+pub const data_engine = @import("core/data_engine.zig");
+pub const execution_engine = @import("core/execution_engine.zig");
+pub const live_engine = @import("trading/live_engine.zig");
 
 // Exchange modules
 pub const exchange_types = @import("exchange/types.zig");
@@ -283,6 +288,64 @@ pub const LoggingConfig = config.LoggingConfig;
 pub const ConfigLoader = config.ConfigLoader;
 pub const ConfigError = config.ConfigError;
 
+// Re-export v0.5.0 MessageBus types
+pub const MessageBus = message_bus.MessageBus;
+pub const MessageBusError = message_bus.MessageBusError;
+pub const MessageBusEvent = message_bus.Event;
+pub const MessageBusRequest = message_bus.Request;
+pub const MessageBusResponse = message_bus.Response;
+pub const MessageBusCommand = message_bus.Command;
+// Event types with Bus prefix to avoid conflicts
+pub const BusMarketDataEvent = message_bus.MarketDataEvent;
+pub const BusOrderbookEvent = message_bus.OrderbookEvent;
+pub const BusTradeEvent = message_bus.TradeEvent;
+pub const BusCandleEvent = message_bus.CandleEvent;
+pub const BusOrderEvent = message_bus.OrderEvent;
+pub const BusOrderFillEvent = message_bus.OrderFillEvent;
+pub const BusPositionEvent = message_bus.PositionEvent;
+pub const BusAccountEvent = message_bus.AccountEvent;
+pub const BusTickEvent = message_bus.TickEvent;
+pub const BusShutdownEvent = message_bus.ShutdownEvent;
+
+// Re-export v0.5.0 Cache types
+pub const Cache = cache.Cache;
+pub const CacheError = cache.CacheError;
+pub const CacheQuote = cache.Quote;
+pub const CacheBar = cache.Bar;
+pub const CacheTimeframe = cache.Timeframe;
+pub const AccountBalance = cache.AccountBalance;
+
+// Re-export v0.5.0 DataEngine types
+pub const DataEngine = data_engine.DataEngine;
+pub const DataEngineError = data_engine.DataEngineError;
+pub const IDataProvider = data_engine.IDataProvider;
+pub const ProviderType = data_engine.ProviderType;
+pub const SubscriptionType = data_engine.SubscriptionType;
+pub const DataMessage = data_engine.DataMessage;
+pub const MockDataProvider = data_engine.MockDataProvider;
+
+// Re-export v0.5.0 ExecutionEngine types
+pub const ExecutionEngine = execution_engine.ExecutionEngine;
+pub const ExecutionError = execution_engine.ExecutionError;
+pub const IExecutionClient = execution_engine.IExecutionClient;
+pub const ExecOrderRequest = execution_engine.OrderRequest;
+pub const ExecOrderResult = execution_engine.OrderResult;
+pub const ExecPositionInfo = execution_engine.PositionInfo;
+pub const ExecBalanceInfo = execution_engine.BalanceInfo;
+pub const RiskConfig = execution_engine.RiskConfig;
+pub const MockExecutionClient = execution_engine.MockExecutionClient;
+
+// Re-export v0.5.0 LiveTradingEngine types
+pub const LiveTradingEngine = live_engine.LiveTradingEngine;
+pub const LiveConfig = live_engine.LiveConfig;
+pub const TradingMode = live_engine.TradingMode;
+pub const EngineState = live_engine.EngineState;
+pub const ConnectionState = live_engine.ConnectionState;
+pub const LiveError = live_engine.LiveError;
+// v0.5.0 异步引擎 (libxev)
+pub const AsyncLiveTradingEngine = live_engine.AsyncLiveTradingEngine;
+pub const AsyncConfig = live_engine.AsyncLiveTradingEngine.AsyncConfig;
+
 // Re-export exchange types
 pub const IExchange = exchange_interface.IExchange;
 pub const TradingPair = exchange_types.TradingPair;
@@ -315,6 +378,11 @@ test {
     _ = logger;
     _ = config;
     _ = decimal;
+    _ = message_bus;
+    _ = cache;
+    _ = data_engine;
+    _ = execution_engine;
+    _ = live_engine;
 
     // Exchange abstraction modules
     _ = exchange_types;
