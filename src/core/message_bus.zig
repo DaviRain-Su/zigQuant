@@ -143,6 +143,13 @@ pub const ShutdownEvent = struct {
     pub const Reason = enum { user_request, fatal_error, signal, backtest_complete };
 };
 
+/// 配置重载事件
+pub const ConfigReloadedEvent = struct {
+    config_path: []const u8,
+    reload_count: u64,
+    timestamp: i64,
+};
+
 /// 统一事件类型
 pub const Event = union(enum) {
     // 市场数据事件
@@ -171,6 +178,7 @@ pub const Event = union(enum) {
     // 系统事件
     tick: TickEvent,
     shutdown: ShutdownEvent,
+    config_reloaded: ConfigReloadedEvent,
 
     /// 获取事件时间戳
     pub fn getTimestamp(self: Event) i64 {
@@ -186,6 +194,7 @@ pub const Event = union(enum) {
             .account_updated => |e| e.timestamp,
             .tick => |e| e.timestamp,
             .shutdown => std.time.milliTimestamp(),
+            .config_reloaded => |e| e.timestamp,
         };
     }
 

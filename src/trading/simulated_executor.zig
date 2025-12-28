@@ -180,11 +180,16 @@ pub const SimulatedExecutor = struct {
     fn getBalance(ptr: *anyopaque) anyerror!BalanceInfo {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
+        // 计算总权益 (余额 + 未实现盈亏)
+        const total_equity = self.account.calculateTotalEquity();
+        // 未实现盈亏 = 总权益 - 当前余额
+        const unrealized_pnl = total_equity.sub(self.account.current_balance);
+
         return BalanceInfo{
-            .total = self.account.current_balance,
+            .total = total_equity,
             .available = self.account.available_balance,
             .locked = self.account.current_balance.sub(self.account.available_balance),
-            .unrealized_pnl = Decimal.ZERO, // TODO: 计算未实现盈亏
+            .unrealized_pnl = unrealized_pnl,
             .timestamp = Timestamp.now(),
         };
     }

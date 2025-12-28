@@ -684,19 +684,53 @@ pub const DataEngine = struct {
         start_time: Timestamp,
         end_time: Timestamp,
     ) ![]CandleMessage {
-        _ = self;
-        _ = symbol;
-        _ = timeframe;
-        _ = start_time;
-        _ = end_time;
+        // 尝试从 CSV 文件加载历史数据
+        // 文件命名约定: data/<symbol>_<timeframe>.csv
+        // 例如: data/ETH_h1.csv, data/BTC_m15.csv
 
-        // TODO: 实际实现需要从数据源加载
-        // 当前返回空数组，后续可以接入:
-        // 1. CSV 文件读取
-        // 2. 数据库查询
-        // 3. REST API 请求
+        const tf_str = @tagName(timeframe);
 
-        return &[_]CandleMessage{};
+        // 构建文件路径
+        const file_path = try std.fmt.allocPrint(
+            self.allocator,
+            "data/{s}_{s}.csv",
+            .{ symbol, tf_str },
+        );
+        defer self.allocator.free(file_path);
+
+        // 尝试读取文件
+        const csv_data = std.fs.cwd().readFileAlloc(
+            self.allocator,
+            file_path,
+            10 * 1024 * 1024, // 10MB max
+        ) catch |err| {
+            switch (err) {
+                error.FileNotFound => {
+                    // 文件不存在时返回空数组
+                    return &[_]CandleMessage{};
+                },
+                else => return err,
+            }
+        };
+        defer self.allocator.free(csv_data);
+
+        // 解析 CSV 数据
+        var all_candles = try self.parseCsvCandles(csv_data, symbol, timeframe);
+        defer all_candles.deinit(self.allocator);
+
+        // 按时间范围过滤
+        var filtered: std.ArrayList(CandleMessage) = .{};
+        errdefer filtered.deinit(self.allocator);
+
+        for (all_candles.items) |candle| {
+            const ts = candle.timestamp.millis;
+            if (ts >= start_time.millis and ts <= end_time.millis) {
+                try filtered.append(self.allocator, candle);
+            }
+        }
+
+        // 返回切片 (调用者负责释放)
+        return try filtered.toOwnedSlice(self.allocator);
     }
 
     /// 从 CSV 数据创建 CandleMessage 数组

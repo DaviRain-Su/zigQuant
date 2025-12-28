@@ -37,6 +37,8 @@ const OrderTracker = struct {
     exchange_to_client: std.AutoHashMap(u64, []const u8),
     /// 订单状态
     order_status: std.StringHashMap(ExecOrderStatus),
+    /// client_order_id -> symbol 映射 (用于取消订单时查询资产索引)
+    client_to_symbol: std.StringHashMap([]const u8),
 
     pub fn init(allocator: Allocator) OrderTracker {
         return .{
@@ -44,6 +46,7 @@ const OrderTracker = struct {
             .client_to_exchange = std.StringHashMap(u64).init(allocator),
             .exchange_to_client = std.AutoHashMap(u64, []const u8).init(allocator),
             .order_status = std.StringHashMap(ExecOrderStatus).init(allocator),
+            .client_to_symbol = std.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -66,10 +69,18 @@ const OrderTracker = struct {
             self.allocator.free(entry.key_ptr.*);
         }
         self.order_status.deinit();
+
+        // 释放 symbol 映射
+        var symbol_iter = self.client_to_symbol.iterator();
+        while (symbol_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.client_to_symbol.deinit();
     }
 
-    /// 追踪订单
-    pub fn track(self: *OrderTracker, client_order_id: []const u8, exchange_order_id: u64) !void {
+    /// 追踪订单 (包含 symbol 以便取消时查询资产索引)
+    pub fn track(self: *OrderTracker, client_order_id: []const u8, exchange_order_id: u64, symbol: []const u8) !void {
         const client_id_copy = try self.allocator.dupe(u8, client_order_id);
         errdefer self.allocator.free(client_id_copy);
 
@@ -79,9 +90,21 @@ const OrderTracker = struct {
         const client_id_copy3 = try self.allocator.dupe(u8, client_order_id);
         errdefer self.allocator.free(client_id_copy3);
 
+        const client_id_copy4 = try self.allocator.dupe(u8, client_order_id);
+        errdefer self.allocator.free(client_id_copy4);
+
+        const symbol_copy = try self.allocator.dupe(u8, symbol);
+        errdefer self.allocator.free(symbol_copy);
+
         try self.client_to_exchange.put(client_id_copy, exchange_order_id);
         try self.exchange_to_client.put(exchange_order_id, client_id_copy2);
         try self.order_status.put(client_id_copy3, .pending);
+        try self.client_to_symbol.put(client_id_copy4, symbol_copy);
+    }
+
+    /// 获取订单的 symbol
+    pub fn getSymbol(self: *const OrderTracker, client_order_id: []const u8) ?[]const u8 {
+        return self.client_to_symbol.get(client_order_id);
     }
 
     /// 获取交易所订单 ID
@@ -119,6 +142,12 @@ const OrderTracker = struct {
 
         if (self.order_status.fetchRemove(client_order_id)) |kv| {
             self.allocator.free(kv.key);
+        }
+
+        // 清理 symbol 映射
+        if (self.client_to_symbol.fetchRemove(client_order_id)) |kv| {
+            self.allocator.free(kv.key);
+            self.allocator.free(kv.value);
         }
     }
 };
@@ -384,9 +413,9 @@ pub const HyperliquidExecutionClient = struct {
             }
         }
 
-        // 追踪订单
+        // 追踪订单 (包含 symbol 以便取消时查询资产索引)
         if (exchange_order_id) |oid| {
-            self.order_tracker.track(request.client_order_id, oid) catch {};
+            self.order_tracker.track(request.client_order_id, oid, request.symbol) catch {};
         }
 
         // 发布事件
@@ -431,12 +460,23 @@ pub const HyperliquidExecutionClient = struct {
             return error.OrderNotFound;
         };
 
-        // 获取资产索引 (需要从订单中获取，这里简化处理)
-        // TODO: 需要解决 存储订单的 symbol 以便查询资产索引
-        const asset_index: u64 = 0; // 默认使用 0 (ETH)
+        // 获取资产索引 (从订单追踪中获取 symbol，再查询资产索引)
+        const symbol = self.order_tracker.getSymbol(order_id) orelse {
+            return error.OrderSymbolNotFound;
+        };
+        var asset_index = self.asset_cache.getIndex(symbol);
+        if (asset_index == null) {
+            // 尝试加载资产元数据后再查询
+            self.loadAssetMeta() catch return error.AssetMetaLoadFailed;
+            asset_index = self.asset_cache.getIndex(symbol);
+            if (asset_index == null) {
+                return error.AssetIndexNotFound;
+            }
+        }
+        const final_asset_index = asset_index.?;
 
         // 调用 Exchange API
-        _ = self.exchange_api.cancelOrder(asset_index, exchange_order_id) catch |err| {
+        _ = self.exchange_api.cancelOrder(final_asset_index, exchange_order_id) catch |err| {
             self.logger.err("Cancel order failed: {s}", .{@errorName(err)}) catch {};
             return err;
         };
@@ -504,6 +544,17 @@ pub const HyperliquidExecutionClient = struct {
         };
         defer response.deinit();
 
+        // 获取 mark price (从 allMids API)
+        var mark_price_map = self.info_api.getAllMids() catch null;
+        defer if (mark_price_map) |*mids| {
+            var iter = mids.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                self.allocator.free(entry.value_ptr.*);
+            }
+            mids.deinit();
+        };
+
         // 查找指定交易对的仓位
         for (response.value.assetPositions) |ap| {
             if (std.mem.eql(u8, ap.position.coin, symbol)) {
@@ -513,6 +564,14 @@ pub const HyperliquidExecutionClient = struct {
                 else
                     Decimal.ZERO;
                 const unrealized_pnl = Decimal.fromString(ap.position.unrealizedPnl) catch Decimal.ZERO;
+
+                // 从 allMids 获取 mark price，如果失败则使用 entry price
+                const mark_px = if (mark_price_map) |mids| blk: {
+                    if (mids.get(symbol)) |price_str| {
+                        break :blk Decimal.fromString(price_str) catch entry_px;
+                    }
+                    break :blk entry_px;
+                } else entry_px;
 
                 const side: PositionInfo.PositionSide = if (szi.toFloat() > 0)
                     .long
@@ -526,7 +585,7 @@ pub const HyperliquidExecutionClient = struct {
                     .side = side,
                     .quantity = Decimal.fromFloat(@abs(szi.toFloat())),
                     .entry_price = entry_px,
-                    .mark_price = entry_px, // TODO: 获取 mark price
+                    .mark_price = mark_px,
                     .unrealized_pnl = unrealized_pnl,
                     .realized_pnl = Decimal.ZERO,
                     .leverage = ap.position.leverage.value,
@@ -571,11 +630,18 @@ pub const HyperliquidExecutionClient = struct {
         const available = Decimal.fromString(response.value.withdrawable) catch Decimal.ZERO;
         const margin_used = Decimal.fromString(response.value.marginSummary.totalMarginUsed) catch Decimal.ZERO;
 
+        // 计算所有仓位的未实现盈亏总和
+        var total_unrealized_pnl = Decimal.ZERO;
+        for (response.value.assetPositions) |ap| {
+            const pnl = Decimal.fromString(ap.position.unrealizedPnl) catch Decimal.ZERO;
+            total_unrealized_pnl = total_unrealized_pnl.add(pnl);
+        }
+
         return BalanceInfo{
             .total = total,
             .available = available,
             .locked = margin_used,
-            .unrealized_pnl = Decimal.ZERO, // TODO: 计算未实现盈亏
+            .unrealized_pnl = total_unrealized_pnl,
             .timestamp = Timestamp.now(),
         };
     }
@@ -648,13 +714,14 @@ test "OrderTracker: basic operations" {
     var tracker = OrderTracker.init(allocator);
     defer tracker.deinit();
 
-    // 追踪订单
-    try tracker.track("order-001", 12345);
+    // 追踪订单 (包含 symbol)
+    try tracker.track("order-001", 12345, "ETH");
 
     // 验证映射
     try std.testing.expectEqual(@as(u64, 12345), tracker.getExchangeOrderId("order-001").?);
     try std.testing.expectEqualStrings("order-001", tracker.getClientOrderId(12345).?);
     try std.testing.expectEqual(ExecOrderStatus.pending, tracker.getStatus("order-001").?);
+    try std.testing.expectEqualStrings("ETH", tracker.getSymbol("order-001").?);
 
     // 更新状态
     tracker.updateStatus("order-001", .filled);
@@ -663,6 +730,7 @@ test "OrderTracker: basic operations" {
     // 移除订单
     tracker.remove("order-001");
     try std.testing.expect(tracker.getExchangeOrderId("order-001") == null);
+    try std.testing.expect(tracker.getSymbol("order-001") == null);
 }
 
 test "AssetIndexCache: basic operations" {

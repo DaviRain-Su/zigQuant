@@ -45,28 +45,18 @@
 6. ✅ CLI 策略命令 (backtest, optimize)
 7. ✅ 策略框架 (IStrategy, 技术指标库, IndicatorManager)
 8. ✅ 3 个内置策略 (双均线、RSI 均值回归、布林带突破)
+9. ✅ Hyperliquid 适配器: 存储订单 symbol 用于取消订单
+10. ✅ Hyperliquid 适配器: 获取 mark price 用于仓位计算
+11. ✅ Hyperliquid 适配器: 计算未实现盈亏
+12. ✅ 模拟执行器: 计算未实现盈亏
+13. ✅ CLI Run-Strategy 命令 (Paper Trading 模式)
+14. ✅ Optimize 命令 JSON 序列化导出
+15. ✅ 数据引擎: 从 CSV 文件加载历史数据
+16. ✅ 热重载: 发布 config_reloaded 事件
 
 ---
 
 ## ⏳ 待完成
-
-### 高优先级 (核心功能)
-
-| 模块 | 文件 | 行号 | 内容 |
-|------|------|------|------|
-| Hyperliquid 适配器 | execution_client.zig | 435 | 存储订单的 symbol 以便查询资产索引 |
-| Hyperliquid 适配器 | execution_client.zig | 529 | 获取 mark price |
-| Hyperliquid 适配器 | execution_client.zig | 578 | 计算未实现盈亏 |
-| 模拟执行器 | simulated_executor.zig | 187 | 计算未实现盈亏 |
-
-### 中优先级 (功能增强)
-
-| 模块 | 文件 | 行号 | 内容 |
-|------|------|------|------|
-| CLI 命令 | commands/run_strategy.zig | 全文件 | Run-Strategy 实盘/模拟交易命令 |
-| CLI 命令 | commands/optimize.zig | 538 | JSON 序列化 |
-| 数据引擎 | data_engine.zig | 693 | 从数据源加载实际数据 |
-| 热重载 | hot_reload.zig | 548 | 发布 config_reloaded 事件 |
 
 ### 低优先级 (改进/扩展)
 
@@ -82,11 +72,9 @@
 
 ## 统计
 
-- ✅ 已完成: 8 项
-- ⏳ 高优先级待完成: 4 项
-- 🔸 中优先级待完成: 4 项
+- ✅ 已完成: 16 项
 - 🔹 低优先级待完成: 5 项
-- **总计待完成: 13 项**
+- **总计待完成: 5 项**
 
 ---
 

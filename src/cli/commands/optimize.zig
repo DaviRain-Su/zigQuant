@@ -532,10 +532,82 @@ fn printResults(logger: *Logger, result: *const zigQuant.OptimizationResult, top
 }
 
 fn saveResults(allocator: std.mem.Allocator, result: *const zigQuant.OptimizationResult, path: []const u8) !void {
+    var file = try std.fs.cwd().createFile(path, .{});
+    defer file.close();
+
+    var writer = file.writer();
+
+    // Start JSON object
+    try writer.writeAll("{\n");
+
+    // Objective
+    try writer.print("  \"objective\": \"{s}\",\n", .{@tagName(result.objective)});
+
+    // Best score
+    try writer.print("  \"best_score\": {d:.6},\n", .{result.best_score});
+
+    // Best parameters
+    try writer.writeAll("  \"best_params\": {\n");
+    var first_param = true;
+    var param_iter = result.best_params.values.iterator();
+    while (param_iter.next()) |entry| {
+        if (!first_param) {
+            try writer.writeAll(",\n");
+        }
+        first_param = false;
+
+        // Write parameter name and value
+        try writer.print("    \"{s}\": ", .{entry.key_ptr.*});
+        try writeParameterValue(writer, entry.value_ptr.*);
+    }
+    try writer.writeAll("\n  },\n");
+
+    // Statistics
+    try writer.print("  \"total_combinations\": {d},\n", .{result.total_combinations});
+    try writer.print("  \"elapsed_time_ms\": {d},\n", .{result.elapsed_time_ms});
+
+    // All results (top 10)
+    try writer.writeAll("  \"top_results\": [\n");
+    const max_results = @min(result.all_results.len, 10);
+    for (result.all_results[0..max_results], 0..) |res, i| {
+        if (i > 0) {
+            try writer.writeAll(",\n");
+        }
+        try writer.writeAll("    {\n");
+        try writer.print("      \"rank\": {d},\n", .{i + 1});
+        try writer.print("      \"score\": {d:.6},\n", .{res.score});
+
+        // Parameters
+        try writer.writeAll("      \"params\": {\n");
+        var first_inner = true;
+        var inner_iter = res.params.values.iterator();
+        while (inner_iter.next()) |entry| {
+            if (!first_inner) {
+                try writer.writeAll(",\n");
+            }
+            first_inner = false;
+            try writer.print("        \"{s}\": ", .{entry.key_ptr.*});
+            try writeParameterValue(writer, entry.value_ptr.*);
+        }
+        try writer.writeAll("\n      }\n");
+        try writer.writeAll("    }");
+    }
+    try writer.writeAll("\n  ]\n");
+
+    // Close JSON
+    try writer.writeAll("}\n");
+
+    // Use allocator for potential future needs
     _ = allocator;
-    _ = result;
-    _ = path;
-    // TODO: Implement JSON serialization
+}
+
+fn writeParameterValue(writer: anytype, value: ParameterValue) !void {
+    switch (value) {
+        .integer => |val| try writer.print("{d}", .{val}),
+        .decimal => |val| try writer.print("{d:.6}", .{val.toFloat()}),
+        .boolean => |val| try writer.print("{}", .{val}),
+        .discrete => |val| try writer.print("\"{s}\"", .{val}),
+    }
 }
 
 // ============================================================================

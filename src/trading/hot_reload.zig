@@ -545,7 +545,14 @@ pub const HotReloadManager = struct {
 
         // 5. 发布重载事件
         if (self.message_bus) |bus| {
-            _ = bus; // TODO: 发布 config_reloaded 事件
+            const ConfigReloadedEvent = @import("../core/message_bus.zig").ConfigReloadedEvent;
+            bus.publish("config.reloaded", .{
+                .config_reloaded = ConfigReloadedEvent{
+                    .config_path = self.config_path,
+                    .reload_count = self.reload_count,
+                    .timestamp = std.time.milliTimestamp(),
+                },
+            });
         }
 
         std.debug.print("[HotReload] Configuration reloaded successfully\n", .{});
