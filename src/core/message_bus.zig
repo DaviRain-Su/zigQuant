@@ -68,7 +68,7 @@ pub const CandleEvent = struct {
     close: f64,
     volume: f64,
 
-    pub const Timeframe = enum { m1, m5, m15, m30, h1, h4, d1, w1 };
+    pub const Timeframe = enum { s1, m1, m3, m5, m15, m30, h1, h2, h4, h6, h8, h12, d1, d3, w1, M1 };
 };
 
 /// 订单事件

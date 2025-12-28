@@ -191,16 +191,30 @@ pub const StorageError = error{
 
 /// 时间周期字符串
 pub const Timeframe = struct {
+    pub const @"1s" = "1s";
     pub const @"1m" = "1m";
+    pub const @"3m" = "3m";
     pub const @"5m" = "5m";
     pub const @"15m" = "15m";
+    pub const @"30m" = "30m";
     pub const @"1h" = "1h";
+    pub const @"2h" = "2h";
     pub const @"4h" = "4h";
+    pub const @"6h" = "6h";
+    pub const @"8h" = "8h";
+    pub const @"12h" = "12h";
     pub const @"1d" = "1d";
+    pub const @"3d" = "3d";
+    pub const @"1w" = "1w";
+    pub const @"1M" = "1M";
 
     /// 验证时间周期字符串
     pub fn isValid(tf: []const u8) bool {
-        const valid = [_][]const u8{ "1m", "5m", "15m", "1h", "4h", "1d" };
+        const valid = [_][]const u8{
+            "1s", "1m", "3m", "5m", "15m", "30m",
+            "1h", "2h", "4h", "6h", "8h", "12h",
+            "1d", "3d", "1w", "1M",
+        };
         for (valid) |v| {
             if (std.mem.eql(u8, tf, v)) return true;
         }

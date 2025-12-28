@@ -63,66 +63,118 @@ pub const TradingPair = struct {
 
 /// Trading timeframe (candle interval)
 /// Represents the duration of each candle in historical data and live trading
+/// Supports all Binance timeframes: 1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
 pub const Timeframe = enum {
+    s1, // 1 second
     m1, // 1 minute
+    m3, // 3 minutes
     m5, // 5 minutes
     m15, // 15 minutes
     m30, // 30 minutes
     h1, // 1 hour
+    h2, // 2 hours
     h4, // 4 hours
+    h6, // 6 hours
+    h8, // 8 hours
+    h12, // 12 hours
     d1, // 1 day
+    d3, // 3 days
     w1, // 1 week
+    M1, // 1 month (30 days)
 
-    /// Convert to string representation
+    /// Convert to string representation (Binance format)
     pub fn toString(self: Timeframe) []const u8 {
         return switch (self) {
+            .s1 => "1s",
             .m1 => "1m",
+            .m3 => "3m",
             .m5 => "5m",
             .m15 => "15m",
             .m30 => "30m",
             .h1 => "1h",
+            .h2 => "2h",
             .h4 => "4h",
+            .h6 => "6h",
+            .h8 => "8h",
+            .h12 => "12h",
             .d1 => "1d",
+            .d3 => "3d",
             .w1 => "1w",
+            .M1 => "1M",
         };
     }
 
-    /// Parse from string representation
+    /// Parse from string representation (supports Binance format)
     pub fn fromString(s: []const u8) !Timeframe {
+        if (std.mem.eql(u8, s, "1s")) return .s1;
         if (std.mem.eql(u8, s, "1m")) return .m1;
+        if (std.mem.eql(u8, s, "3m")) return .m3;
         if (std.mem.eql(u8, s, "5m")) return .m5;
         if (std.mem.eql(u8, s, "15m")) return .m15;
         if (std.mem.eql(u8, s, "30m")) return .m30;
         if (std.mem.eql(u8, s, "1h")) return .h1;
+        if (std.mem.eql(u8, s, "2h")) return .h2;
         if (std.mem.eql(u8, s, "4h")) return .h4;
+        if (std.mem.eql(u8, s, "6h")) return .h6;
+        if (std.mem.eql(u8, s, "8h")) return .h8;
+        if (std.mem.eql(u8, s, "12h")) return .h12;
         if (std.mem.eql(u8, s, "1d")) return .d1;
+        if (std.mem.eql(u8, s, "3d")) return .d3;
         if (std.mem.eql(u8, s, "1w")) return .w1;
+        if (std.mem.eql(u8, s, "1M") or std.mem.eql(u8, s, "1mo")) return .M1;
         return error.InvalidTimeframe;
     }
 
+    /// Convert to seconds (for timestamp calculations)
+    /// Note: Month is approximated as 30 days
+    pub fn toSeconds(self: Timeframe) u64 {
+        return switch (self) {
+            .s1 => 1,
+            .m1 => 60,
+            .m3 => 180,
+            .m5 => 300,
+            .m15 => 900,
+            .m30 => 1800,
+            .h1 => 3600,
+            .h2 => 7200,
+            .h4 => 14400,
+            .h6 => 21600,
+            .h8 => 28800,
+            .h12 => 43200,
+            .d1 => 86400,
+            .d3 => 259200,
+            .w1 => 604800,
+            .M1 => 2592000, // 30 days
+        };
+    }
+
     /// Convert to minutes (for calculations and comparisons)
+    /// Note: Returns 0 for sub-minute timeframes (s1)
     pub fn toMinutes(self: Timeframe) u32 {
         return switch (self) {
+            .s1 => 0, // Less than 1 minute
             .m1 => 1,
+            .m3 => 3,
             .m5 => 5,
             .m15 => 15,
             .m30 => 30,
             .h1 => 60,
+            .h2 => 120,
             .h4 => 240,
+            .h6 => 360,
+            .h8 => 480,
+            .h12 => 720,
             .d1 => 1440,
+            .d3 => 4320,
             .w1 => 10080,
+            .M1 => 43200, // 30 days
         };
-    }
-
-    /// Convert to seconds (for timestamp calculations)
-    pub fn toSeconds(self: Timeframe) u32 {
-        return self.toMinutes() * 60;
     }
 
     /// Compare two timeframes
     /// Returns true if self is shorter than other
     pub fn isShorterThan(self: Timeframe, other: Timeframe) bool {
-        return self.toMinutes() < other.toMinutes();
+        return self.toSeconds() < other.toSeconds();
     }
 };
 
