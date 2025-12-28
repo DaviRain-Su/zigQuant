@@ -2,34 +2,34 @@
 
 **版本**: v0.9.0
 **模块路径**: `src/ai/`
-**状态**: 开发中
+**状态**: 基础实现完成
 
 ---
 
 ## 概述
 
-ZigQuant AI 模块提供 LLM (大语言模型) 集成能力，支持 AI 辅助交易决策。通过统一的 `ILLMClient` 接口抽象，可以无缝切换不同的 AI 提供商（OpenAI、Anthropic Claude 等）。
+ZigQuant AI 模块提供 LLM (大语言模型) 集成能力，支持 AI 辅助交易决策。基于 `openai-zig` 库实现，通过统一的 `ILLMClient` 接口抽象，支持所有 OpenAI 兼容的 API 提供商。
 
 ### 核心特性
 
-- **多提供商支持** - 统一接口支持 30+ AI 提供商
+- **OpenAI 兼容** - 支持 OpenAI API 及兼容服务（LM Studio、Ollama、DeepSeek 等）
 - **结构化输出** - JSON Schema 约束的结构化响应
 - **混合决策** - 技术指标与 AI 建议加权融合
 - **容错设计** - AI 失败时自动回退到纯技术指标
+- **Markdown 解析** - 自动处理 AI 返回的 markdown 代码块包装的 JSON
 
 ---
 
 ## 快速开始
 
-### 1. 配置环境变量
+### 1. 配置
 
-```bash
-# OpenAI
-export OPENAI_API_KEY="sk-..."
-
-# Anthropic Claude
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
+支持的提供商：
+- **OpenAI** - 官方 API (`https://api.openai.com/v1`)
+- **LM Studio** - 本地运行 (`http://127.0.0.1:1234/v1`)
+- **Ollama** - 本地运行 (`http://localhost:11434/v1`)
+- **DeepSeek** - 第三方 API
+- 任何 OpenAI 兼容的 API 服务
 
 ### 2. 基础用法
 
@@ -42,22 +42,25 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // 1. 配置 AI
+    // 1. 配置 AI (使用本地 LM Studio 服务)
     const ai_config = zigQuant.AIConfig{
-        .provider = .anthropic,
-        .model_id = "claude-sonnet-4-5",
-        .api_key = std.posix.getenv("ANTHROPIC_API_KEY") orelse return error.NoApiKey,
+        .provider = .custom,  // 或 .openai
+        .model_id = "openai/gpt-oss-20b",
+        .api_key = "your-api-key",
+        .base_url = "http://127.0.0.1:1234/v1",  // 本地服务地址
         .temperature = 0.3,
         .max_tokens = 1024,
     };
 
     // 2. 创建 LLM 客户端
-    const client = try zigQuant.LLMClient.init(allocator, ai_config);
+    const client = try zigQuant.ai.LLMClient.init(allocator, ai_config);
     defer client.deinit();
 
     // 3. 生成文本响应
-    const response = try client.toInterface().generateText(
-        "Analyze BTC/USDT market conditions and provide a trading recommendation."
+    const iface = client.toInterface();
+    const response = try iface.generateText(
+        allocator,
+        "Analyze BTC/USDT market conditions and provide a trading recommendation.",
     );
     defer allocator.free(response);
 
@@ -174,13 +177,17 @@ pub const LLMClient = struct {
 };
 ```
 
-**支持的提供商**:
+**支持的提供商** (OpenAI 兼容):
 
-| Provider | Model IDs | 特性 |
-|----------|-----------|------|
-| OpenAI | `gpt-4o`, `gpt-4`, `o1`, `o3` | 最新推理模型 |
-| Anthropic | `claude-sonnet-4-5`, `claude-opus-4-5`, `claude-haiku` | 长上下文、推理能力 |
-| Google | `gemini-pro`, `gemini-ultra` | (规划中) |
+| Provider | Base URL | 说明 |
+|----------|----------|------|
+| OpenAI | `https://api.openai.com/v1` | 官方 API |
+| LM Studio | `http://127.0.0.1:1234/v1` | 本地模型服务 |
+| Ollama | `http://localhost:11434/v1` | 本地模型服务 |
+| DeepSeek | `https://api.deepseek.com/v1` | 第三方 API |
+| Custom | 自定义 URL | 任何 OpenAI 兼容服务 |
+
+> **注意**: 当前版本仅支持 OpenAI 兼容的 API。Anthropic 和 Google 支持计划在未来版本中添加。
 
 ### AIAdvisor
 

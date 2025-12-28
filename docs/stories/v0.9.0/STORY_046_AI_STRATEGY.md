@@ -2,22 +2,22 @@
 
 **版本**: v0.9.0
 **优先级**: P1
-**状态**: 开发中
-**预估工作量**: 3-4 天
+**状态**: ✅ 基础实现完成
+**完成日期**: 2025-12-28
 
 ---
 
 ## 概述
 
-基于 `zig-ai-sdk` 实现 AI 辅助交易决策系统，包含 LLM 抽象层、AI Advisor 辅助决策服务和 HybridAIStrategy 混合策略。
+基于 `openai-zig` 实现 AI 辅助交易决策系统，包含 LLM 抽象层、AI Advisor 辅助决策服务和 HybridAIStrategy 混合策略。
 
 ### 目标
 
-1. 提供统一的 LLM 客户端接口（ILLMClient）
-2. 实现 OpenAI 和 Anthropic 客户端
-3. 创建 AIAdvisor 提供结构化交易建议
-4. 实现 HybridAIStrategy 混合决策策略
-5. 完整的测试和文档
+1. ✅ 提供统一的 LLM 客户端接口（ILLMClient）
+2. ✅ 实现 OpenAI 兼容客户端（支持 LM Studio、Ollama 等）
+3. ✅ 创建 AIAdvisor 提供结构化交易建议
+4. ✅ 实现 HybridAIStrategy 混合决策策略
+5. ✅ 完整的测试和文档
 
 ---
 
@@ -32,11 +32,14 @@
 ### 依赖
 
 ```zig
-.@"zig-ai-sdk" = .{
-    .url = "https://github.com/evmts/ai-zig/archive/refs/heads/master.tar.gz",
-    .hash = "zig_ai_sdk-0.1.0-ULWwFOjsNQDpPPJBPUBUJKikJkiIAASwHYLwqyzEmcim",
+// build.zig.zon
+.openai_zig = .{
+    .url = "https://github.com/DaviRain-Su/openai-zig/archive/refs/heads/master.tar.gz",
+    .hash = "openai_zig-0.0.0-xCfcQBnxBQDkrxZmwJkZsZgZP6KOpZU7qqlOqjfpseHO",
 },
 ```
+
+> **注意**: 原计划使用 `zig-ai-sdk`，但由于与 Zig 0.15 的兼容性问题，改用 `openai-zig` 库。这意味着当前仅支持 OpenAI 兼容的 API，不支持 Anthropic 和 Google。
 
 ### 现有架构参考
 
@@ -371,33 +374,35 @@ pub const HybridAIStrategy = struct {
 
 ### 功能验收
 
-- [ ] ILLMClient 接口定义完整
-- [ ] LLMClient 支持 OpenAI 和 Anthropic
-- [ ] AIAdvisor 返回结构化 AIAdvice
-- [ ] HybridAIStrategy 实现 IStrategy 接口
-- [ ] 权重配置生效
-- [ ] AI 失败时回退到纯技术指标
+- [x] ILLMClient 接口定义完整
+- [x] LLMClient 支持 OpenAI 兼容 API（LM Studio、Ollama 等）
+- [x] AIAdvisor 返回结构化 AIAdvice
+- [x] HybridAIStrategy 实现 IStrategy 接口
+- [x] 权重配置生效
+- [x] AI 失败时回退到纯技术指标
+- [x] Markdown 代码块 JSON 解析
 
 ### 测试验收
 
-- [ ] 类型定义单元测试
-- [ ] ILLMClient 接口测试 (Mock)
-- [ ] PromptBuilder 测试
-- [ ] AIAdvisor 测试 (Mock LLM)
-- [ ] HybridAIStrategy 集成测试
-- [ ] 零内存泄漏
+- [x] 类型定义单元测试
+- [x] ILLMClient 接口测试 (Mock)
+- [x] PromptBuilder 测试
+- [x] AIAdvisor 测试 (Mock LLM)
+- [x] HybridAIStrategy 集成测试
+- [x] 零内存泄漏
+- [x] extractJsonContent 测试
 
 ### 性能验收
 
-- [ ] AI 请求超时处理 (默认 30s)
-- [ ] 请求统计准确
-- [ ] 延迟追踪正常
+- [x] AI 请求超时处理 (默认 30s)
+- [x] 请求统计准确
+- [x] 延迟追踪正常
 
 ### 文档验收
 
-- [ ] API 文档完整
-- [ ] 使用示例正确
-- [ ] 配置说明清晰
+- [x] API 文档完整
+- [x] 使用示例正确 (examples/33_openai_chat.zig)
+- [x] 配置说明清晰
 
 ---
 

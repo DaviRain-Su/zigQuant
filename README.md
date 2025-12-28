@@ -7,7 +7,7 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-558+-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](docs/stories/v0.8.0/OVERVIEW.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](docs/stories/v0.9.0/OVERVIEW.md)
 
 ---
 
@@ -102,7 +102,7 @@
 - [Queue Position Modeling](./docs/stories/v0.7.0/STORY_038_QUEUE_POSITION.md) - 队列位置建模 (HFTBacktest) ⭐
 - [Dual Latency Simulation](./docs/stories/v0.7.0/STORY_039_DUAL_LATENCY.md) - 双向延迟模拟 (HFTBacktest) ⭐
 
-#### ✅ V0.8 风险管理 (NEW!)
+#### ✅ V0.8 风险管理
 - [风险管理概览](./docs/stories/v0.8.0/OVERVIEW.md) - 完整风险管理体系 ⭐
 - [RiskEngine 风险引擎](./docs/stories/v0.8.0/STORY_040_RISK_ENGINE.md) - Kill Switch + 实时监控
 - [Stop Loss Manager](./docs/stories/v0.8.0/STORY_041_STOP_LOSS.md) - 止损/追踪止损
@@ -110,6 +110,13 @@
 - [Risk Metrics](./docs/stories/v0.8.0/STORY_043_RISK_METRICS.md) - VaR/Sharpe/Sortino
 - [Alert System](./docs/stories/v0.8.0/STORY_044_ALERT.md) - 多级警报系统
 - [Crash Recovery](./docs/stories/v0.8.0/STORY_045_RECOVERY.md) - 崩溃恢复机制
+
+#### ✅ V0.9 AI 策略集成 (NEW!)
+- [AI 策略概览](./docs/stories/v0.9.0/OVERVIEW.md) - AI 辅助交易决策 ⭐
+- [AI 模块 API](./docs/features/ai/README.md) - LLMClient/AIAdvisor/HybridAIStrategy
+- [Story 046: AI 策略](./docs/stories/v0.9.0/STORY_046_AI_STRATEGY.md) - 完整实现文档
+- [实现细节](./docs/features/ai/implementation.md) - openai-zig 集成
+- [Release Notes](./docs/releases/RELEASE_v0.9.0.md) - v0.9.0 发布说明
 
 ### 🎓 教程和示例
 - **[示例总览](./examples/README.md)** - 25个完整示例 (NEW: 11个v0.6-v0.7示例)
@@ -226,6 +233,9 @@ zig build run-example-persistence   # 数据持久化
 zig build run-example-arbitrage     # 跨交易所套利
 zig build run-example-queue         # 队列位置建模
 zig build run-example-latency       # 延迟模拟
+
+# v0.9.0 新示例 (AI 策略)
+zig build run-example-openai-chat  # OpenAI Chat 示例
 
 # 查看完整说明
 cat examples/README.md
@@ -525,6 +535,47 @@ cat examples/README.md
 
 ---
 
+### ✅ V0.9 - AI 策略集成 - 已完成 ⭐ (NEW!)
+
+**核心功能**:
+
+#### AI 模块
+- ✅ **ILLMClient** - VTable 模式 LLM 客户端接口
+- ✅ **LLMClient** - OpenAI 兼容实现 (基于 openai-zig)
+- ✅ **AIAdvisor** - 结构化交易建议服务
+- ✅ **PromptBuilder** - 专业市场分析 Prompt 构建器
+
+#### 支持的 AI 提供商
+- ✅ **OpenAI** - 官方 API
+- ✅ **LM Studio** - 本地模型服务
+- ✅ **Ollama** - 本地模型服务
+- ✅ **DeepSeek** - 第三方 API
+- ✅ **Custom** - 任何 OpenAI 兼容 API
+
+#### 混合策略
+- ✅ **HybridAIStrategy** - 技术指标 + AI 建议加权融合
+- ✅ **容错回退** - AI 失败时自动使用纯技术指标
+- ✅ **可配置权重** - AI 40% + 技术 60% (默认)
+
+#### 特性
+- ✅ **Markdown 解析** - 自动处理 AI 返回的代码块包装 JSON
+- ✅ **自定义 JSON 序列化** - 避免 null 字段兼容性问题
+- ✅ **请求统计** - 成功率、延迟追踪
+
+**代码统计**:
+- types.zig: ~200 行
+- interfaces.zig: ~200 行
+- client.zig: ~350 行
+- advisor.zig: ~600 行
+- prompt_builder.zig: ~200 行
+- hybrid_ai.zig: ~600 行
+- **总计**: ~2150 行核心代码
+
+**完成时间**: 2025-12-28
+**发布说明**: [RELEASE_v0.9.0.md](./docs/releases/RELEASE_v0.9.0.md)
+
+---
+
 ## 🗺️ 产品路线图
 
 ```
@@ -536,10 +587,11 @@ v0.5 事件驱动架构        ████████████████�
 v0.6 混合计算模式        ████████████████████ (100%) ✅ 完成
 v0.7 做市策略            ████████████████████ (100%) ✅ 完成
 v0.8 风险管理            ████████████████████ (100%) ✅ 完成
+v0.9 AI 策略集成         ████████████████████ (100%) ✅ 完成 (NEW!)
 v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
 ```
 
-**整体进度**: 89% (8/9 版本完成) → v1.0.0 生产就绪规划中
+**整体进度**: 90% (9/10 版本完成) → v1.0.0 生产就绪规划中
 
 ### ✅ V0.4 - 优化器增强与指标扩展 - 已完成 ⭐
 
@@ -602,6 +654,21 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 
 **完成时间**: 2025-12-28
 **发布说明**: 6 个 Stories (040-045) 全部完成
+
+### ✅ V0.9 - AI 策略集成 - 已完成 (NEW!)
+
+**核心目标**: AI 辅助交易决策 (借鉴 AI 技术趋势)
+
+- [x] **ILLMClient 接口** - VTable 模式 LLM 客户端抽象
+- [x] **LLMClient 实现** - 基于 openai-zig，支持 OpenAI 兼容 API
+- [x] **AIAdvisor** - 结构化交易建议 (action/confidence/reasoning)
+- [x] **PromptBuilder** - 专业市场分析 Prompt 构建
+- [x] **HybridAIStrategy** - 技术指标 + AI 混合决策策略
+- [x] **Markdown JSON 解析** - 自动处理 AI 返回的代码块
+- [x] **示例代码** - examples/33_openai_chat.zig
+
+**完成时间**: 2025-12-28
+**发布说明**: [RELEASE_v0.9.0.md](./docs/releases/RELEASE_v0.9.0.md)
 
 ### 📋 V1.0 - 生产就绪 (下一步)
 
@@ -777,6 +844,6 @@ zig build test -freference-trace=10
 
 ---
 
-**状态**: ✅ V0.8.0 风险管理已完成 | **版本**: 0.8.0 | **更新时间**: 2025-12-28
-**测试**: 558+ 全部通过 ✅ | **示例**: 25 个完整示例 | **文档**: 8,000+ 行 | **性能**: 全部达标 ✅
+**状态**: ✅ V0.9.0 AI 策略集成已完成 | **版本**: 0.9.0 | **更新时间**: 2025-12-28
+**测试**: 558+ 全部通过 ✅ | **示例**: 26 个完整示例 | **文档**: 10,000+ 行 | **性能**: 全部达标 ✅
 **下一步**: v1.0.0 生产就绪 → **REST API + Web Dashboard**

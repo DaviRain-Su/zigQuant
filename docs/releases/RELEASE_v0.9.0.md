@@ -1,6 +1,6 @@
 # zigQuant v0.9.0 Release Notes
 
-**Release Date**: TBD
+**Release Date**: 2025-12-28
 **Version**: 0.9.0
 **Codename**: AI-Powered Trading
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-v0.9.0 introduces AI-powered trading capabilities to zigQuant, enabling intelligent decision-making through LLM (Large Language Model) integration. This release provides a unified interface for multiple AI providers (OpenAI, Anthropic Claude), an AI Advisor for structured trading recommendations, and a Hybrid Strategy that combines traditional technical analysis with AI insights.
+v0.9.0 introduces AI-powered trading capabilities to zigQuant, enabling intelligent decision-making through LLM (Large Language Model) integration. This release provides a unified interface for OpenAI-compatible AI providers, an AI Advisor for structured trading recommendations, and a Hybrid Strategy that combines traditional technical analysis with AI insights.
 
 ---
 
@@ -16,18 +16,19 @@ v0.9.0 introduces AI-powered trading capabilities to zigQuant, enabling intellig
 
 ### AI Strategy Integration
 
-Based on `zig-ai-sdk`, zigQuant now supports AI-assisted trading decisions:
+Based on `openai-zig`, zigQuant now supports AI-assisted trading decisions:
 
-- **ILLMClient** - VTable-based LLM client interface supporting 30+ AI providers
-- **LLMClient** - Multi-provider implementation (OpenAI, Anthropic)
+- **ILLMClient** - VTable-based LLM client interface
+- **LLMClient** - OpenAI-compatible implementation (OpenAI, LM Studio, Ollama, DeepSeek)
 - **AIAdvisor** - Structured trading recommendation service with confidence scoring
 - **PromptBuilder** - Professional market analysis prompt engineering
 - **HybridAIStrategy** - Weighted combination of technical indicators and AI advice
 
 ### Key Features
 
-- **Multi-Provider Support**: Seamlessly switch between OpenAI (GPT-4o, o1, o3) and Anthropic (Claude Sonnet 4.5, Opus 4.5, Haiku)
+- **OpenAI 兼容**: 支持所有 OpenAI 兼容 API (官方 OpenAI、LM Studio、Ollama、DeepSeek 等)
 - **Structured Output**: JSON Schema-constrained responses for reliable parsing
+- **Markdown 解析**: 自动处理 AI 返回的 markdown 代码块包装的 JSON
 - **Weighted Decision Making**: Configurable weights for technical (default 60%) and AI (default 40%) signals
 - **Graceful Degradation**: Automatic fallback to pure technical analysis when AI fails
 - **Request Statistics**: Track success rate, latency, and API usage
@@ -58,20 +59,23 @@ pub const ILLMClient = struct {
 ### LLMClient
 
 ```zig
-const LLMClient = zigQuant.LLMClient;
+const LLMClient = zigQuant.ai.LLMClient;
 
-// Create client with Anthropic Claude
+// Create client with local LM Studio
 var client = try LLMClient.init(allocator, .{
-    .provider = .anthropic,
-    .model_id = "claude-sonnet-4-5",
-    .api_key = std.posix.getenv("ANTHROPIC_API_KEY") orelse return error.NoApiKey,
+    .provider = .custom,  // 或 .openai
+    .model_id = "openai/gpt-oss-20b",
+    .api_key = "your-api-key",
+    .base_url = "http://127.0.0.1:1234/v1",  // 本地服务地址
     .temperature = 0.3,
     .max_tokens = 1024,
 });
 defer client.deinit();
 
 // Generate text response
-const response = try client.toInterface().generateText("Analyze BTC market conditions");
+const iface = client.toInterface();
+const response = try iface.generateText(allocator, "Analyze BTC market conditions");
+defer allocator.free(response);
 ```
 
 ### AIAdvisor
@@ -193,15 +197,17 @@ pub const AIConfig = struct {
 
 ---
 
-## Supported AI Models
+## Supported Providers (OpenAI Compatible)
 
-| Provider | Model ID | Best For |
-|----------|----------|----------|
-| OpenAI | `gpt-4o` | General analysis |
-| OpenAI | `o1`, `o3` | Complex reasoning |
-| Anthropic | `claude-sonnet-4-5` | Balanced performance |
-| Anthropic | `claude-opus-4-5` | Best reasoning |
-| Anthropic | `claude-haiku` | Low latency, low cost |
+| Provider | Base URL | Description |
+|----------|----------|-------------|
+| OpenAI | `https://api.openai.com/v1` | Official OpenAI API |
+| LM Studio | `http://127.0.0.1:1234/v1` | Local model server |
+| Ollama | `http://localhost:11434/v1` | Local model server |
+| DeepSeek | `https://api.deepseek.com/v1` | Third-party API |
+| Custom | Your URL | Any OpenAI-compatible API |
+
+> **Note**: Current version only supports OpenAI-compatible APIs. Anthropic and Google support is planned for future versions.
 
 ---
 
@@ -293,7 +299,7 @@ src/strategy/builtin/
 └── hybrid_ai.zig        # HybridAIStrategy
 
 examples/
-└── 32_ai_strategy.zig   # AI strategy example
+└── 33_openai_chat.zig   # OpenAI chat example
 ```
 
 ---
@@ -327,15 +333,17 @@ const PromptBuilder = zigQuant.PromptBuilder;
 
 ## Dependencies
 
-### zig-ai-sdk
+### openai-zig
 
 ```zig
 // build.zig.zon
-.@"zig-ai-sdk" = .{
-    .url = "https://github.com/evmts/ai-zig/archive/refs/heads/master.tar.gz",
-    .hash = "zig_ai_sdk-0.1.0-ULWwFOjsNQDpPPJBPUBUJKikJkiIAASwHYLwqyzEmcim",
+.openai_zig = .{
+    .url = "https://github.com/DaviRain-Su/openai-zig/archive/refs/heads/master.tar.gz",
+    .hash = "openai_zig-0.0.0-xCfcQBnxBQDkrxZmwJkZsZgZP6KOpZU7qqlOqjfpseHO",
 },
 ```
+
+> **Note**: Originally planned to use `zig-ai-sdk`, but switched to `openai-zig` due to Zig 0.15 compatibility issues.
 
 ---
 
@@ -376,19 +384,25 @@ See [NEXT_STEPS.md](../NEXT_STEPS.md) for the full roadmap.
 git clone https://github.com/DaviRain-Su/zigQuant.git
 cd zigQuant
 
-# Set API keys
-export ANTHROPIC_API_KEY="sk-ant-..."
-# or
-export OPENAI_API_KEY="sk-..."
-
 # Build
 zig build
 
 # Run tests
 zig build test
 
-# Check AI module
-zig test src/ai/mod.zig
+# Run OpenAI chat example (requires local LM Studio or OpenAI API)
+zig build run-example-openai-chat
+```
+
+### Using with Local LM Studio
+
+1. Download and install [LM Studio](https://lmstudio.ai/)
+2. Load a model (e.g., `openai/gpt-oss-20b`)
+3. Start the local server (default: `http://127.0.0.1:1234`)
+4. Run the example:
+
+```bash
+zig build run-example-openai-chat
 ```
 
 ---

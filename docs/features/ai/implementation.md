@@ -123,88 +123,113 @@ pub const MockLLMClient = struct {
 
 ---
 
-## zig-ai-sdk 集成
+## openai-zig 集成
 
 ### 依赖配置
 
 ```zig
 // build.zig.zon
-.@"zig-ai-sdk" = .{
-    .url = "https://github.com/evmts/ai-zig/archive/refs/heads/master.tar.gz",
-    .hash = "zig_ai_sdk-0.1.0-ULWwFOjsNQDpPPJBPUBUJKikJkiIAASwHYLwqyzEmcim",
+.openai_zig = .{
+    .url = "https://github.com/DaviRain-Su/openai-zig/archive/refs/heads/master.tar.gz",
+    .hash = "openai_zig-0.0.0-xCfcQBnxBQDkrxZmwJkZsZgZP6KOpZU7qqlOqjfpseHO",
 },
 ```
+
+> **注意**: 原计划使用 `zig-ai-sdk`，但由于与 Zig 0.15 的兼容性问题，改用 `openai-zig` 库。
 
 ### build.zig 配置
 
 ```zig
-// 添加 zig-ai-sdk 模块
-const ai_dep = b.dependency("zig-ai-sdk", .{
+// 添加 openai-zig 模块
+const openai_zig = b.dependency("openai_zig", .{
     .target = target,
     .optimize = optimize,
 });
 
-const ai_mod = ai_dep.module("ai");
-const openai_mod = ai_dep.module("openai");
-const anthropic_mod = ai_dep.module("anthropic");
-
 // 添加到库模块
-lib.root_module.addImport("ai", ai_mod);
-lib.root_module.addImport("openai", openai_mod);
-lib.root_module.addImport("anthropic", anthropic_mod);
+.{ .name = "openai_zig", .module = openai_zig.module("openai_zig") },
 ```
 
 ### 核心 API 使用
 
 ```zig
-const ai = @import("ai");
-const openai = @import("openai");
-const anthropic = @import("anthropic");
+const openai_zig = @import("openai_zig");
 
 // 创建 OpenAI 客户端
-const openai_client = openai.createOpenAI(allocator);
-defer openai_client.deinit();
-
-// 获取语言模型
-const model = openai_client.languageModel("gpt-4o");
-
-// 文本生成
-const result = try ai.generateText(allocator, .{
-    .model = &model,
-    .prompt = "Analyze the market...",
-    .max_tokens = 1024,
-    .temperature = 0.3,
+var client = try openai_zig.initClient(allocator, .{
+    .api_key = "your-api-key",
+    .base_url = "http://127.0.0.1:1234/v1",  // 本地服务
 });
-defer result.deinit();
+defer client.deinit();
 
-std.debug.print("Response: {s}\n", .{result.text});
+// 调用 Chat Completion API
+const messages = [_]openai_zig.resources.chat.ChatMessage{
+    .{ .role = "user", .content = "Analyze the market..." },
+};
+
+const response = try client.chat().create_chat_completion(allocator, .{
+    .model = "gpt-4o",
+    .messages = &messages,
+});
+defer response.deinit();
 ```
 
-### 结构化输出
+### 自定义 JSON 序列化
+
+由于 openai-zig 默认序列化会包含 null 可选字段，我们使用 `rawTransport()` 手动构建 JSON：
 
 ```zig
-// 定义 JSON Schema
-const schema =
-    \\{
-    \\  "type": "object",
-    \\  "properties": {
-    \\    "action": {"type": "string", "enum": ["buy", "sell", "hold"]},
-    \\    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
-    \\  },
-    \\  "required": ["action", "confidence"]
-    \\}
-;
+fn callOpenAIChat(self: *LLMClient, allocator: std.mem.Allocator, prompt: []const u8) ![]const u8 {
+    var client = self.openai_client.?;
 
-// 生成结构化对象
-const result = try ai.generateObject(allocator, .{
-    .model = &model,
-    .schema = schema,
-    .prompt = "Based on RSI=35 and bullish MACD, what is your recommendation?",
-});
-defer result.deinit();
+    // 手动构建 JSON 避免 null 字段
+    const payload = try self.buildChatRequestJson(allocator, prompt);
+    defer allocator.free(payload);
 
-// result.object 是 JSON 字符串
-const parsed = try std.json.parseFromSlice(AdviceJson, allocator, result.object, .{});
+    // 使用 raw transport 发送请求
+    const transport = client.rawTransport();
+    const resp = try transport.request(.POST, "/chat/completions", &.{
+        .{ .name = "Accept", .value = "application/json" },
+        .{ .name = "Content-Type", .value = "application/json" },
+    }, payload);
+    defer transport.allocator.free(resp.body);
+
+    // 解析响应...
+}
+```
+
+### Markdown 代码块处理
+
+AI 可能返回 markdown 包装的 JSON，使用 `extractJsonContent` 函数处理：
+
+```zig
+/// 从 markdown 代码块中提取 JSON
+fn extractJsonContent(response: []const u8) []const u8 {
+    var content = std.mem.trim(u8, response, " \t\n\r");
+
+    // 检查 markdown 代码块
+    if (std.mem.startsWith(u8, content, "```")) {
+        // 跳过 ```json 或 ```
+        if (std.mem.indexOf(u8, content, "\n")) |first_newline| {
+            content = content[first_newline + 1 ..];
+        }
+
+        // 移除结尾的 ```
+        if (std.mem.lastIndexOf(u8, content, "```")) |closing| {
+            content = content[0..closing];
+        }
+        content = std.mem.trim(u8, content, " \t\n\r");
+    }
+
+    // 提取 JSON 对象
+    const start = std.mem.indexOf(u8, content, "{") orelse return content;
+    const end = std.mem.lastIndexOf(u8, content, "}") orelse return content;
+
+    if (end >= start) {
+        return content[start .. end + 1];
+    }
+    return content;
+}
 ```
 
 ---
