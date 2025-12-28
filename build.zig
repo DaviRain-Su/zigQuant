@@ -51,6 +51,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add http.zig dependency for REST API server
+    // Note: httpz has its own websocket module which may conflict with our websocket dependency.
+    // The API server is built as a separate executable to avoid module conflicts.
+    const httpz = b.dependency("httpz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -125,6 +133,33 @@ pub fn build(b: *std.Build) void {
     // step). By default the install prefix is `zig-out/` but can be overridden
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
+
+    // ========================================================================
+    // API Server Executable (v1.0.0)
+    // ========================================================================
+    // The API server uses httpz which has its own websocket dependency.
+    // To avoid conflicts with our main websocket module, we build it separately.
+    const api_server = b.addExecutable(.{
+        .name = "zigquant-api",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/api/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "httpz", .module = httpz.module("httpz") },
+                .{ .name = "zigeth", .module = zigeth.module("zigeth") },
+            },
+        }),
+    });
+    b.installArtifact(api_server);
+
+    const run_api_server = b.addRunArtifact(api_server);
+    const api_server_step = b.step("run-api", "Run the REST API server");
+    api_server_step.dependOn(&run_api_server.step);
+    run_api_server.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_api_server.addArgs(args);
+    }
 
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
