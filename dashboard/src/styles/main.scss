@@ -1,0 +1,65 @@
+// Global Styles
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+}
+
+#app {
+  height: 100%;
+}
+
+// Common utilities
+.profit {
+  color: #67c23a;
+}
+
+.loss {
+  color: #f56c6c;
+}
+
+// Card styles
+.metric-card {
+  text-align: center;
+
+  .metric-value {
+    font-size: 28px;
+    font-weight: bold;
+    color: #303133;
+  }
+
+  .metric-label {
+    font-size: 14px;
+    color: #909399;
+    margin-top: 8px;
+  }
+}
+
+// Table styles
+.el-table {
+  .cell {
+    word-break: break-word;
+  }
+}
+
+// Form styles
+.el-form-item__label {
+  font-weight: 500;
+}
+
+// Animation
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

@@ -424,9 +424,121 @@ pub const ApiServer = struct {
             // Send response
             try self.sendHttpResponse(stream, &response);
         } else {
-            // 404 Not Found
-            try self.sendRawResponse(stream, "404 Not Found", "{\"error\":\"Not Found\"}");
+            // Try to serve static files from dashboard/dist
+            const served = self.serveStaticFile(stream, path) catch false;
+            if (!served) {
+                // 404 Not Found
+                try self.sendRawResponse(stream, "404 Not Found", "{\"error\":\"Not Found\"}");
+            }
         }
+    }
+
+    /// Serve static files from dashboard/dist directory
+    fn serveStaticFile(self: *Self, stream: net.Stream, path: []const u8) !bool {
+        // Build file path relative to dashboard/dist
+        var file_path_buf: [512]u8 = undefined;
+        var use_path = path;
+
+        // Check if path has an extension (is a static asset)
+        const has_extension = blk: {
+            if (std.mem.lastIndexOf(u8, path, ".")) |dot_idx| {
+                if (std.mem.lastIndexOf(u8, path, "/")) |slash_idx| {
+                    break :blk dot_idx > slash_idx;
+                }
+                break :blk true;
+            }
+            break :blk false;
+        };
+
+        // SPA fallback: routes without extensions serve index.html
+        if (!has_extension) {
+            use_path = "/index.html";
+        }
+
+        const file_path = std.fmt.bufPrint(&file_path_buf, "dashboard/dist{s}", .{use_path}) catch {
+            return false;
+        };
+
+        // Try to open and read the file
+        const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
+            if (err == error.FileNotFound) {
+                // Try SPA fallback for any 404
+                if (!std.mem.eql(u8, use_path, "/index.html")) {
+                    const index_path = "dashboard/dist/index.html";
+                    const index_file = std.fs.cwd().openFile(index_path, .{}) catch {
+                        return false;
+                    };
+                    defer index_file.close();
+                    return self.sendStaticFileResponse(stream, index_file, "text/html; charset=utf-8");
+                }
+            }
+            return false;
+        };
+        defer file.close();
+
+        // Determine content type
+        const content_type = self.getContentType(use_path);
+        return self.sendStaticFileResponse(stream, file, content_type);
+    }
+
+    /// Get content type based on file extension
+    fn getContentType(self: *Self, path: []const u8) []const u8 {
+        _ = self;
+        const ext = std.fs.path.extension(path);
+
+        if (std.mem.eql(u8, ext, ".html")) return "text/html; charset=utf-8";
+        if (std.mem.eql(u8, ext, ".js")) return "application/javascript; charset=utf-8";
+        if (std.mem.eql(u8, ext, ".css")) return "text/css; charset=utf-8";
+        if (std.mem.eql(u8, ext, ".json")) return "application/json; charset=utf-8";
+        if (std.mem.eql(u8, ext, ".png")) return "image/png";
+        if (std.mem.eql(u8, ext, ".jpg") or std.mem.eql(u8, ext, ".jpeg")) return "image/jpeg";
+        if (std.mem.eql(u8, ext, ".gif")) return "image/gif";
+        if (std.mem.eql(u8, ext, ".svg")) return "image/svg+xml";
+        if (std.mem.eql(u8, ext, ".ico")) return "image/x-icon";
+        if (std.mem.eql(u8, ext, ".woff")) return "font/woff";
+        if (std.mem.eql(u8, ext, ".woff2")) return "font/woff2";
+        if (std.mem.eql(u8, ext, ".ttf")) return "font/ttf";
+        if (std.mem.eql(u8, ext, ".eot")) return "application/vnd.ms-fontobject";
+        if (std.mem.eql(u8, ext, ".map")) return "application/json";
+
+        return "application/octet-stream";
+    }
+
+    /// Send static file response
+    fn sendStaticFileResponse(self: *Self, stream: net.Stream, file: std.fs.File, content_type: []const u8) bool {
+        _ = self;
+
+        // Get file size
+        const stat = file.stat() catch return false;
+        const file_size = stat.size;
+
+        // Read file content (limit to 10MB)
+        if (file_size > 10 * 1024 * 1024) return false;
+
+        var buf: [65536]u8 = undefined;
+        var response_buf: [1024]u8 = undefined;
+
+        // Write header
+        const header = std.fmt.bufPrint(&response_buf,
+            "HTTP/1.1 200 OK\r\n" ++
+            "Content-Type: {s}\r\n" ++
+            "Content-Length: {d}\r\n" ++
+            "Access-Control-Allow-Origin: *\r\n" ++
+            "Cache-Control: public, max-age=31536000\r\n" ++
+            "\r\n",
+            .{ content_type, file_size },
+        ) catch return false;
+
+        _ = stream.write(header) catch return false;
+
+        // Stream file content in chunks
+        while (true) {
+            const n = file.read(&buf) catch return false;
+            if (n == 0) break;
+            _ = stream.write(buf[0..n]) catch return false;
+        }
+
+        return true;
     }
 
     /// Find header value in raw headers
