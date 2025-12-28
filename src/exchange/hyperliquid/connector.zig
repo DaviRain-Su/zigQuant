@@ -963,15 +963,20 @@ pub const HyperliquidConnector = struct {
         try self.ws.?.unsubscribe(subscription);
     }
 
-    /// Set WebSocket message callback
+    /// Set WebSocket message callback with context
     ///
     /// @param callback: Function to call when a message is received
-    pub fn setMessageCallback(self: *HyperliquidConnector, callback: *const fn (Message) void) !void {
+    /// @param ctx: Context pointer passed to callback
+    pub fn setMessageCallback(
+        self: *HyperliquidConnector,
+        callback: *const fn (ctx: ?*anyopaque, msg: Message) void,
+        ctx: ?*anyopaque,
+    ) !void {
         if (self.ws == null) {
             return error.WebSocketNotInitialized;
         }
 
-        self.ws.?.on_message = callback;
+        self.ws.?.setMessageCallback(callback, ctx);
     }
 
     /// Check if WebSocket is initialized

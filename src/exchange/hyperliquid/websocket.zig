@@ -93,8 +93,9 @@ pub const HyperliquidWS = struct {
     // Arena allocator for thread-related allocations (cleaned up on disconnect)
     thread_arena: ?std.heap.ArenaAllocator,
 
-    // Message callback
-    on_message: ?*const fn (Message) void,
+    // Message callback with context
+    on_message: ?*const fn (ctx: ?*anyopaque, msg: Message) void,
+    on_message_ctx: ?*anyopaque,
 
     pub const Config = struct {
         ws_url: []const u8,
@@ -126,6 +127,7 @@ pub const HyperliquidWS = struct {
             .should_reconnect = std.atomic.Value(bool).init(true),
             .thread_arena = null,
             .on_message = null,
+            .on_message_ctx = null,
         };
     }
 
@@ -133,6 +135,16 @@ pub const HyperliquidWS = struct {
         self.should_reconnect.store(false, .release);
         self.disconnect();
         self.subscription_manager.deinit();
+    }
+
+    /// Set message callback with context
+    pub fn setMessageCallback(
+        self: *HyperliquidWS,
+        callback: *const fn (ctx: ?*anyopaque, msg: Message) void,
+        ctx: ?*anyopaque,
+    ) void {
+        self.on_message = callback;
+        self.on_message_ctx = ctx;
     }
 
     /// Connect to WebSocket
@@ -296,9 +308,9 @@ pub const HyperliquidWS = struct {
         const msg = try self.message_handler.parse(data);
         defer msg.deinit(self.allocator);
 
-        // Call user callback
+        // Call user callback with context
         if (self.on_message) |callback| {
-            callback(msg);
+            callback(self.on_message_ctx, msg);
         }
     }
 

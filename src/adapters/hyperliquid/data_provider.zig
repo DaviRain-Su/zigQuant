@@ -98,7 +98,7 @@ pub const HyperliquidDataProvider = struct {
             .ping_interval_ms = config.ping_interval_ms,
         };
 
-        var self = Self{
+        return Self{
             .allocator = allocator,
             .ws_client = HyperliquidWS.init(allocator, ws_config, logger),
             .logger = logger,
@@ -108,11 +108,6 @@ pub const HyperliquidDataProvider = struct {
             .is_connected = false,
             .config = config,
         };
-
-        // 设置消息回调
-        self.ws_client.on_message = &messageCallback;
-
-        return self;
     }
 
     /// 释放资源
@@ -155,6 +150,9 @@ pub const HyperliquidDataProvider = struct {
         const self: *Self = @ptrCast(@alignCast(ptr));
 
         self.logger.info("Connecting to Hyperliquid...", .{}) catch {};
+
+        // 设置消息回调 (带 context)
+        self.ws_client.setMessageCallback(&messageCallback, ptr);
 
         try self.ws_client.connect();
         self.is_connected = true;
@@ -259,12 +257,10 @@ pub const HyperliquidDataProvider = struct {
     // 消息处理
     // ========================================================================
 
-    /// TODO 需要验证确保这里这样忽略是正确的吗 消息回调 (由 HyperliquidWS 调用)
-    fn messageCallback(msg: Message) void {
-        // 注意: 这里需要获取 self 指针
-        // 由于回调函数签名限制，我们需要用其他方式处理
-        // 这里暂时使用一个简化的实现
-        _ = msg;
+    /// 消息回调 (由 HyperliquidWS 调用)
+    fn messageCallback(ctx: ?*anyopaque, msg: Message) void {
+        const self: *Self = @ptrCast(@alignCast(ctx orelse return));
+        self.processMessage(msg);
     }
 
     /// 处理 Hyperliquid 消息并转换为 DataMessage
@@ -274,12 +270,30 @@ pub const HyperliquidDataProvider = struct {
             .l2Book => |data| self.processL2Book(data),
             .trades => |data| self.processTrades(data),
             .error_msg => |data| self.processError(data),
-            .subscriptionResponse => {
-                // 订阅确认，可以忽略或记录日志 todo 应该怎么也得记录一个日志吧
+            .subscriptionResponse => |response| {
+                // 记录订阅确认
+                self.logger.debug("Subscription confirmed", .{
+                    .method = response.method,
+                    .type = response.subscription.type,
+                }) catch {};
             },
-            else => {
-                // todo 应该怎么也得记录一个日志吧
-                // 其他消息类型暂不处理
+            .orderUpdate => {
+                // 订单更新 - 由交易模块处理
+                self.logger.debug("Received order update (handled by trading module)", .{}) catch {};
+            },
+            .userFill => {
+                // 成交记录 - 由交易模块处理
+                self.logger.debug("Received user fill (handled by trading module)", .{}) catch {};
+            },
+            .user => {
+                // 用户数据 - 由交易模块处理
+                self.logger.debug("Received user data (handled by trading module)", .{}) catch {};
+            },
+            .unknown => |raw| {
+                // 未知消息类型
+                self.logger.warn("Received unknown message type", .{
+                    .raw_len = raw.len,
+                }) catch {};
             },
         }
     }
@@ -314,14 +328,16 @@ pub const HyperliquidDataProvider = struct {
         for (data.levels.bids, 0..) |bid, i| {
             bids[i] = .{
                 .price = bid.px,
-                .quantity = bid.sz,
+                .size = bid.sz,
+                .num_orders = bid.n,
             };
         }
 
         for (data.levels.asks, 0..) |ask, i| {
             asks[i] = .{
                 .price = ask.px,
-                .quantity = ask.sz,
+                .size = ask.sz,
+                .num_orders = ask.n,
             };
         }
 

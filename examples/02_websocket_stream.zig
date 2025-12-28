@@ -82,8 +82,8 @@ pub fn main() !void {
     var ws = HyperliquidWS.init(allocator, config, logger);
     defer ws.deinit();
 
-    // Set message callback
-    ws.on_message = messageCallback;
+    // Set message callback (no context needed for this example)
+    ws.setMessageCallback(messageCallback, null);
 
     // ========================================================================
     // 3. Connect to WebSocket
@@ -175,7 +175,9 @@ pub fn main() !void {
 }
 
 /// Message callback - called for each WebSocket message
-fn messageCallback(msg: Message) void {
+fn messageCallback(ctx: ?*anyopaque, msg: Message) void {
+    _ = ctx; // Not used in this example
+
     _ = message_count.fetchAdd(1, .monotonic);
 
     switch (msg) {

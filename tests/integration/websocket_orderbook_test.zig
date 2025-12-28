@@ -106,7 +106,8 @@ fn convertLevel(ws_level: anytype) BookLevel {
 }
 
 // Message callback for WebSocket
-fn messageCallback(msg: Message) void {
+fn messageCallback(ctx: ?*anyopaque, msg: Message) void {
+    _ = ctx; // Using global state instead
     const state_ptr = g_test_state orelse return;
     const start_time = std.time.nanoTimestamp();
 
@@ -242,8 +243,8 @@ pub fn main() !void {
     var ws = HyperliquidWS.init(allocator, config, logger);
     defer ws.deinit();
 
-    // Set message callback
-    ws.on_message = messageCallback;
+    // Set message callback (no context needed, using global state)
+    ws.setMessageCallback(messageCallback, null);
 
     // Test Phase 1: Connection
     std.debug.print("Phase 1: Testing WebSocket connection...\n", .{});
