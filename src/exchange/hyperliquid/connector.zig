@@ -2,13 +2,16 @@
 //!
 //! This module implements the IExchange interface for Hyperliquid DEX.
 //! It provides a unified API for:
-//! - Market data (REST API)
-//! - Trading operations (REST API with Ed25519 signing)
-//! - Account management
-//! - WebSocket subscriptions (future)
+//! - Market data (REST API via InfoAPI)
+//! - Trading operations (REST API with Ed25519 signing via ExchangeAPI)
+//! - Account management (balance, positions)
+//! - WebSocket subscriptions for real-time data
 //!
-//! Phase C (Current): Skeleton implementation with stubs
-//! Phase D (Next): Full HTTP/WebSocket implementation
+//! Implementation Status:
+//! - Phase A: Interface design ✓
+//! - Phase B: Type definitions ✓
+//! - Phase C: Core structure ✓
+//! - Phase D: Full HTTP/WebSocket implementation ✓
 
 const std = @import("std");
 const IExchange = @import("../interface.zig").IExchange;
@@ -178,13 +181,14 @@ pub const HyperliquidConnector = struct {
             if (self.config.testnet) "testnet" else "mainnet",
         }) catch {};
 
-        // TODO Phase D: Initialize HTTP client
-        // self.http = try HyperliquidClient.init(self.allocator, self.config);
+        // HTTP client is already initialized in create() - it's stateless
+        // Just verify it's ready by doing a test connection (optional)
 
-        // TODO Phase D: Optionally initialize WebSocket client
-        // if (self.config.enable_websocket) {
-        //     self.ws = try WebSocketClient.init(self.allocator, self.config);
-        // }
+        // Initialize WebSocket client if enabled
+        if (self.config.enable_websocket) {
+            self.logger.info("WebSocket enabled, initializing...", .{}) catch {};
+            try self.initWebSocket();
+        }
 
         self.connected = true;
 
@@ -198,14 +202,14 @@ pub const HyperliquidConnector = struct {
 
         self.logger.info("Disconnecting from Hyperliquid...", .{}) catch {};
 
-        // TODO Phase D: Cleanup HTTP client
-        // self.http.deinit();
+        // HTTP client is stateless - no explicit disconnect needed
+        // It will be cleaned up in destroy()
 
-        // TODO Phase D: Cleanup WebSocket client if exists
-        // if (self.ws) |*ws| {
-        //     ws.deinit();
-        //     self.ws = null;
-        // }
+        // Disconnect WebSocket if connected
+        if (self.ws) |ws| {
+            self.logger.info("Disconnecting WebSocket...", .{}) catch {};
+            ws.disconnect();
+        }
 
         self.connected = false;
 

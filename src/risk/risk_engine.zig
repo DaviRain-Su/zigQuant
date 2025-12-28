@@ -15,6 +15,20 @@ const Account = @import("../trading/account.zig").Account;
 const OrderRequest = @import("../exchange/types.zig").OrderRequest;
 const TradingPair = @import("../exchange/types.zig").TradingPair;
 const Side = @import("../exchange/types.zig").Side;
+const IExchange = @import("../exchange/interface.zig").IExchange;
+const OrderType = @import("../exchange/types.zig").OrderType;
+
+/// Kill Switch callback type
+pub const KillSwitchCallback = *const fn (positions_closed: u32, cancel_count: u32, err: ?anyerror) void;
+
+/// Kill Switch result
+pub const KillSwitchResult = struct {
+    success: bool,
+    positions_closed: u32,
+    orders_cancelled: u32,
+    close_errors: u32,
+    error_message: ?[]const u8 = null,
+};
 
 /// Risk Engine - Pre-trade risk control
 pub const RiskEngine = struct {
@@ -22,6 +36,12 @@ pub const RiskEngine = struct {
     config: RiskConfig,
     positions: ?*PositionTracker,
     account: *Account,
+
+    // Optional exchange for Kill Switch execution
+    exchange: ?IExchange,
+
+    // Optional Kill Switch callback
+    on_kill_switch: ?KillSwitchCallback,
 
     // Daily tracking
     daily_pnl: Decimal,
@@ -38,6 +58,8 @@ pub const RiskEngine = struct {
     // Statistics
     total_checks: u64,
     rejected_orders: u64,
+    kill_switch_triggers: u64,
+    positions_closed_by_kill_switch: u64,
 
     const Self = @This();
 
@@ -53,6 +75,8 @@ pub const RiskEngine = struct {
             .config = config,
             .positions = positions,
             .account = account,
+            .exchange = null,
+            .on_kill_switch = null,
             .daily_pnl = Decimal.ZERO,
             .daily_start_equity = account.getAccountValue(),
             .last_day_start = now,
@@ -61,7 +85,19 @@ pub const RiskEngine = struct {
             .kill_switch_active = std.atomic.Value(bool).init(false),
             .total_checks = 0,
             .rejected_orders = 0,
+            .kill_switch_triggers = 0,
+            .positions_closed_by_kill_switch = 0,
         };
+    }
+
+    /// Set exchange for Kill Switch order execution
+    pub fn setExchange(self: *Self, exchange: IExchange) void {
+        self.exchange = exchange;
+    }
+
+    /// Set callback for Kill Switch events
+    pub fn setKillSwitchCallback(self: *Self, callback: KillSwitchCallback) void {
+        self.on_kill_switch = callback;
     }
 
     pub fn deinit(self: *Self) void {
@@ -332,10 +368,99 @@ pub const RiskEngine = struct {
         self.daily_pnl = account_value.sub(self.daily_start_equity);
     }
 
-    /// Trigger Kill Switch - halt all trading
-    pub fn killSwitch(self: *Self) void {
+    /// Trigger Kill Switch - halt all trading and optionally close positions
+    pub fn killSwitch(self: *Self) KillSwitchResult {
+        // Set atomic flag immediately to block new orders
         self.kill_switch_active.store(true, .release);
+        self.kill_switch_triggers += 1;
         std.log.warn("[RISK] Kill Switch triggered!", .{});
+
+        var result = KillSwitchResult{
+            .success = true,
+            .positions_closed = 0,
+            .orders_cancelled = 0,
+            .close_errors = 0,
+        };
+
+        // Close positions if configured and exchange is available
+        if (self.config.close_positions_on_kill_switch) {
+            if (self.exchange) |exchange| {
+                // First cancel all open orders
+                const cancelled = exchange.cancelAllOrders(null) catch |err| blk: {
+                    std.log.err("[RISK] Failed to cancel orders during kill switch: {}", .{err});
+                    result.close_errors += 1;
+                    break :blk 0;
+                };
+                result.orders_cancelled = cancelled;
+                std.log.info("[RISK] Cancelled {} open orders", .{cancelled});
+
+                // Then close all positions
+                const close_result = self.closeAllPositions(exchange);
+                result.positions_closed = close_result.closed;
+                result.close_errors += close_result.errors;
+
+                self.positions_closed_by_kill_switch += result.positions_closed;
+
+                if (close_result.errors > 0) {
+                    result.success = false;
+                    result.error_message = "Some positions failed to close";
+                }
+            } else {
+                std.log.warn("[RISK] Kill switch triggered but no exchange set - manual position close required", .{});
+            }
+        }
+
+        // Call callback if set
+        if (self.on_kill_switch) |callback| {
+            const err: ?anyerror = if (result.close_errors > 0) error.PartialClose else null;
+            callback(result.positions_closed, result.orders_cancelled, err);
+        }
+
+        return result;
+    }
+
+    /// Close all positions via exchange
+    fn closeAllPositions(self: *Self, exchange: IExchange) struct { closed: u32, errors: u32 } {
+        var closed: u32 = 0;
+        var errors: u32 = 0;
+
+        // Get positions from exchange
+        const positions = exchange.getPositions() catch |err| {
+            std.log.err("[RISK] Failed to get positions for close: {}", .{err});
+            return .{ .closed = 0, .errors = 1 };
+        };
+        defer self.allocator.free(positions);
+
+        for (positions) |pos| {
+            // Skip zero positions
+            if (pos.size.isZero()) continue;
+
+            // Determine close side (opposite of position)
+            const close_side: Side = if (pos.size.isPositive()) .sell else .buy;
+
+            const order_request = OrderRequest{
+                .pair = pos.pair,
+                .side = close_side,
+                .order_type = .market,
+                .amount = pos.size.abs(),
+                .price = null,
+                .reduce_only = true,
+            };
+
+            _ = exchange.createOrder(order_request) catch |err| {
+                std.log.err("[RISK] Failed to close position {s}: {}", .{ pos.pair.base, err });
+                errors += 1;
+                continue;
+            };
+
+            closed += 1;
+            std.log.info("[RISK] Closed position: {s} size={d:.4}", .{
+                pos.pair.base,
+                pos.size.toFloat(),
+            });
+        }
+
+        return .{ .closed = closed, .errors = errors };
     }
 
     /// Reset Kill Switch
@@ -384,6 +509,9 @@ pub const RiskEngine = struct {
             .daily_pnl = self.daily_pnl,
             .current_leverage = leverage,
             .kill_switch_active = self.isKillSwitchActive(),
+            .kill_switch_triggers = self.kill_switch_triggers,
+            .positions_closed_by_kill_switch = self.positions_closed_by_kill_switch,
+            .has_exchange = self.exchange != null,
         };
     }
 };
@@ -479,6 +607,9 @@ pub const RiskEngineStats = struct {
     daily_pnl: Decimal,
     current_leverage: Decimal,
     kill_switch_active: bool,
+    kill_switch_triggers: u64,
+    positions_closed_by_kill_switch: u64,
+    has_exchange: bool,
 };
 
 // ============================================================================
@@ -510,7 +641,7 @@ test "RiskEngine: kill switch" {
 
     try std.testing.expect(!engine.isKillSwitchActive());
 
-    engine.killSwitch();
+    _ = engine.killSwitch();
     try std.testing.expect(engine.isKillSwitchActive());
 
     // Order should be rejected

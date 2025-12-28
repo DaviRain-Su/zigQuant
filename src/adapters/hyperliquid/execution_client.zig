@@ -432,7 +432,7 @@ pub const HyperliquidExecutionClient = struct {
         };
 
         // 获取资产索引 (需要从订单中获取，这里简化处理)
-        // TODO: 存储订单的 symbol 以便查询资产索引
+        // TODO: 需要解决 存储订单的 symbol 以便查询资产索引
         const asset_index: u64 = 0; // 默认使用 0 (ETH)
 
         // 调用 Exchange API

@@ -52,6 +52,7 @@ pub const ExchangeConfig = struct {
     api_key: []const u8 = "",
     api_secret: []const u8 = "",
     testnet: bool = false,
+    enable_websocket: bool = false, // Enable WebSocket for real-time data
 
     /// Sanitize sensitive information for logging
     pub fn sanitize(self: ExchangeConfig) ExchangeConfig {
@@ -60,6 +61,7 @@ pub const ExchangeConfig = struct {
             .api_key = if (self.api_key.len > 0) "***REDACTED***" else "",
             .api_secret = if (self.api_secret.len > 0) "***REDACTED***" else "",
             .testnet = self.testnet,
+            .enable_websocket = self.enable_websocket,
         };
     }
 };

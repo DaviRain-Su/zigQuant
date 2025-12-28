@@ -4,6 +4,7 @@
 //! - State checkpointing
 //! - Fast recovery from checkpoints
 //! - Exchange state synchronization
+//! - Orphan order cancellation
 //!
 //! Based on "Crash-only" design from NautilusTrader
 
@@ -11,11 +12,17 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Decimal = @import("../core/decimal.zig").Decimal;
 const Side = @import("../exchange/types.zig").Side;
+const IExchange = @import("../exchange/interface.zig").IExchange;
+const Order = @import("../exchange/types.zig").Order;
+const Position = @import("../exchange/types.zig").Position;
 
 /// Recovery Manager - Checkpoint and recovery system
 pub const RecoveryManager = struct {
     allocator: Allocator,
     config: RecoveryConfig,
+
+    // Optional exchange for sync operations
+    exchange: ?IExchange,
 
     // State storage
     checkpoints: std.ArrayListUnmanaged(SystemState),
@@ -24,6 +31,8 @@ pub const RecoveryManager = struct {
     checkpoint_count: u64,
     recovery_count: u64,
     last_checkpoint: i64,
+    sync_count: u64,
+    orphan_orders_cancelled: u64,
 
     mutex: std.Thread.Mutex,
 
@@ -33,12 +42,22 @@ pub const RecoveryManager = struct {
         return .{
             .allocator = allocator,
             .config = config,
+            .exchange = null,
             .checkpoints = .{},
             .checkpoint_count = 0,
             .recovery_count = 0,
             .last_checkpoint = 0,
+            .sync_count = 0,
+            .orphan_orders_cancelled = 0,
             .mutex = .{},
         };
+    }
+
+    /// Set exchange for sync operations
+    pub fn setExchange(self: *Self, exchange: IExchange) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.exchange = exchange;
     }
 
     pub fn deinit(self: *Self) void {
@@ -91,6 +110,170 @@ pub const RecoveryManager = struct {
         };
     }
 
+    /// Recover with full sync - recover from checkpoint and sync with exchange
+    pub fn recoverWithSync(self: *Self) !RecoveryResult {
+        // First recover from checkpoint
+        var result = try self.recover();
+
+        if (result.status != .success) {
+            return result;
+        }
+
+        // Sync with exchange if configured and exchange is available
+        if (self.config.sync_with_exchange) {
+            const sync_result = try self.syncWithExchange();
+            result.sync_result = sync_result;
+
+            // Update result based on sync
+            if (sync_result.position_mismatches > 0 or sync_result.stale_orders > 0) {
+                result.status = .success; // Still success, but with warnings
+            }
+        }
+
+        // Cancel orphan orders if configured
+        if (self.config.cancel_orphan_orders) {
+            if (result.sync_result) |*sync| {
+                const cancelled = try self.cancelOrphanOrders(result.state);
+                sync.orders_cancelled = cancelled;
+                self.orphan_orders_cancelled += cancelled;
+            }
+        }
+
+        return result;
+    }
+
+    /// Sync state with exchange - compare checkpoint state with exchange state
+    pub fn syncWithExchange(self: *Self) !SyncResult {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const exchange = self.exchange orelse return SyncResult{};
+
+        var result = SyncResult{};
+
+        // Get latest checkpoint state
+        if (self.checkpoints.items.len == 0) {
+            return result;
+        }
+        const checkpoint_state = &self.checkpoints.items[self.checkpoints.items.len - 1];
+
+        // Fetch current state from exchange
+        const exchange_positions = exchange.getPositions() catch |err| {
+            std.log.err("[RECOVERY] Failed to get positions from exchange: {}", .{err});
+            return result;
+        };
+        defer self.allocator.free(exchange_positions);
+
+        const exchange_orders = exchange.getOpenOrders(null) catch |err| {
+            std.log.err("[RECOVERY] Failed to get orders from exchange: {}", .{err});
+            return result;
+        };
+        defer self.allocator.free(exchange_orders);
+
+        // Compare positions
+        for (exchange_positions) |ex_pos| {
+            var found = false;
+            for (checkpoint_state.positions) |cp_pos| {
+                if (std.mem.eql(u8, ex_pos.pair.base, cp_pos.symbol)) {
+                    found = true;
+                    // Check for mismatches
+                    if (!ex_pos.size.eql(cp_pos.quantity)) {
+                        result.position_mismatches += 1;
+                        std.log.warn("[RECOVERY] Position mismatch for {s}: checkpoint={}, exchange={}", .{
+                            cp_pos.symbol,
+                            cp_pos.quantity.toFloat(),
+                            ex_pos.size.toFloat(),
+                        });
+                    }
+                    break;
+                }
+            }
+            if (!found) {
+                result.missing_positions += 1;
+                std.log.warn("[RECOVERY] Position {s} exists on exchange but not in checkpoint", .{
+                    ex_pos.pair.base,
+                });
+            }
+        }
+
+        // Find orphan orders (orders on exchange not in checkpoint)
+        for (exchange_orders) |ex_order| {
+            var found = false;
+            for (checkpoint_state.open_orders) |cp_order| {
+                if (ex_order.id == std.fmt.parseInt(u64, cp_order.id, 10) catch 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                result.orphan_orders += 1;
+            }
+        }
+
+        // Find stale orders (orders in checkpoint not on exchange)
+        for (checkpoint_state.open_orders) |cp_order| {
+            var found = false;
+            const cp_order_id = std.fmt.parseInt(u64, cp_order.id, 10) catch continue;
+            for (exchange_orders) |ex_order| {
+                if (ex_order.id == cp_order_id) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                result.stale_orders += 1;
+            }
+        }
+
+        self.sync_count += 1;
+        std.log.info("[RECOVERY] Sync complete: orphan_orders={}, stale_orders={}, position_mismatches={}", .{
+            result.orphan_orders,
+            result.stale_orders,
+            result.position_mismatches,
+        });
+
+        return result;
+    }
+
+    /// Cancel orphan orders - orders on exchange that are not in our checkpoint state
+    pub fn cancelOrphanOrders(self: *Self, checkpoint_state: ?SystemState) !u64 {
+        const exchange = self.exchange orelse return 0;
+        const state = checkpoint_state orelse return 0;
+
+        var cancelled: u64 = 0;
+
+        // Get current orders from exchange
+        const exchange_orders = exchange.getOpenOrders(null) catch |err| {
+            std.log.err("[RECOVERY] Failed to get orders for orphan check: {}", .{err});
+            return 0;
+        };
+        defer self.allocator.free(exchange_orders);
+
+        // Cancel orders not in checkpoint
+        for (exchange_orders) |ex_order| {
+            var is_known = false;
+            for (state.open_orders) |cp_order| {
+                const cp_order_id = std.fmt.parseInt(u64, cp_order.id, 10) catch continue;
+                if (ex_order.id == cp_order_id) {
+                    is_known = true;
+                    break;
+                }
+            }
+
+            if (!is_known) {
+                // This is an orphan order - cancel it
+                exchange.cancelOrder(ex_order.id) catch |err| {
+                    std.log.err("[RECOVERY] Failed to cancel orphan order {}: {}", .{ ex_order.id, err });
+                    continue;
+                };
+                cancelled += 1;
+                std.log.info("[RECOVERY] Cancelled orphan order: {}", .{ex_order.id});
+            }
+        }
+
+        return cancelled;
+    }
+
     /// Get checkpoint by index (0 = oldest)
     pub fn getCheckpoint(self: *Self, index: usize) ?SystemState {
         self.mutex.lock();
@@ -137,6 +320,9 @@ pub const RecoveryManager = struct {
             .recovery_count = self.recovery_count,
             .last_checkpoint = self.last_checkpoint,
             .stored_checkpoints = self.checkpoints.items.len,
+            .sync_count = self.sync_count,
+            .orphan_orders_cancelled = self.orphan_orders_cancelled,
+            .has_exchange = self.exchange != null,
         };
     }
 
@@ -343,6 +529,9 @@ pub const RecoveryStats = struct {
     recovery_count: u64,
     last_checkpoint: i64,
     stored_checkpoints: usize,
+    sync_count: u64,
+    orphan_orders_cancelled: u64,
+    has_exchange: bool,
 };
 
 // ============================================================================

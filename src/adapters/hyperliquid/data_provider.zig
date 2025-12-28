@@ -56,6 +56,7 @@ pub const HyperliquidDataProvider = struct {
     // 配置
     config: Config,
 
+    // TODO config WILL be config by config file
     pub const Config = struct {
         /// WebSocket 主机
         host: []const u8 = "api.hyperliquid.xyz",
@@ -258,7 +259,7 @@ pub const HyperliquidDataProvider = struct {
     // 消息处理
     // ========================================================================
 
-    /// 消息回调 (由 HyperliquidWS 调用)
+    /// TODO 需要验证确保这里这样忽略是正确的吗 消息回调 (由 HyperliquidWS 调用)
     fn messageCallback(msg: Message) void {
         // 注意: 这里需要获取 self 指针
         // 由于回调函数签名限制，我们需要用其他方式处理
@@ -274,9 +275,10 @@ pub const HyperliquidDataProvider = struct {
             .trades => |data| self.processTrades(data),
             .error_msg => |data| self.processError(data),
             .subscriptionResponse => {
-                // 订阅确认，可以忽略或记录日志
+                // 订阅确认，可以忽略或记录日志 todo 应该怎么也得记录一个日志吧
             },
             else => {
+                // todo 应该怎么也得记录一个日志吧
                 // 其他消息类型暂不处理
             },
         }

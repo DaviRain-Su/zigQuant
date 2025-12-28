@@ -11,6 +11,27 @@ const Allocator = std.mem.Allocator;
 const Decimal = @import("../core/decimal.zig").Decimal;
 const Position = @import("../trading/position.zig").Position;
 const Side = @import("../exchange/types.zig").Side;
+const IExchange = @import("../exchange/interface.zig").IExchange;
+const OrderRequest = @import("../exchange/types.zig").OrderRequest;
+const OrderType = @import("../exchange/types.zig").OrderType;
+const TradingPair = @import("../exchange/types.zig").TradingPair;
+const Order = @import("../exchange/types.zig").Order;
+
+/// Stop execution callback type
+pub const StopExecutionCallback = *const fn (
+    position_id: []const u8,
+    trigger: StopTrigger,
+    order: ?Order,
+    err: ?anyerror,
+) void;
+
+/// Stop execution result
+pub const StopExecutionResult = struct {
+    success: bool,
+    trigger: StopTrigger,
+    order: ?Order = null,
+    error_message: ?[]const u8 = null,
+};
 
 /// Stop Loss Manager - Automated stop loss and take profit
 pub const StopLossManager = struct {
@@ -18,10 +39,17 @@ pub const StopLossManager = struct {
     stops: std.StringHashMap(StopConfig),
     mutex: std.Thread.Mutex,
 
+    // Optional exchange for order execution
+    exchange: ?IExchange,
+
+    // Optional callback for stop execution
+    on_stop_executed: ?StopExecutionCallback,
+
     // Statistics
     stops_triggered: u64,
     takes_triggered: u64,
     trailing_updates: u64,
+    execution_errors: u64,
 
     const Self = @This();
 
@@ -30,10 +58,27 @@ pub const StopLossManager = struct {
             .allocator = allocator,
             .stops = std.StringHashMap(StopConfig).init(allocator),
             .mutex = .{},
+            .exchange = null,
+            .on_stop_executed = null,
             .stops_triggered = 0,
             .takes_triggered = 0,
             .trailing_updates = 0,
+            .execution_errors = 0,
         };
+    }
+
+    /// Set exchange for order execution
+    pub fn setExchange(self: *Self, exchange: IExchange) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.exchange = exchange;
+    }
+
+    /// Set callback for stop execution notifications
+    pub fn setExecutionCallback(self: *Self, callback: StopExecutionCallback) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.on_stop_executed = callback;
     }
 
     pub fn deinit(self: *Self) void {
@@ -214,6 +259,147 @@ pub const StopLossManager = struct {
         return null;
     }
 
+    /// Check and execute stop loss if triggered
+    /// Returns the execution result if a stop was triggered, null otherwise
+    pub fn checkAndExecute(
+        self: *Self,
+        position_id: []const u8,
+        symbol: []const u8,
+        side: Side,
+        quantity: Decimal,
+        current_price: Decimal,
+    ) ?StopExecutionResult {
+        // First check if stop should trigger
+        const trigger = self.checkStopLoss(position_id, side, current_price) orelse return null;
+
+        // Execute the stop order
+        return self.executeStop(position_id, symbol, side, quantity, trigger, current_price);
+    }
+
+    /// Execute a stop order via exchange
+    pub fn executeStop(
+        self: *Self,
+        position_id: []const u8,
+        symbol: []const u8,
+        side: Side,
+        quantity: Decimal,
+        trigger: StopTrigger,
+        current_price: Decimal,
+    ) StopExecutionResult {
+        self.mutex.lock();
+        const config = self.stops.get(position_id);
+        const exchange = self.exchange;
+        const callback = self.on_stop_executed;
+        self.mutex.unlock();
+
+        // Determine close side (opposite of position side)
+        const close_side: Side = if (side == .buy) .sell else .buy;
+
+        // Determine order type and price based on stop config
+        var order_type: OrderType = .market;
+        var limit_price: ?Decimal = null;
+
+        if (config) |cfg| {
+            switch (trigger) {
+                .stop_loss => {
+                    if (cfg.stop_loss_type == .limit) {
+                        order_type = .limit;
+                        limit_price = cfg.stop_loss;
+                    }
+                },
+                .take_profit => {
+                    if (cfg.take_profit_type == .limit) {
+                        order_type = .limit;
+                        limit_price = cfg.take_profit;
+                    }
+                },
+                .trailing_stop, .time_stop => {
+                    // Use market order for trailing and time stops
+                    order_type = .market;
+                },
+            }
+        }
+
+        // Calculate actual close quantity based on partial close setting
+        const close_qty = if (config) |cfg|
+            quantity.mul(Decimal.fromFloat(cfg.partial_close_pct))
+        else
+            quantity;
+
+        // Execute if exchange is available
+        if (exchange) |ex| {
+            const order_request = OrderRequest{
+                .pair = TradingPair{ .base = symbol, .quote = "USDC" },
+                .side = close_side,
+                .order_type = order_type,
+                .amount = close_qty,
+                .price = if (order_type == .limit) limit_price else null,
+                .reduce_only = true,
+            };
+
+            const order = ex.createOrder(order_request) catch |err| {
+                // Log error
+                std.log.err("[STOP_LOSS] Failed to execute {s} for {s}: {}", .{
+                    @tagName(trigger),
+                    position_id,
+                    err,
+                });
+
+                self.mutex.lock();
+                self.execution_errors += 1;
+                self.mutex.unlock();
+
+                // Call callback with error
+                if (callback) |cb| {
+                    cb(position_id, trigger, null, err);
+                }
+
+                return StopExecutionResult{
+                    .success = false,
+                    .trigger = trigger,
+                    .error_message = "Order execution failed",
+                };
+            };
+
+            // Success - update stats and call callback
+            self.markTriggered(position_id, trigger);
+
+            std.log.info("[STOP_LOSS] Executed {s} for {s}: order_id={}, price={d:.2}", .{
+                @tagName(trigger),
+                position_id,
+                order.id,
+                current_price.toFloat(),
+            });
+
+            if (callback) |cb| {
+                cb(position_id, trigger, order, null);
+            }
+
+            return StopExecutionResult{
+                .success = true,
+                .trigger = trigger,
+                .order = order,
+            };
+        } else {
+            // No exchange - just mark as triggered and log
+            self.markTriggered(position_id, trigger);
+
+            std.log.warn("[STOP_LOSS] {s} triggered for {s} but no exchange set - manual execution required", .{
+                @tagName(trigger),
+                position_id,
+            });
+
+            if (callback) |cb| {
+                cb(position_id, trigger, null, null);
+            }
+
+            return StopExecutionResult{
+                .success = true, // Trigger was successful, just not executed
+                .trigger = trigger,
+            };
+        }
+    }
+
     /// Update trailing stop price (call on price update)
     pub fn updateTrailingStop(
         self: *Self,
@@ -335,6 +521,8 @@ pub const StopLossManager = struct {
             .takes_triggered = self.takes_triggered,
             .trailing_updates = self.trailing_updates,
             .active_stops = self.stops.count(),
+            .execution_errors = self.execution_errors,
+            .has_exchange = self.exchange != null,
         };
     }
 
@@ -492,6 +680,8 @@ pub const StopLossStats = struct {
     takes_triggered: u64,
     trailing_updates: u64,
     active_stops: usize,
+    execution_errors: u64,
+    has_exchange: bool,
 };
 
 // ============================================================================
