@@ -535,7 +535,10 @@ fn saveResults(allocator: std.mem.Allocator, result: *const zigQuant.Optimizatio
     var file = try std.fs.cwd().createFile(path, .{});
     defer file.close();
 
-    var writer = file.writer();
+    // Zig 0.15: File.writer() returns Writer with interface field
+    var write_buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(&write_buffer);
+    const writer = &file_writer.interface;
 
     // Start JSON object
     try writer.writeAll("{\n");
@@ -596,6 +599,9 @@ fn saveResults(allocator: std.mem.Allocator, result: *const zigQuant.Optimizatio
 
     // Close JSON
     try writer.writeAll("}\n");
+
+    // Flush the buffer
+    try writer.flush();
 
     // Use allocator for potential future needs
     _ = allocator;

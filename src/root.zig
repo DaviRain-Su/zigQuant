@@ -57,6 +57,9 @@ pub const strategy_breakout = @import("strategy/builtin/breakout.zig");
 pub const strategy_triple_ma = @import("strategy/builtin/triple_ma.zig");
 pub const strategy_macd_divergence = @import("strategy/builtin/macd_divergence.zig");
 
+// v0.9.0 AI Strategy
+pub const strategy_hybrid_ai = @import("strategy/builtin/hybrid_ai.zig");
+
 // Strategy factory
 pub const StrategyFactory = @import("strategy/factory.zig").StrategyFactory;
 pub const StrategyWrapper = @import("strategy/factory.zig").StrategyWrapper;
@@ -106,6 +109,9 @@ pub const risk = @import("risk/mod.zig");
 
 // v0.8.0 Recovery modules
 pub const recovery = @import("recovery/mod.zig");
+
+// v0.9.0 AI modules
+pub const ai = @import("ai/mod.zig");
 
 // Backtest modules
 pub const backtest_types = @import("backtest/types.zig");
@@ -189,6 +195,10 @@ pub const BollingerBreakoutStrategy = strategy_breakout.BollingerBreakoutStrateg
 // Re-export new v0.4.0 strategies
 pub const TripleMAStrategy = strategy_triple_ma.TripleMAStrategy;
 pub const MACDDivergenceStrategy = strategy_macd_divergence.MACDDivergenceStrategy;
+
+// Re-export v0.9.0 AI strategy
+pub const HybridAIStrategy = strategy_hybrid_ai.HybridAIStrategy;
+pub const HybridAIConfig = strategy_hybrid_ai.Config;
 
 // Re-export indicator types
 pub const IIndicator = indicator_interface.IIndicator;
@@ -402,6 +412,22 @@ pub const RecoveryOrderType = recovery.OrderType;
 pub const RecoveryOrderStatus = recovery.OrderStatus;
 pub const SyncResult = recovery.SyncResult;
 
+// Re-export v0.9.0 AI types (Story 046)
+pub const AIProvider = ai.AIProvider;
+pub const AIModel = ai.AIModel;
+pub const AIConfig = ai.AIConfig;
+pub const AIAdvice = ai.AIAdvice;
+pub const AIAction = ai.Action;
+pub const MarketContext = ai.MarketContext;
+pub const IndicatorSnapshot = ai.IndicatorSnapshot;
+pub const AdvisorConfig = ai.AdvisorConfig;
+pub const AdvisorStats = ai.AdvisorStats;
+pub const ILLMClient = ai.ILLMClient;
+pub const MockLLMClient = ai.MockLLMClient;
+pub const LLMClient = ai.LLMClient;
+pub const AIAdvisor = ai.AIAdvisor;
+pub const PromptBuilder = ai.PromptBuilder;
+
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
 pub const OptimizerParameterValue = optimizer_types.ParameterValue;
@@ -608,6 +634,9 @@ test {
     _ = strategy_triple_ma;
     _ = strategy_macd_divergence;
 
+    // v0.9.0 AI strategy
+    _ = strategy_hybrid_ai;
+
     // Indicator modules
     _ = indicator_interface;
     _ = indicator_utils;
@@ -678,6 +707,9 @@ test {
 
     // v0.8.0 Recovery modules
     _ = recovery;
+
+    // v0.9.0 AI modules
+    _ = ai;
 
     // Optimizer modules
     _ = optimizer_types;

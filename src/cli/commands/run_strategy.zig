@@ -223,7 +223,7 @@ pub fn cmdRunStrategy(
     defer message_bus.deinit();
 
     // Create Cache for market data
-    var cache = Cache.init(allocator);
+    var cache = Cache.init(allocator, &message_bus, .{});
     defer cache.deinit();
 
     // Run trading based on mode

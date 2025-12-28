@@ -45,6 +45,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add zig-ai-sdk dependency for AI/LLM integration
+    const ai_sdk = b.dependency("zig-ai-sdk", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -67,6 +73,10 @@ pub fn build(b: *std.Build) void {
             .{ .name = "zigeth", .module = zigeth.module("zigeth") },
             .{ .name = "websocket", .module = websocket.module("websocket") },
             .{ .name = "xev", .module = libxev.module("xev") },
+            .{ .name = "ai", .module = ai_sdk.module("ai") },
+            .{ .name = "openai", .module = ai_sdk.module("openai") },
+            .{ .name = "anthropic", .module = ai_sdk.module("anthropic") },
+            .{ .name = "provider", .module = ai_sdk.module("provider") },
         },
     });
 
@@ -734,6 +744,23 @@ pub fn build(b: *std.Build) void {
     const example_latency_step = b.step("run-example-latency", "Run latency simulation example (v0.7.0)");
     example_latency_step.dependOn(&run_example_latency.step);
 
+    // Example 32: AI Strategy (v0.9.0)
+    const example_ai = b.addExecutable(.{
+        .name = "example-ai",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/32_ai_strategy.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_ai);
+    const run_example_ai = b.addRunArtifact(example_ai);
+    const example_ai_step = b.step("run-example-ai", "Run AI strategy example (v0.9.0)");
+    example_ai_step.dependOn(&run_example_ai.step);
+
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
     examples_step.dependOn(&run_example_core.step);
@@ -761,6 +788,7 @@ pub fn build(b: *std.Build) void {
     examples_step.dependOn(&run_example_arbitrage.step);
     examples_step.dependOn(&run_example_queue.step);
     examples_step.dependOn(&run_example_latency.step);
+    examples_step.dependOn(&run_example_ai.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
