@@ -18,6 +18,7 @@ const ApiConfig = config_mod.ApiConfig;
 const ApiDependencies = config_mod.ApiDependencies;
 const handlers = @import("handlers/mod.zig");
 const jwt_mod = @import("jwt.zig");
+const cors = @import("middleware/cors.zig");
 
 /// API Server State
 /// This is passed to all request handlers as context.
@@ -28,6 +29,7 @@ pub const ServerContext = struct {
     start_time: i64,
     jwt_manager: jwt_mod.JwtManager,
     request_count: std.atomic.Value(u64),
+    cors_config: cors.CorsConfig,
 
     /// Get server uptime in seconds
     pub fn uptime(self: *const ServerContext) i64 {
@@ -42,6 +44,12 @@ pub const ServerContext = struct {
     /// Get total request count
     pub fn getRequestCount(self: *const ServerContext) u64 {
         return self.request_count.load(.monotonic);
+    }
+
+    /// Add CORS headers to response
+    pub fn addCorsHeaders(self: *const ServerContext, req: *httpz.Request, res: *httpz.Response) void {
+        const origin = req.header("origin");
+        cors.addCorsHeaders(res, origin, self.cors_config);
     }
 };
 
@@ -81,6 +89,9 @@ pub const ApiServer = struct {
                 "zigquant",
             ),
             .request_count = std.atomic.Value(u64).init(0),
+            .cors_config = .{
+                .allowed_origins = config.cors_origins,
+            },
         };
 
         // Create HTTP server
@@ -119,6 +130,9 @@ pub const ApiServer = struct {
     fn setupRoutes(server: *HttpServer) !void {
         var router = try server.router(.{});
 
+        // CORS preflight handler for all routes
+        router.options("/*", handleCorsPreflightWildcard, .{});
+
         // Health check endpoints (no auth required)
         router.get("/health", handleHealth, .{});
         router.get("/ready", handleReady, .{});
@@ -156,10 +170,20 @@ pub const ApiServer = struct {
     }
 
     // ========================================================================
+    // Route Handlers - CORS
+    // ========================================================================
+
+    fn handleCorsPreflightWildcard(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        const origin = req.header("origin");
+        cors.handlePreflight(res, origin, ctx.cors_config);
+    }
+
+    // ========================================================================
     // Route Handlers - Health & Info
     // ========================================================================
 
-    fn handleHealth(ctx: *ServerContext, _: *httpz.Request, res: *httpz.Response) !void {
+    fn handleHealth(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
         try res.json(.{
             .status = "healthy",
@@ -169,7 +193,8 @@ pub const ApiServer = struct {
         }, .{});
     }
 
-    fn handleReady(ctx: *ServerContext, _: *httpz.Request, res: *httpz.Response) !void {
+    fn handleReady(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
         // Check dependencies - for now we check if JWT is configured
         const jwt_configured = ctx.config.jwt_secret.len >= 32;
@@ -200,7 +225,8 @@ pub const ApiServer = struct {
         }
     }
 
-    fn handleVersion(ctx: *ServerContext, _: *httpz.Request, res: *httpz.Response) !void {
+    fn handleVersion(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
         try res.json(.{
             .name = "zigQuant",
@@ -215,6 +241,7 @@ pub const ApiServer = struct {
     // ========================================================================
 
     fn handleLogin(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
         // Parse request body
@@ -263,6 +290,7 @@ pub const ApiServer = struct {
     }
 
     fn handleRefresh(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
         const auth_header = req.header("authorization") orelse {
@@ -298,6 +326,7 @@ pub const ApiServer = struct {
     }
 
     fn handleMe(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
         const auth_header = req.header("authorization") orelse {
@@ -337,7 +366,8 @@ pub const ApiServer = struct {
     // Route Handlers - Strategies
     // ========================================================================
 
-    fn handleStrategiesList(ctx: *ServerContext, _: *httpz.Request, res: *httpz.Response) !void {
+    fn handleStrategiesList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
         // Built-in strategies available in zigQuant
@@ -373,6 +403,7 @@ pub const ApiServer = struct {
     }
 
     fn handleStrategyGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
         const id = req.param("id") orelse {
@@ -426,7 +457,8 @@ pub const ApiServer = struct {
     // Route Handlers - Metrics
     // ========================================================================
 
-    fn handleMetrics(ctx: *ServerContext, _: *httpz.Request, res: *httpz.Response) !void {
+    fn handleMetrics(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
         res.content_type = httpz.ContentType.TEXT;
 
         const writer = res.writer();
