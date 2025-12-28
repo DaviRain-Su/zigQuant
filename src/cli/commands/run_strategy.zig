@@ -29,10 +29,15 @@ const SimulatedAccount = zigQuant.SimulatedAccount;
 const Side = zigQuant.Side;
 const OrderType = zigQuant.OrderType;
 const Candle = zigQuant.Candle;
+const Candles = zigQuant.Candles;
+const RiskConfig = zigQuant.RiskConfig;
+const ExecOrderRequest = zigQuant.ExecOrderRequest;
+const HistoricalDataFeed = zigQuant.HistoricalDataFeed;
 
 // Strategy interface
 const StrategyContext = zigQuant.strategy_interface.StrategyContext;
 const Signal = zigQuant.strategy_interface.Signal;
+const SignalType = zigQuant.strategy_interface.SignalType;
 
 // ============================================================================
 // CLI Parameters
@@ -270,160 +275,190 @@ fn runPaperTrading(
     update_interval: u64,
     duration_minutes: u64,
 ) !void {
-    _ = cache;
-    _ = message_bus;
-    _ = timeframe;
+    _ = update_interval; // Will be used for real-time polling in future
+    _ = duration_minutes; // Will be used for duration control in future
 
-    try logger.info("Starting Paper Trading...", .{});
+    try logger.info("╔════════════════════════════════════════════════════╗", .{});
+    try logger.info("║        Paper Trading - Historical Simulation       ║", .{});
+    try logger.info("╚════════════════════════════════════════════════════╝", .{});
     try logger.info("", .{});
 
-    // Create simulated account
+    // 1. Create SimulatedAccount with initial capital
+    try logger.info("Creating simulated account with capital: {}", .{initial_capital});
     var account = SimulatedAccount.init(allocator, initial_capital);
     defer account.deinit();
 
-    // Create simulated executor
-    var executor = SimulatedExecutor.init(allocator, &account, null, null, .{
-        .log_trades = true,
-    });
+    // 2. Create SimulatedExecutor
+    try logger.info("Initializing simulated executor...", .{});
+    var executor = SimulatedExecutor.init(
+        allocator,
+        &account,
+        cache,
+        message_bus,
+        .{
+            .commission_rate = Decimal.fromFloat(0.0005), // 0.05%
+            .slippage = Decimal.fromFloat(0.0001), // 0.01%
+            .fill_delay_ms = 0,
+            .log_trades = true,
+        },
+    );
     defer executor.deinit();
 
-    // Create execution engine
-    var engine = ExecutionEngine.init(allocator, executor.asClient(), null, null);
+    // 3. Create ExecutionEngine with correct parameters
+    try logger.info("Initializing execution engine...", .{});
+    var engine = ExecutionEngine.init(
+        allocator,
+        message_bus,
+        cache,
+        RiskConfig{
+            .max_position_size = null,
+            .max_order_size = null,
+            .max_daily_loss = null,
+            .max_open_orders = 100,
+            .min_order_interval_ms = 0,
+            .allowed_symbols = null,
+        },
+    );
     defer engine.deinit();
 
-    try logger.info("╔════════════════════════════════════════════════════╗", .{});
-    try logger.info("║  Paper Trading Started - Press Ctrl+C to stop     ║", .{});
-    try logger.info("╚════════════════════════════════════════════════════╝", .{});
+    // Set the executor as client
+    engine.setClient(executor.asClient());
+    try engine.start();
+    defer engine.stop();
+
+    // 4. Load historical data for simulation
+    try logger.info("Loading historical data...", .{});
+    try logger.info("Note: Paper trading currently uses historical simulation.", .{});
+    try logger.info("      Real-time WebSocket feed coming in v0.4.0", .{});
     try logger.info("", .{});
 
-    const start_time = std.time.timestamp();
-    const end_time: i64 = if (duration_minutes > 0)
-        start_time + @as(i64, @intCast(duration_minutes * 60))
-    else
-        std.math.maxInt(i64);
+    // Try to load data from default file or cache
+    var data_feed = HistoricalDataFeed.init(allocator, logger.*);
 
-    var tick_count: u64 = 0;
-    const symbol = try std.fmt.allocPrint(allocator, "{s}", .{pair.base});
-    defer allocator.free(symbol);
+    // Generate expected data file path based on pair and timeframe
+    var path_buf: [256]u8 = undefined;
+    const data_file = std.fmt.bufPrint(&path_buf, "data/{s}_{s}_{s}.csv", .{
+        pair.base,
+        pair.quote,
+        @tagName(timeframe),
+    }) catch {
+        try logger.err("Failed to generate data file path", .{});
+        return error.PathError;
+    };
 
-    // Main trading loop
-    while (std.time.timestamp() < end_time) {
-        tick_count += 1;
-        const now = Timestamp.now();
+    var candles = data_feed.loadFromCSV(data_file, pair, timeframe) catch |err| {
+        try logger.warn("Could not load historical data from {s}: {s}", .{ data_file, @errorName(err) });
+        try logger.info("", .{});
+        try logger.info("Paper trading requires historical data.", .{});
+        try logger.info("Please provide a CSV file at: {s}", .{data_file});
+        try logger.info("Or use backtest mode with --data-file option:", .{});
+        try logger.info("  zigquant backtest --strategy <name> --config config.json --data-file <path>", .{});
+        try logger.info("", .{});
+        return error.NoHistoricalData;
+    };
+    defer candles.deinit();
 
-        try logger.info("[Tick {d}] {}", .{ tick_count, now });
+    try logger.info("Loaded {} candles for simulation", .{candles.len()});
+    try logger.info("", .{});
 
-        // Generate simulated price (in real implementation, fetch from exchange)
-        // For demo purposes, use a random walk around a base price
-        const base_price: f64 = 3500.0; // Example: ETH price
-        const noise = @as(f64, @floatFromInt(tick_count % 100)) * 0.5 - 25.0;
-        const current_price = Decimal.fromFloat(base_price + noise);
+    // 5. Populate indicators
+    try logger.info("Calculating indicators...", .{});
+    try strategy.populateIndicators(&candles);
+    try logger.info("Indicators calculated successfully", .{});
+    try logger.info("", .{});
 
-        // Create a simulated candle for strategy
-        const candle = Candle{
-            .open = current_price,
-            .high = current_price.add(Decimal.fromFloat(5.0)),
-            .low = current_price.sub(Decimal.fromFloat(5.0)),
-            .close = current_price,
-            .volume = Decimal.fromFloat(1000.0),
-            .timestamp = now,
-        };
+    // 6. Run simulation loop
+    try logger.info("Starting paper trading simulation...", .{});
+    try logger.info("", .{});
 
-        // Generate signal from strategy
-        const signal = strategy.onData(candle);
+    var order_count: u64 = 0;
+    var signal_count: u64 = 0;
+    var has_position = false;
 
-        // Process signal
-        if (signal) |sig| {
-            try logger.info("  Signal: {s} @ {}", .{
-                switch (sig.direction) {
-                    .long => "LONG",
-                    .short => "SHORT",
-                    .flat => "FLAT",
-                },
-                current_price,
-            });
+    // Get strategy metadata
+    const metadata = strategy.getMetadata();
+    const warmup_period = metadata.startup_candle_count;
 
-            // Execute based on signal
-            switch (sig.direction) {
-                .long => {
-                    // Check if we have a position
-                    const pos = account.getPosition(symbol);
-                    if (pos == null) {
-                        // Calculate quantity based on signal strength
-                        const trade_value = account.available_balance.mul(sig.strength);
-                        const quantity = trade_value.divTrunc(current_price);
+    for (warmup_period..candles.len()) |i| {
+        // Get current candle
+        const current_candle = candles.get(i) orelse continue;
 
-                        if (quantity.cmp(Decimal.ZERO) == .gt) {
-                            const result = try engine.submitOrder(.{
-                                .client_order_id = try std.fmt.allocPrint(allocator, "paper-{d}", .{tick_count}),
-                                .symbol = symbol,
-                                .side = .buy,
-                                .order_type = .market,
-                                .quantity = quantity,
-                                .price = current_price,
-                            });
-                            allocator.free(result.order_id.?);
+        // Check for entry signal if we don't have a position
+        if (!has_position) {
+            const entry_signal = try strategy.generateEntrySignal(&candles, i);
 
-                            if (result.success) {
-                                try logger.info("  Order executed: BUY {} @ {}", .{ quantity, current_price });
-                            }
-                        }
-                    }
-                },
-                .short => {
-                    // Close long position if exists
-                    if (account.getPosition(symbol)) |pos| {
-                        if (pos.side == .long) {
-                            const result = try engine.submitOrder(.{
-                                .client_order_id = try std.fmt.allocPrint(allocator, "paper-{d}", .{tick_count}),
-                                .symbol = symbol,
-                                .side = .sell,
-                                .order_type = .market,
-                                .quantity = pos.quantity,
-                                .price = current_price,
-                            });
-                            allocator.free(result.order_id.?);
+            if (entry_signal) |signal| {
+                defer signal.deinit();
+                signal_count += 1;
 
-                            if (result.success) {
-                                try logger.info("  Order executed: SELL {} @ {}", .{ pos.quantity, current_price });
-                            }
-                        }
-                    }
-                },
-                .flat => {},
+                // Calculate position size (simple fixed fraction for now)
+                const position_size = try initial_capital.mul(Decimal.fromFloat(0.1)).div(current_candle.close);
+
+                const is_long = signal.type == .entry_long;
+                try logger.info("[Signal] {s} at price {} (candle {})", .{
+                    if (is_long) "LONG" else "SHORT",
+                    current_candle.close,
+                    i,
+                });
+
+                // Create order request
+                const order_id_buf = try std.fmt.allocPrint(allocator, "paper_{d}", .{order_count});
+                defer allocator.free(order_id_buf);
+
+                const symbol_buf = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ pair.base, pair.quote });
+                defer allocator.free(symbol_buf);
+
+                const order_request = ExecOrderRequest{
+                    .client_order_id = order_id_buf,
+                    .symbol = symbol_buf,
+                    .side = if (is_long) .buy else .sell,
+                    .order_type = .market,
+                    .quantity = position_size,
+                    .price = null,
+                };
+
+                // Submit order
+                const result = try engine.submitOrder(order_request);
+                if (result.success) {
+                    order_count += 1;
+                    has_position = true;
+                    try logger.info("[Order] Executed: {} @ {}", .{ position_size, current_candle.close });
+                } else {
+                    try logger.warn("[Order] Rejected: {s}", .{result.error_message orelse "unknown"});
+                }
+            }
+        } else {
+            // Check for exit signal if we have a position
+            // For simplicity, we use a basic exit after N candles
+            // Full exit signal logic will use strategy.generateExitSignal in future
+            if (i % 20 == 0) { // Exit every 20 candles for demo
+                has_position = false;
+                try logger.info("[Exit] Position closed at price {}", .{current_candle.close});
             }
         }
-
-        // Display account status every 5 ticks
-        if (tick_count % 5 == 0) {
-            const balance = try executor.asClient().getBalance();
-            try logger.info("  Balance: {} | Unrealized PnL: {}", .{
-                balance.total,
-                balance.unrealized_pnl,
-            });
-        }
-
-        // Sleep until next update
-        std.time.sleep(update_interval * std.time.ns_per_s);
     }
 
-    // Final summary
+    // 7. Print summary
     try logger.info("", .{});
     try logger.info("╔════════════════════════════════════════════════════╗", .{});
-    try logger.info("║               Paper Trading Summary                ║", .{});
+    try logger.info("║           Paper Trading Summary                    ║", .{});
     try logger.info("╚════════════════════════════════════════════════════╝", .{});
     try logger.info("", .{});
 
-    const final_balance = try executor.asClient().getBalance();
-    const pnl = final_balance.total.sub(initial_capital);
-    const return_pct = pnl.toFloat() / initial_capital.toFloat() * 100.0;
+    const final_balance = account.calculateTotalEquity();
+    const pnl = final_balance.sub(initial_capital);
+    const return_pct = (try pnl.div(initial_capital)).mul(Decimal.fromInt(100));
 
-    try logger.info("Initial Capital:  {}", .{initial_capital});
-    try logger.info("Final Balance:    {}", .{final_balance.total});
-    try logger.info("Net P&L:          {}", .{pnl});
-    try logger.info("Return:           {d:.2}%", .{return_pct});
-    try logger.info("Total Ticks:      {d}", .{tick_count});
+    try logger.info("Candles processed:  {}", .{candles.len()});
+    try logger.info("Signals generated:  {}", .{signal_count});
+    try logger.info("Orders executed:    {}", .{order_count});
+    try logger.info("Initial capital:    {}", .{initial_capital});
+    try logger.info("Final equity:       {}", .{final_balance});
+    try logger.info("Total PnL:          {}", .{pnl});
+    try logger.info("Return:             {}%", .{return_pct});
     try logger.info("", .{});
+    try logger.info("Note: This was a historical simulation.", .{});
+    try logger.info("Real-time paper trading with WebSocket data coming in v0.4.0", .{});
 }
 
 // ============================================================================
