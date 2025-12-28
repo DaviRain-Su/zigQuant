@@ -4,10 +4,15 @@
 
 const std = @import("std");
 
-// Will be added in subsequent implementations:
-// pub const Auth = @import("auth.zig").AuthMiddleware;
-// pub const Cors = @import("cors.zig").CorsMiddleware;
-// pub const Logger = @import("logger.zig").LoggerMiddleware;
+/// Authentication middleware
+pub const auth = @import("auth.zig");
+pub const AuthContext = auth.AuthContext;
+pub const AuthError = auth.AuthError;
 
-/// Placeholder for future middleware implementations
-pub const placeholder = struct {};
+// Future middleware:
+// pub const cors = @import("cors.zig");
+// pub const logger = @import("logger.zig");
+
+test {
+    std.testing.refAllDecls(@This());
+}
