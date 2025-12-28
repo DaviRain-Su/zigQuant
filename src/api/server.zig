@@ -938,22 +938,20 @@ pub const ApiServer = struct {
             return;
         };
 
-        const OrderRequest = struct {
+        const OrderRequestJson = struct {
             pair: []const u8,
             side: []const u8,
             order_type: []const u8 = "limit",
             size: f64,
             price: ?f64 = null,
-            stop_price: ?f64 = null,
-            take_profit: ?f64 = null,
-            stop_loss: ?f64 = null,
+            exchange: ?[]const u8 = null, // Optional exchange filter
         };
 
-        const parsed = std.json.parseFromSlice(OrderRequest, req.arena, body, .{}) catch {
+        const parsed = std.json.parseFromSlice(OrderRequestJson, req.arena, body, .{}) catch {
             res.setStatus(.bad_request);
             try res.json(.{
                 .@"error" = "Invalid JSON format",
-                .expected = "{ \"pair\": \"BTC-USDT\", \"side\": \"buy\", \"size\": 0.1, \"price\": 42000 }",
+                .expected = "{ \"pair\": \"BTC-USDT\", \"side\": \"buy\", \"size\": 0.1, \"price\": 42000, \"exchange\": \"hyperliquid\" }",
             }, .{});
             return;
         };
@@ -961,52 +959,89 @@ pub const ApiServer = struct {
         const order_req = parsed.value;
 
         // Validate side
-        if (!std.mem.eql(u8, order_req.side, "buy") and !std.mem.eql(u8, order_req.side, "sell")) {
+        const side = config_mod.Side.fromString(order_req.side) catch {
             res.setStatus(.bad_request);
             try res.json(.{ .@"error" = "Invalid side, must be 'buy' or 'sell'" }, .{});
             return;
-        }
+        };
 
         // Validate order type
-        const valid_types = [_][]const u8{ "market", "limit", "stop", "stop_limit" };
-        var type_valid = false;
-        for (valid_types) |t| {
-            if (std.mem.eql(u8, order_req.order_type, t)) {
-                type_valid = true;
-                break;
-            }
-        }
-        if (!type_valid) {
+        const order_type = config_mod.OrderType.fromString(order_req.order_type) catch {
             res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Invalid order_type, must be 'market', 'limit', 'stop', or 'stop_limit'" }, .{});
+            try res.json(.{ .@"error" = "Invalid order_type, must be 'market' or 'limit'" }, .{});
             return;
-        }
+        };
 
         // Limit orders require price
-        if (std.mem.eql(u8, order_req.order_type, "limit") and order_req.price == null) {
+        if (order_type == .limit and order_req.price == null) {
             res.setStatus(.bad_request);
             try res.json(.{ .@"error" = "Limit orders require a price" }, .{});
             return;
         }
 
-        // Generate order ID
-        const timestamp = std.time.timestamp();
+        // Parse trading pair
+        const pair = config_mod.TradingPair.fromSymbol(order_req.pair) catch {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Invalid pair format, use 'BTC-USDT' or 'BTC/USDT'" }, .{});
+            return;
+        };
 
-        // In a real implementation, this would submit to the exchange
+        // Check if exchange is configured
+        if (!ctx.deps.hasExchanges()) {
+            res.setStatus(.service_unavailable);
+            try res.json(.{ .@"error" = "No exchange configured" }, .{});
+            return;
+        }
+
+        // Get exchange (use specified or first available)
+        const exchange_name = order_req.exchange orelse blk: {
+            var iter = ctx.deps.iterator();
+            if (iter.next()) |entry| {
+                break :blk entry.key_ptr.*;
+            }
+            res.setStatus(.service_unavailable);
+            try res.json(.{ .@"error" = "No exchange available" }, .{});
+            return;
+        };
+
+        const exchange_entry = ctx.deps.getExchange(exchange_name) orelse {
+            res.setStatus(.not_found);
+            try res.json(.{ .@"error" = "Exchange not found", .exchange = exchange_name }, .{});
+            return;
+        };
+
+        // Create order request
+        const exchange_order_req = config_mod.OrderRequest{
+            .pair = pair,
+            .side = side,
+            .order_type = order_type,
+            .amount = config_mod.Decimal.fromFloat(order_req.size),
+            .price = if (order_req.price) |p| config_mod.Decimal.fromFloat(p) else null,
+        };
+
+        // Submit order to exchange
+        const order = exchange_entry.interface.createOrder(exchange_order_req) catch |err| {
+            res.setStatus(.internal_server_error);
+            try res.json(.{
+                .@"error" = "Failed to create order",
+                .details = @errorName(err),
+                .exchange = exchange_name,
+            }, .{});
+            return;
+        };
+
         res.setStatus(.created);
         try res.json(.{
-            .id = timestamp,
+            .id = order.exchange_order_id,
             .pair = order_req.pair,
             .side = order_req.side,
             .order_type = order_req.order_type,
             .size = order_req.size,
             .price = order_req.price,
-            .stop_price = order_req.stop_price,
-            .take_profit = order_req.take_profit,
-            .stop_loss = order_req.stop_loss,
-            .filled_size = 0.0,
-            .status = "open",
-            .created_at = timestamp,
+            .filled_size = order.filled_amount.toFloat(),
+            .status = order.status.toString(),
+            .exchange = exchange_name,
+            .created_at = @divFloor(order.created_at.millis, 1000),
             .message = "Order created successfully",
         }, .{});
     }
@@ -1015,16 +1050,63 @@ pub const ApiServer = struct {
         ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
-        const id = req.param("id") orelse {
+        const id_str = req.param("id") orelse {
             res.setStatus(.bad_request);
             try res.json(.{ .@"error" = "Missing order ID" }, .{});
             return;
         };
 
-        // In a real implementation, this would cancel the order on the exchange
+        // Parse order ID
+        const order_id = std.fmt.parseInt(u64, id_str, 10) catch {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Invalid order ID format" }, .{});
+            return;
+        };
+
+        // Check for exchange query param
+        const query_map = req.query() catch null;
+        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
+
+        // Check if exchange is configured
+        if (!ctx.deps.hasExchanges()) {
+            res.setStatus(.service_unavailable);
+            try res.json(.{ .@"error" = "No exchange configured" }, .{});
+            return;
+        }
+
+        // Get exchange (use specified or first available)
+        const exchange_name = exchange_filter orelse blk: {
+            var iter = ctx.deps.iterator();
+            if (iter.next()) |entry| {
+                break :blk entry.key_ptr.*;
+            }
+            res.setStatus(.service_unavailable);
+            try res.json(.{ .@"error" = "No exchange available" }, .{});
+            return;
+        };
+
+        const exchange_entry = ctx.deps.getExchange(exchange_name) orelse {
+            res.setStatus(.not_found);
+            try res.json(.{ .@"error" = "Exchange not found", .exchange = exchange_name }, .{});
+            return;
+        };
+
+        // Cancel order on exchange
+        exchange_entry.interface.cancelOrder(order_id) catch |err| {
+            res.setStatus(.internal_server_error);
+            try res.json(.{
+                .@"error" = "Failed to cancel order",
+                .details = @errorName(err),
+                .order_id = order_id,
+                .exchange = exchange_name,
+            }, .{});
+            return;
+        };
+
         try res.json(.{
-            .id = id,
+            .id = order_id,
             .status = "cancelled",
+            .exchange = exchange_name,
             .cancelled_at = std.time.timestamp(),
             .message = "Order cancelled successfully",
         }, .{});
@@ -1181,6 +1263,10 @@ pub const ApiServer = struct {
 
         const writer = res.writer();
 
+        // ====================================================================
+        // System Metrics
+        // ====================================================================
+
         // Uptime metric
         try writer.writeAll("# HELP zigquant_uptime_seconds Server uptime in seconds\n");
         try writer.writeAll("# TYPE zigquant_uptime_seconds gauge\n");
@@ -1194,7 +1280,127 @@ pub const ApiServer = struct {
         // Server info
         try writer.writeAll("# HELP zigquant_info Server information\n");
         try writer.writeAll("# TYPE zigquant_info gauge\n");
-        try writer.writeAll("zigquant_info{version=\"1.0.0\",api_version=\"v1\"} 1\n");
+        try writer.writeAll("zigquant_info{version=\"1.0.0\",api_version=\"v1\"} 1\n\n");
+
+        // ====================================================================
+        // Exchange Metrics
+        // ====================================================================
+
+        // Exchange connection status
+        try writer.writeAll("# HELP zigquant_exchange_connected Exchange connection status (1=connected, 0=disconnected)\n");
+        try writer.writeAll("# TYPE zigquant_exchange_connected gauge\n");
+
+        var total_exchanges: usize = 0;
+        var connected_exchanges: usize = 0;
+
+        var iter = ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const exchange_entry = entry.value_ptr.*;
+            const is_connected: u8 = if (exchange_entry.interface.isConnected()) 1 else 0;
+            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
+
+            try writer.print("zigquant_exchange_connected{{exchange=\"{s}\",network=\"{s}\"}} {d}\n", .{ name, network, is_connected });
+
+            total_exchanges += 1;
+            if (is_connected == 1) connected_exchanges += 1;
+        }
+        try writer.writeAll("\n");
+
+        // Exchanges summary
+        try writer.writeAll("# HELP zigquant_exchanges_total Total number of configured exchanges\n");
+        try writer.writeAll("# TYPE zigquant_exchanges_total gauge\n");
+        try writer.print("zigquant_exchanges_total {d}\n\n", .{total_exchanges});
+
+        try writer.writeAll("# HELP zigquant_exchanges_connected Number of connected exchanges\n");
+        try writer.writeAll("# TYPE zigquant_exchanges_connected gauge\n");
+        try writer.print("zigquant_exchanges_connected {d}\n\n", .{connected_exchanges});
+
+        // ====================================================================
+        // Trading Metrics (from exchanges)
+        // ====================================================================
+
+        // Positions
+        try writer.writeAll("# HELP zigquant_positions_count Number of open positions per exchange\n");
+        try writer.writeAll("# TYPE zigquant_positions_count gauge\n");
+
+        try writer.writeAll("# HELP zigquant_positions_pnl_total Total unrealized PnL per exchange\n");
+        try writer.writeAll("# TYPE zigquant_positions_pnl_total gauge\n");
+
+        try writer.writeAll("# HELP zigquant_positions_margin_total Total margin used per exchange\n");
+        try writer.writeAll("# TYPE zigquant_positions_margin_total gauge\n");
+
+        var iter2 = ctx.deps.iterator();
+        while (iter2.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const exchange_entry = entry.value_ptr.*;
+
+            if (exchange_entry.interface.getPositions()) |positions| {
+                defer ctx.allocator.free(positions);
+
+                var total_pnl: f64 = 0;
+                var total_margin: f64 = 0;
+                for (positions) |pos| {
+                    total_pnl += pos.unrealized_pnl.toFloat();
+                    total_margin += pos.margin_used.toFloat();
+                }
+
+                try writer.print("zigquant_positions_count{{exchange=\"{s}\"}} {d}\n", .{ name, positions.len });
+                try writer.print("zigquant_positions_pnl_total{{exchange=\"{s}\"}} {d:.4}\n", .{ name, total_pnl });
+                try writer.print("zigquant_positions_margin_total{{exchange=\"{s}\"}} {d:.4}\n", .{ name, total_margin });
+            } else |_| {
+                try writer.print("zigquant_positions_count{{exchange=\"{s}\"}} 0\n", .{name});
+            }
+        }
+        try writer.writeAll("\n");
+
+        // Orders
+        try writer.writeAll("# HELP zigquant_orders_open_count Number of open orders per exchange\n");
+        try writer.writeAll("# TYPE zigquant_orders_open_count gauge\n");
+
+        var iter3 = ctx.deps.iterator();
+        while (iter3.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const exchange_entry = entry.value_ptr.*;
+
+            if (exchange_entry.interface.getOpenOrders(null)) |orders| {
+                defer ctx.allocator.free(orders);
+                try writer.print("zigquant_orders_open_count{{exchange=\"{s}\"}} {d}\n", .{ name, orders.len });
+            } else |_| {
+                try writer.print("zigquant_orders_open_count{{exchange=\"{s}\"}} 0\n", .{name});
+            }
+        }
+        try writer.writeAll("\n");
+
+        // Balance
+        try writer.writeAll("# HELP zigquant_balance_total Total account balance per exchange (in quote currency)\n");
+        try writer.writeAll("# TYPE zigquant_balance_total gauge\n");
+
+        try writer.writeAll("# HELP zigquant_balance_available Available balance per exchange\n");
+        try writer.writeAll("# TYPE zigquant_balance_available gauge\n");
+
+        var iter4 = ctx.deps.iterator();
+        while (iter4.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const exchange_entry = entry.value_ptr.*;
+
+            if (exchange_entry.interface.getBalance()) |balances| {
+                defer ctx.allocator.free(balances);
+
+                var total: f64 = 0;
+                var available: f64 = 0;
+                for (balances) |bal| {
+                    total += bal.total.toFloat();
+                    available += bal.available.toFloat();
+                }
+
+                try writer.print("zigquant_balance_total{{exchange=\"{s}\"}} {d:.4}\n", .{ name, total });
+                try writer.print("zigquant_balance_available{{exchange=\"{s}\"}} {d:.4}\n", .{ name, available });
+            } else |_| {
+                try writer.print("zigquant_balance_total{{exchange=\"{s}\"}} 0\n", .{name});
+                try writer.print("zigquant_balance_available{{exchange=\"{s}\"}} 0\n", .{name});
+            }
+        }
     }
 
     // ========================================================================

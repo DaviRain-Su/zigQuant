@@ -824,6 +824,17 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 
 ## 更新日志
 
+### 2025-12-28 (第二次更新)
+
+- 订单创建端点 (POST /api/v1/orders) 集成真实交易所 createOrder()
+- 订单取消端点 (DELETE /api/v1/orders/:id) 集成真实交易所 cancelOrder()
+- 增强 /metrics 端点，添加交易所实时指标:
+  - zigquant_exchange_connected - 交易所连接状态
+  - zigquant_positions_count/pnl_total/margin_total - 仓位指标
+  - zigquant_orders_open_count - 订单指标
+  - zigquant_balance_total/available - 余额指标
+- 添加 Side, OrderType, TradingPair, Decimal, OrderRequest 类型导出
+
 ### 2025-12-28
 
 - 添加多交易所支持 (ApiDependencies HashMap)

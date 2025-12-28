@@ -13,6 +13,12 @@ pub const Position = zigQuant.Position;
 pub const Balance = zigQuant.Balance;
 pub const Order = zigQuant.Order;
 pub const Logger = zigQuant.Logger;
+// Additional types for order creation
+pub const Side = zigQuant.Side;
+pub const OrderType = zigQuant.OrderType;
+pub const TradingPair = zigQuant.TradingPair;
+pub const Decimal = zigQuant.Decimal;
+pub const OrderRequest = zigQuant.OrderRequest;
 
 /// API Server Configuration
 pub const ApiConfig = struct {
