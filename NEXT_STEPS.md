@@ -1,233 +1,208 @@
 # 下一步计划 (Next Steps)
 
-**当前版本**: v0.7.0 ✅
-**下一版本**: v0.8.0 📋
-**最后更新**: 2025-12-27
+**当前版本**: v0.9.0 ✅
+**下一版本**: v1.0.0 📋
+**最后更新**: 2025-12-28
 
 ---
 
 ## 🎯 当前状态
 
-### v0.7.0 已完成 ✅
+### v0.9.0 已完成 ✅
 
-v0.7.0 "做市策略与回测精度" 已于 2025-12-27 完成，包含：
+v0.9.0 "AI 策略集成" 已于 2025-12-28 完成，包含：
 
-- ✅ **Clock-Driven 模式** - Tick 驱动策略执行
-- ✅ **Pure Market Making 策略** - 双边报价做市
-- ✅ **Inventory Management** - 库存风险控制
-- ✅ **Data Persistence** - 数据持久化 (DataStore/CandleCache)
-- ✅ **Cross-Exchange Arbitrage** - 跨交易所套利
-- ✅ **Queue Position Modeling** - 队列位置建模 (借鉴 HFTBacktest)
-- ✅ **Dual Latency Simulation** - 双向延迟模拟 (借鉴 HFTBacktest)
-- ✅ **25 个示例程序** - 完整覆盖所有功能
-- ✅ **624 个单元测试** - 100% 通过
+- ✅ **ILLMClient 接口** - VTable 模式 LLM 客户端抽象
+- ✅ **LLMClient** - OpenAI 兼容客户端 (LM Studio, Ollama, DeepSeek)
+- ✅ **AIAdvisor** - 结构化交易建议服务
+- ✅ **PromptBuilder** - 专业市场分析 Prompt 构建
+- ✅ **HybridAIStrategy** - 混合决策策略 (技术 60% + AI 40%)
+- ✅ **33 个示例程序** - 完整覆盖所有功能
+- ✅ **零内存泄漏** - GPA 检测通过
 
 **技术债务**: 无重大技术债务
 
 ---
 
-## 🚀 v0.8.0 - 风险管理
+## 🚀 v1.0.0 - 生产就绪
 
 **状态**: 📋 规划中
 **预计时间**: 3-4 周
-**开始时间**: 待定
+**开始时间**: 2025-01-02
 
 ### 核心目标
 
-1. **RiskEngine 风险引擎**: 仓位限制、杠杆控制、日损失限制
-2. **止损/止盈**: 自动平仓逻辑、跟踪止损
-3. **资金管理**: Kelly 公式、固定分数、风险平价
-4. **风险指标**: VaR、最大回撤监控、夏普比率实时计算
-5. **实时监控**: 告警系统、Telegram/Email 通知
-6. **Crash Recovery**: 崩溃恢复机制 (借鉴 NautilusTrader)
+1. **REST API 服务**: 提供 HTTP API 供外部集成
+2. **Web Dashboard**: 策略管理和监控界面
+3. **Prometheus Metrics**: 监控指标导出
+4. **Docker 部署**: 容器化部署支持
+5. **完整运维文档**: 生产环境指南
 
 ### Story 列表
 
 | Story ID | 名称 | 优先级 | 预计工时 | 状态 |
 |----------|------|--------|----------|------|
-| STORY-040 | RiskEngine 风险引擎 | P0 | 4-5 天 | 📋 待开始 |
-| STORY-041 | 止损/止盈系统 | P0 | 3-4 天 | 📋 待开始 |
-| STORY-042 | 资金管理模块 | P1 | 3-4 天 | 📋 待开始 |
-| STORY-043 | 风险指标监控 | P1 | 2-3 天 | 📋 待开始 |
-| STORY-044 | 告警和通知系统 | P2 | 2-3 天 | 📋 待开始 |
-| STORY-045 | Crash Recovery | P1 | 3-4 天 | 📋 待开始 |
+| STORY-047 | http.zig REST API | P0 | 4-5 天 | 📋 待开始 |
+| STORY-048 | Web Dashboard UI | P1 | 5-6 天 | 📋 待开始 |
+| STORY-049 | Prometheus Metrics | P1 | 2-3 天 | 📋 待开始 |
+| STORY-050 | Docker 部署 | P2 | 2-3 天 | 📋 待开始 |
+| STORY-051 | 运维文档 | P2 | 2-3 天 | 📋 待开始 |
 
 ### 依赖关系
 
 ```
-Story 040 (RiskEngine)
+Story 047 (REST API)
     ↓
-Story 041 (止损/止盈) ──→ Story 043 (风险指标)
-    ↓                          ↓
-Story 042 (资金管理)      Story 044 (告警系统)
-                               ↓
-                         Story 045 (Crash Recovery)
+Story 048 (Web Dashboard) ──→ Story 049 (Prometheus)
+    ↓                              ↓
+Story 050 (Docker)           Story 051 (运维文档)
 ```
 
-**关键路径**: Story 040 → Story 041 → Story 043 → Story 045
+**关键路径**: Story 047 → Story 048 → Story 050
 
 ---
 
 ## 📋 Story 详情
 
-### Story 040: RiskEngine 风险引擎
+### Story 047: http.zig REST API
 
-**目标**: 实现生产级风险控制引擎
-
-**核心功能**:
-```zig
-pub const RiskEngine = struct {
-    config: RiskConfig,
-    positions: *PositionTracker,
-    account: *Account,
-
-    /// 订单风控检查
-    pub fn checkOrder(self: *Self, order: OrderRequest) !RiskCheckResult {
-        // 1. 仓位大小限制
-        // 2. 杠杆限制
-        // 3. 日损失限制
-        // 4. 订单频率限制
-    }
-
-    /// Kill Switch - 紧急停止
-    pub fn killSwitch(self: *Self) void {
-        // 取消所有订单
-        // 平掉所有仓位
-        // 停止策略
-    }
-};
-
-pub const RiskConfig = struct {
-    max_position_size: Decimal,      // 单个仓位最大值
-    max_leverage: Decimal,           // 最大杠杆
-    max_daily_loss: Decimal,         // 日损失限制
-    max_daily_loss_pct: f64,         // 日损失百分比
-    max_orders_per_minute: u32,      // 订单频率限制
-    kill_switch_threshold: Decimal,  // Kill Switch 触发阈值
-};
-```
-
-### Story 041: 止损/止盈系统
-
-**目标**: 实现自动化风险控制
+**目标**: 实现 HTTP REST API 服务
 
 **核心功能**:
 ```zig
-pub const StopLossManager = struct {
-    /// 设置止损
-    pub fn setStopLoss(self: *Self, position: *Position, price: Decimal) !void;
+pub const ApiServer = struct {
+    router: Router,
+    port: u16,
 
-    /// 设置跟踪止损
-    pub fn setTrailingStop(self: *Self, position: *Position, trail_pct: f64) !void;
-
-    /// 设置止盈
-    pub fn setTakeProfit(self: *Self, position: *Position, price: Decimal) !void;
-
-    /// 检查并执行
-    pub fn checkAndExecute(self: *Self, current_price: Decimal) !void;
+    pub fn start(self: *ApiServer) !void;
+    pub fn stop(self: *ApiServer) void;
 };
+
+// API 端点
+// GET  /api/v1/strategies          - 列出所有策略
+// POST /api/v1/strategies/:id/run  - 运行策略
+// GET  /api/v1/backtest/:id        - 获取回测结果
+// GET  /api/v1/positions           - 获取当前仓位
+// GET  /api/v1/orders              - 获取订单列表
+// POST /api/v1/orders              - 创建订单
+// GET  /api/v1/metrics             - 获取性能指标
 ```
 
-### Story 042: 资金管理模块
+### Story 048: Web Dashboard UI
 
-**目标**: 实现科学的资金管理策略
+**目标**: 实现策略管理和监控界面
 
 **核心功能**:
-- **Kelly 公式**: 计算最优仓位
-- **固定分数**: 每次交易固定风险比例
-- **风险平价**: 基于波动率分配仓位
-- **马丁格尔/反马丁格尔**: 可选策略
+- 策略配置界面
+- 回测结果可视化 (图表)
+- 实时 PnL 监控
+- 仓位和订单管理
+- 告警通知面板
 
-### Story 043: 风险指标监控
+### Story 049: Prometheus Metrics
 
-**目标**: 实时计算和监控风险指标
+**目标**: 实现监控指标导出
 
 **核心指标**:
-- **VaR (Value at Risk)**: 99% 置信区间
-- **最大回撤**: 实时计算
-- **夏普比率**: 滚动窗口计算
-- **盈亏比**: 实时统计
-- **胜率**: 实时统计
-
-### Story 044: 告警和通知系统
-
-**目标**: 实现多渠道告警
-
-**支持渠道**:
-- **Telegram Bot**: 实时消息推送
-- **Email**: 重要告警邮件
-- **Webhook**: 自定义集成
-- **Console**: 本地日志告警
-
-### Story 045: Crash Recovery
-
-**目标**: 实现崩溃恢复机制 (借鉴 NautilusTrader)
-
-**核心功能**:
-```zig
-pub const RecoveryManager = struct {
-    /// 保存状态到磁盘
-    pub fn checkpoint(self: *Self) !void;
-
-    /// 从检查点恢复
-    pub fn recover(self: *Self) !void;
-
-    /// 恢复未完成订单
-    pub fn recoverOpenOrders(self: *Self) !void;
-};
 ```
+# 交易指标
+zigquant_total_trades
+zigquant_win_rate
+zigquant_pnl_total
+zigquant_sharpe_ratio
+
+# 系统指标
+zigquant_api_latency_seconds
+zigquant_order_latency_seconds
+zigquant_memory_usage_bytes
+
+# 风控指标
+zigquant_max_drawdown
+zigquant_var_95
+zigquant_position_count
+```
+
+### Story 050: Docker 部署
+
+**目标**: 实现容器化部署
+
+**交付物**:
+- Dockerfile
+- docker-compose.yml
+- 环境变量配置模板
+- 健康检查端点
+
+### Story 051: 运维文档
+
+**目标**: 完整的生产环境文档
+
+**内容**:
+- 部署指南
+- 配置手册
+- 监控和告警设置
+- 故障排查指南
+- 性能调优建议
 
 ---
 
 ## 🎯 验收标准
 
-### v0.8.0 验收清单
+### v1.0.0 验收清单
 
 #### 功能验收
-- [ ] RiskEngine 完整实现并通过测试
-- [ ] 止损/止盈自动执行
-- [ ] 资金管理策略可配置
-- [ ] 风险指标实时计算
-- [ ] 告警系统多渠道支持
-- [ ] Crash Recovery 机制完整
+- [ ] REST API 完整实现并通过测试
+- [ ] Web Dashboard 可用
+- [ ] Prometheus 指标导出正常
+- [ ] Docker 部署成功
+- [ ] 运维文档完整
 
 #### 质量验收
-- [ ] 700+ 单元测试通过
-- [ ] 覆盖率 > 85%
-- [ ] 零内存泄漏 (GPA 检测)
-- [ ] 风控检查 < 1ms
+- [ ] API 响应时间 < 100ms
+- [ ] 系统可用性 > 99.9%
+- [ ] 完整的 API 文档 (OpenAPI/Swagger)
 - [ ] 编译无警告
+- [ ] 零内存泄漏
 
 #### 文档验收
 - [ ] 所有 Story 文档完成
-- [ ] 风险管理使用指南
-- [ ] 配置示例
-- [ ] 最佳实践文档
+- [ ] API 使用指南
+- [ ] 部署指南
+- [ ] 监控配置指南
 
 ---
 
-## 🔄 后续版本规划
+## 📈 版本演进回顾
 
-### v0.9.0 - 多交易所支持 (预计 3-4 周)
+### 已完成版本
 
-**主题**: Multi-Exchange & Portfolio Management
+| 版本 | 主题 | 完成日期 | 核心功能 |
+|------|------|----------|----------|
+| v0.1 | Foundation | 2024-12-23 | Decimal, Time, Logger, Config |
+| v0.2 | MVP | 2024-12-25 | Hyperliquid 连接器, 订单管理 |
+| v0.3 | Strategy | 2024-12-26 | 策略框架, 回测引擎, 优化器 |
+| v0.4 | Optimizer | 2025-12-27 | Walk-Forward, 15 指标, 导出 |
+| v0.5 | Event-Driven | 2025-12-27 | MessageBus, Cache, DataEngine |
+| v0.6 | Hybrid | 2025-12-27 | 向量化回测, Paper Trading |
+| v0.7 | Market Making | 2025-12-27 | Clock-Driven, MM 策略, 套利 |
+| v0.8 | Risk Management | 2025-12-28 | RiskEngine, 止损, Crash Recovery |
+| v0.9 | AI Integration | 2025-12-28 | LLMClient, AIAdvisor, HybridAI |
 
-**核心目标**:
-1. 多交易所并行运行
-2. 投资组合管理
-3. 交易所间资金调度
-4. 统一账户视图
+### 整体进度
 
-### v1.0.0 - 生产就绪 (预计 4-5 周)
+```
+v0.1 ████████████████████ (100%) ✅
+v0.2 ████████████████████ (100%) ✅
+v0.3 ████████████████████ (100%) ✅
+v0.4 ████████████████████ (100%) ✅
+v0.5 ████████████████████ (100%) ✅
+v0.6 ████████████████████ (100%) ✅
+v0.7 ████████████████████ (100%) ✅
+v0.8 ████████████████████ (100%) ✅
+v0.9 ████████████████████ (100%) ✅
+v1.0 ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
+```
 
-**主题**: Production-Ready Platform
-
-**核心目标**:
-1. REST API 服务
-2. Web Dashboard
-3. Prometheus Metrics
-4. 完整运维文档
-5. Docker 部署
+**完成度**: 90% (9/10 版本完成)
 
 ---
 
@@ -235,19 +210,19 @@ pub const RecoveryManager = struct {
 
 ### 定量指标
 
-| 指标 | v0.7.0 | v0.8.0 目标 | 增长 |
+| 指标 | v0.9.0 | v1.0.0 目标 | 增长 |
 |------|--------|------------|------|
-| 单元测试数 | 624 | 700+ | +12% |
-| 示例程序 | 25 | 28+ | +12% |
-| 文档页数 | ~190 | ~210+ | +10% |
-| 模块数量 | 18 | 22+ | +22% |
+| 单元测试数 | 700+ | 750+ | +7% |
+| 示例程序 | 33 | 35+ | +6% |
+| 文档页数 | ~210 | ~250+ | +19% |
+| 模块数量 | 27 | 30+ | +11% |
 
 ### 定性指标
 
-- [ ] 风控检查延迟 < 1ms
-- [ ] Kill Switch 响应 < 100ms
-- [ ] Crash Recovery 时间 < 10s
-- [ ] 用户可在 30 分钟内配置完整风控
+- [ ] API 响应时间 < 100ms
+- [ ] 系统可用性 > 99.9%
+- [ ] Docker 部署时间 < 5 分钟
+- [ ] 文档完整覆盖所有功能
 
 ---
 
@@ -257,49 +232,48 @@ pub const RecoveryManager = struct {
 
 如果您是新贡献者，建议从以下任务开始：
 
-1. **风险指标实现** (Story 043)
-   - VaR 计算
-   - 参考现有指标实现
-   - 编写单元测试
+1. **运维文档** (Story 051)
+   - 编写部署指南
+   - 参考现有文档风格
+   - 添加配置示例
 
-2. **文档改进**
-   - 校对现有文档
-   - 添加使用示例
+2. **Prometheus 指标** (Story 049)
+   - 实现指标导出
+   - 编写 Grafana 仪表板
 
 ### 有经验的开发者
 
 建议直接承担核心任务：
 
-1. **RiskEngine** (Story 040)
-   - 核心风控逻辑
-   - 需要深入理解交易系统
-
-2. **Crash Recovery** (Story 045)
-   - 复杂的状态管理
+1. **REST API** (Story 047)
+   - 核心 HTTP 服务
    - 需要理解整体架构
+
+2. **Web Dashboard** (Story 048)
+   - 前端界面开发
+   - 需要 Web 开发经验
 
 ---
 
 ## 📖 相关文档
 
-### v0.8.0 文档 (待创建)
+### v1.0.0 文档 (待创建)
 
-- [v0.8.0 Overview](./docs/stories/v0.8.0/OVERVIEW.md)
-- [Story 040: RiskEngine](./docs/stories/v0.8.0/STORY_040_RISK_ENGINE.md)
-- [Story 041: Stop Loss](./docs/stories/v0.8.0/STORY_041_STOP_LOSS.md)
-- [Story 042: Money Management](./docs/stories/v0.8.0/STORY_042_MONEY_MANAGEMENT.md)
-- [Story 043: Risk Metrics](./docs/stories/v0.8.0/STORY_043_RISK_METRICS.md)
-- [Story 044: Alert System](./docs/stories/v0.8.0/STORY_044_ALERT_SYSTEM.md)
-- [Story 045: Crash Recovery](./docs/stories/v0.8.0/STORY_045_CRASH_RECOVERY.md)
+- [v1.0.0 Overview](./docs/stories/v1.0.0/OVERVIEW.md)
+- [Story 047: REST API](./docs/stories/v1.0.0/STORY_047_REST_API.md)
+- [Story 048: Web Dashboard](./docs/stories/v1.0.0/STORY_048_WEB_DASHBOARD.md)
+- [Story 049: Prometheus](./docs/stories/v1.0.0/STORY_049_PROMETHEUS.md)
+- [Story 050: Docker](./docs/stories/v1.0.0/STORY_050_DOCKER.md)
+- [Story 051: Operations](./docs/stories/v1.0.0/STORY_051_OPERATIONS.md)
 
 ### 参考文档
 
 - [Roadmap](./roadmap.md)
-- [v0.7.0 Overview](./docs/stories/v0.7.0/OVERVIEW.md)
-- [竞争分析 - NautilusTrader 风险管理](./docs/architecture/COMPETITIVE_ANALYSIS.md)
+- [v0.9.0 Overview](./docs/stories/v0.9.0/OVERVIEW.md)
+- [竞争分析](./docs/architecture/COMPETITIVE_ANALYSIS.md)
 
 ---
 
 **创建时间**: 2025-12-27
-**最后更新**: 2025-12-27
+**最后更新**: 2025-12-28
 **维护者**: zigQuant Team

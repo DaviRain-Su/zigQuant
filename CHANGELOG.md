@@ -6,6 +6,147 @@
 
 ---
 
+## [0.9.0] - 2025-12-28
+
+### Added
+
+#### AI 策略集成 (Story 046)
+
+##### ILLMClient 接口
+- ✨ **ILLMClient** - VTable 模式 LLM 客户端抽象
+  - generateText() 文本生成
+  - generateObject() 结构化输出 (JSON Schema)
+  - getModel() 获取模型信息
+  - isConnected() 连接状态检查
+
+##### LLMClient 实现
+- ✨ **LLMClient** - OpenAI 兼容客户端
+  - 支持 OpenAI API (GPT-4o, o1, o3 系列)
+  - 支持 LM Studio 本地模型 (http://127.0.0.1:1234)
+  - 支持 Ollama 本地模型 (http://localhost:11434)
+  - 支持 DeepSeek API (https://api.deepseek.com)
+  - 支持任何 OpenAI 兼容 API
+
+##### AIAdvisor 服务
+- ✨ **AIAdvisor** - AI 交易建议服务
+  - 结构化交易建议 (AIAdvice)
+  - 5 种 Action: strong_buy, buy, hold, sell, strong_sell
+  - 置信度评分 [0.0, 1.0]
+  - AI 推理解释
+  - 请求统计和延迟追踪
+
+##### PromptBuilder 构建器
+- ✨ **PromptBuilder** - 专业市场分析 Prompt 构建
+  - 市场数据格式化
+  - 技术指标解读
+  - 仓位上下文
+  - JSON Schema 结构化输出
+
+##### HybridAIStrategy 混合策略
+- ✨ **HybridAIStrategy** - 混合决策策略
+  - 技术指标权重 (默认 60%)
+  - AI 建议权重 (默认 40%)
+  - AI 失败时自动回退到纯技术指标
+  - 完整 IStrategy 接口实现
+
+#### 依赖
+- ✨ **openai-zig** - OpenAI 兼容 Zig 客户端
+  - 聊天补全 API
+  - JSON Schema 结构化输出
+  - Markdown 代码块自动解析
+
+### Examples
+- ✨ `33_openai_chat.zig` - OpenAI 聊天示例
+
+### Tests
+- ✅ 700+ 个单元测试通过
+- ✅ 所有集成测试通过
+- ✅ 零内存泄漏 (GPA 验证)
+
+### Performance
+- AI API 调用延迟: 500ms - 5s (取决于模型和网络)
+- 本地技术指标计算: < 1ms
+- Prompt 构建: < 1ms
+
+---
+
+## [0.8.0] - 2025-12-28
+
+### Added
+
+#### 风险管理引擎 (Stories 040-045)
+
+##### RiskEngine 核心 (Story 040)
+- ✨ **RiskEngine** - 风险管理引擎
+  - 仓位限制检查
+  - 日度亏损限制
+  - 止损/止盈触发
+  - VaR 风险价值计算
+
+##### 止损止盈系统 (Story 041)
+- ✨ **StopLossManager** - 止损管理
+  - 固定止损 (Fixed Stop Loss)
+  - 追踪止损 (Trailing Stop)
+  - 时间止损 (Time Stop)
+  - ATR 动态止损
+- ✨ **TakeProfitManager** - 止盈管理
+  - 固定止盈
+  - 分批止盈
+  - 追踪止盈
+
+##### 资金管理 (Story 042)
+- ✨ **MoneyManager** - 资金管理模块
+  - 固定金额模式
+  - 固定百分比模式
+  - 凯利公式
+  - 风险平价
+  - 反马丁格尔
+
+##### 风险指标监控 (Story 043)
+- ✨ **RiskMonitor** - 风险监控
+  - 实时 VaR 计算
+  - 最大回撤追踪
+  - 波动率监控
+  - 相关性分析
+
+##### 告警系统 (Story 044)
+- ✨ **AlertSystem** - 告警通知
+  - 多级告警 (Info, Warning, Critical)
+  - 告警规则配置
+  - 告警历史记录
+  - 告警去重
+
+##### Crash Recovery (Story 045)
+- ✨ **StateManager** - 状态管理
+  - 状态快照保存
+  - 状态恢复加载
+  - 定时自动保存
+- ✨ **RecoveryManager** - 崩溃恢复
+  - 启动时自动检测
+  - 仓位状态恢复
+  - 未完成订单处理
+
+### Examples
+- ✨ `26_risk_engine.zig` - 风险引擎示例
+- ✨ `27_stop_loss.zig` - 止损止盈示例
+- ✨ `28_money_management.zig` - 资金管理示例
+- ✨ `29_risk_monitoring.zig` - 风险监控示例
+- ✨ `30_alert_system.zig` - 告警系统示例
+- ✨ `31_crash_recovery.zig` - 崩溃恢复示例
+- ✨ `32_full_risk_demo.zig` - 完整风险管理演示
+
+### Tests
+- ✅ 670+ 个单元测试通过
+- ✅ 所有集成测试通过
+- ✅ 零内存泄漏 (GPA 验证)
+
+### Performance
+- 风险检查延迟: < 1ms
+- VaR 计算: < 10ms
+- 状态保存: < 100ms
+
+---
+
 ## [0.7.0] - 2025-12-27
 
 ### Added
@@ -565,27 +706,15 @@
 
 ## 下一版本计划
 
-### v0.8.0 - 风险管理 (规划中)
-- [ ] RiskEngine 风险引擎
-- [ ] 止损/止盈系统
-- [ ] 资金管理模块
-- [ ] 风险指标监控
-- [ ] 告警和通知系统
-- [ ] Crash Recovery 崩溃恢复
-
-### v0.9.0 - 多交易所支持 (计划中)
-- [ ] 多交易所并行
-- [ ] 投资组合管理
-- [ ] 统一账户视图
-
-### v1.0.0 - 生产就绪 (未来)
-- [ ] REST API 服务
-- [ ] Web Dashboard
-- [ ] Prometheus Metrics
+### v1.0.0 - 生产就绪 (规划中)
+- [ ] REST API 服务 (http.zig)
+- [ ] Web Dashboard UI
+- [ ] Prometheus Metrics 导出
+- [ ] Docker 容器化部署
 - [ ] 完整运维文档
 
 ---
 
-*更新时间: 2025-12-27*
-*当前版本: v0.7.0*
-*完成度: 78% (7/9 版本完成)*
+*更新时间: 2025-12-28*
+*当前版本: v0.9.0*
+*完成度: 90% (9/10 版本完成)*

@@ -2,19 +2,19 @@
 
 **版本**: 0.9.0
 **代号**: AI-Powered Trading
-**状态**: 开发中
-**计划日期**: 2025-01
+**状态**: ✅ 已完成
+**完成日期**: 2025-12-28
 
 ---
 
 ## 版本概述
 
-v0.9.0 引入 AI 辅助交易决策能力，通过 `zig-ai-sdk` 集成多个 LLM 提供商（OpenAI、Anthropic Claude 等），实现传统技术分析与 AI 智能分析的混合决策系统。
+v0.9.0 引入 AI 辅助交易决策能力，通过 `openai-zig` 集成 OpenAI 兼容 API（LM Studio、Ollama、DeepSeek 等），实现传统技术分析与 AI 智能分析的混合决策系统。
 
 ### 核心价值
 
 1. **智能决策增强** - AI 分析市场数据，提供交易建议
-2. **多模型支持** - 统一接口支持 30+ AI 提供商
+2. **OpenAI 兼容** - 支持 OpenAI、LM Studio、Ollama、DeepSeek 等
 3. **混合策略** - 结合技术指标和 AI 建议的加权决策
 4. **容错设计** - AI 失败时自动回退到纯技术指标
 
@@ -41,14 +41,15 @@ pub const ILLMClient = struct {
 };
 ```
 
-### 2. LLMClient - 多提供商客户端
+### 2. LLMClient - OpenAI 兼容客户端
 
-基于 `zig-ai-sdk` 的具体实现，支持：
+基于 `openai-zig` 的具体实现，支持所有 OpenAI 兼容 API：
 
 - **OpenAI** - GPT-4o, GPT-4, o1, o3 系列
-- **Anthropic** - Claude Sonnet 4.5, Opus 4.5, Haiku
-- **Google** - Gemini 系列 (规划中)
-- **自定义** - 可扩展接口
+- **LM Studio** - 本地模型服务 (http://127.0.0.1:1234)
+- **Ollama** - 本地模型服务 (http://localhost:11434)
+- **DeepSeek** - 第三方 API (https://api.deepseek.com)
+- **自定义** - 任何 OpenAI 兼容 API
 
 ### 3. AIAdvisor - AI 交易建议服务
 
@@ -91,37 +92,37 @@ pub const AIAdvice = struct {
 ### Story 046: AI 策略集成
 
 **优先级**: P1
-**状态**: 开发中
+**状态**: ✅ 已完成
 **文档**: [STORY_046_AI_STRATEGY.md](./STORY_046_AI_STRATEGY.md)
 
 #### 验收标准
 
-- [ ] ILLMClient 接口 (VTable 模式)
-- [ ] OpenAI/Anthropic 客户端实现
-- [ ] AIAdvisor 结构化交易建议
-- [ ] HybridAIStrategy 混合策略
-- [ ] 完整单元测试
-- [ ] 示例代码
+- [x] ILLMClient 接口 (VTable 模式)
+- [x] OpenAI 兼容客户端实现
+- [x] AIAdvisor 结构化交易建议
+- [x] HybridAIStrategy 混合策略
+- [x] 完整单元测试
+- [x] 示例代码 (examples/33_openai_chat.zig)
 
 ---
 
 ## 依赖
 
-### zig-ai-sdk
+### openai-zig
 
 ```zig
 // build.zig.zon
-.@"zig-ai-sdk" = .{
-    .url = "https://github.com/evmts/ai-zig/archive/refs/heads/master.tar.gz",
-    .hash = "zig_ai_sdk-0.1.0-ULWwFOjsNQDpPPJBPUBUJKikJkiIAASwHYLwqyzEmcim",
+.openai_zig = .{
+    .url = "https://github.com/DaviRain-Su/openai-zig/archive/refs/heads/master.tar.gz",
+    .hash = "openai_zig-0.0.0-xCfcQBnxBQDkrxZmwJkZsZgZP6KOpZU7qqlOqjfpseHO",
 },
 ```
 
 **核心 API**:
-- `ai.generateText()` - 文本生成
-- `ai.generateObject()` - 结构化输出 (JSON Schema)
-- `ai.streamText()` - 流式响应
-- 支持 30+ AI 提供商
+- `OpenAI.init()` - 创建客户端
+- `chat.completions.create()` - 聊天补全
+- `response_format: .json_schema` - JSON Schema 结构化输出
+- 支持所有 OpenAI 兼容 API
 
 ### 环境变量
 
@@ -153,7 +154,7 @@ src/strategy/builtin/
 └── hybrid_ai.zig        # HybridAIStrategy 混合策略
 
 examples/
-└── 32_ai_strategy.zig   # AI 策略示例
+└── 33_openai_chat.zig   # OpenAI 聊天示例
 ```
 
 ---
@@ -273,12 +274,12 @@ v0.9.0 建立在 v0.8.0 风险管理基础之上：
 
 ## 未来扩展
 
-### v0.10.0+ 规划
+### v1.0.0+ 规划
 
 1. **多模型投票** - 多个 AI 模型投票决策
-2. **Fine-tuning** - 针对交易场景微调
+2. **Anthropic/Google 支持** - 扩展到更多提供商
 3. **RAG 集成** - 检索增强生成
-4. **本地模型** - 支持 Ollama 等本地模型
+4. **响应缓存** - 减少 API 调用成本
 
 ---
 
