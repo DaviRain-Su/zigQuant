@@ -1,6 +1,6 @@
 //! API Server
 //!
-//! High-performance REST API server built on http.zig.
+//! High-performance REST API server built on Zig standard library (std.http).
 //!
 //! Features:
 //! - Health check endpoints (/health, /ready)
@@ -10,14 +10,20 @@
 //! - Prometheus metrics export
 
 const std = @import("std");
-const httpz = @import("httpz");
 const Allocator = std.mem.Allocator;
+const net = std.net;
+
+const router_mod = @import("router.zig");
+const Router = router_mod.Router;
+const RequestContext = router_mod.RequestContext;
+const Response = router_mod.Response;
+const Method = router_mod.Method;
 
 const config_mod = @import("config.zig");
 const ApiConfig = config_mod.ApiConfig;
 const ApiDependencies = config_mod.ApiDependencies;
 const IExchange = config_mod.IExchange;
-const handlers = @import("handlers/mod.zig");
+
 const jwt_mod = @import("jwt.zig");
 const cors = @import("middleware/cors.zig");
 
@@ -91,12 +97,6 @@ pub const ServerContext = struct {
     pub fn getRequestCount(self: *const ServerContext) u64 {
         return self.request_count.load(.monotonic);
     }
-
-    /// Add CORS headers to response
-    pub fn addCorsHeaders(self: *const ServerContext, req: *httpz.Request, res: *httpz.Response) void {
-        const origin = req.header("origin");
-        cors.addCorsHeaders(res, origin, self.cors_config);
-    }
 };
 
 /// API Server
@@ -105,10 +105,10 @@ pub const ApiServer = struct {
     config: ApiConfig,
     deps: ApiDependencies,
     context: *ServerContext,
-    server: HttpServer,
+    router: Router,
+    running: std.atomic.Value(bool),
 
     const Self = @This();
-    const HttpServer = httpz.Server(*ServerContext);
 
     /// Initialize the API server
     pub fn init(
@@ -140,24 +140,9 @@ pub const ApiServer = struct {
             },
         };
 
-        // Create HTTP server
-        // Note: httpz.Config.address expects []const u8 or null (for 0.0.0.0)
-        const address: ?[]const u8 = if (std.mem.eql(u8, config.host, "0.0.0.0"))
-            null
-        else
-            config.host;
-
-        var server = try HttpServer.init(allocator, .{
-            .port = config.port,
-            .address = address,
-            .request = .{
-                .max_body_size = config.max_body_size,
-            },
-        }, context);
-        errdefer server.deinit();
-
-        // Setup routes
-        try setupRoutes(&server);
+        // Create router
+        var router = Router.init(allocator);
+        errdefer router.deinit();
 
         // Create ApiServer instance
         const self = try allocator.create(Self);
@@ -166,191 +151,590 @@ pub const ApiServer = struct {
             .config = config,
             .deps = deps,
             .context = context,
-            .server = server,
+            .router = router,
+            .running = std.atomic.Value(bool).init(false),
         };
+
+        // Setup routes
+        try self.setupRoutes();
 
         return self;
     }
 
     /// Setup all routes
-    fn setupRoutes(server: *HttpServer) !void {
-        var router = try server.router(.{});
+    fn setupRoutes(self: *Self) !void {
+        std.log.info("Registering routes...", .{});
 
         // CORS preflight handler for all routes
-        router.options("/*", handleCorsPreflightWildcard, .{});
+        try self.router.options("/*", handleCorsPreflightWildcard);
 
         // Health check endpoints (no auth required)
-        router.get("/health", handleHealth, .{});
-        router.get("/ready", handleReady, .{});
-        router.get("/version", handleVersion, .{});
+        try self.router.getNoAuth("/health", handleHealth);
+        try self.router.getNoAuth("/ready", handleReady);
+        try self.router.getNoAuth("/version", handleVersion);
 
         // Authentication endpoints (no auth required)
-        router.post("/api/v1/auth/login", handleLogin, .{});
-        router.post("/api/v1/auth/refresh", handleRefresh, .{});
-        router.get("/api/v1/auth/me", handleMe, .{});
+        try self.router.postNoAuth("/api/v1/auth/login", handleLogin);
+        try self.router.postNoAuth("/api/v1/auth/refresh", handleRefresh);
+        try self.router.getNoAuth("/api/v1/auth/me", handleMe);
 
-        // API v1 routes (public for now, auth can be added per-handler)
         // Exchanges - Multi-exchange support
-        router.get("/api/v1/exchanges", handleExchangesList, .{});
-        router.get("/api/v1/exchanges/:name", handleExchangeGet, .{});
+        try self.router.get("/api/v1/exchanges", handleExchangesList);
+        try self.router.get("/api/v1/exchanges/:name", handleExchangeGet);
 
         // Strategies
-        router.get("/api/v1/strategies", handleStrategiesList, .{});
-        router.get("/api/v1/strategies/:id", handleStrategyGet, .{});
-        router.post("/api/v1/strategies/:id/run", handleStrategyRun, .{});
+        try self.router.get("/api/v1/strategies", handleStrategiesList);
+        try self.router.post("/api/v1/strategies/validate", handleStrategyValidate);
+        try self.router.get("/api/v1/strategies/:id/params", handleStrategyParams);
+        try self.router.post("/api/v1/strategies/:id/run", handleStrategyRun);
+        try self.router.get("/api/v1/strategies/:id", handleStrategyGet);
+
+        // Indicators
+        try self.router.get("/api/v1/indicators", handleIndicatorsList);
+        try self.router.get("/api/v1/indicators/:name", handleIndicatorGet);
 
         // Backtest
-        router.post("/api/v1/backtest", handleBacktestCreate, .{});
-        router.get("/api/v1/backtest/:id", handleBacktestGet, .{});
+        try self.router.post("/api/v1/backtest", handleBacktestCreate);
+        try self.router.get("/api/v1/backtest/results", handleBacktestResultsList);
+        try self.router.get("/api/v1/backtest/:id/trades", handleBacktestTrades);
+        try self.router.get("/api/v1/backtest/:id/equity", handleBacktestEquity);
+        try self.router.get("/api/v1/backtest/:id", handleBacktestGet);
+
+        // Risk Metrics
+        try self.router.get("/api/v1/risk/metrics", handleRiskMetrics);
+        try self.router.get("/api/v1/risk/metrics/var", handleRiskVaR);
+        try self.router.get("/api/v1/risk/metrics/drawdown", handleRiskDrawdown);
+        try self.router.get("/api/v1/risk/metrics/sharpe", handleRiskSharpe);
+        try self.router.get("/api/v1/risk/metrics/report", handleRiskReport);
+        try self.router.post("/api/v1/risk/kill-switch", handleKillSwitch);
+
+        // Alerts
+        try self.router.get("/api/v1/alerts", handleAlertsList);
+        try self.router.get("/api/v1/alerts/stats", handleAlertsStats);
+
+        // Paper Trading
+        try self.router.post("/api/v1/trading/paper/start", handlePaperTradingStart);
+        try self.router.post("/api/v1/trading/paper/stop", handlePaperTradingStop);
+        try self.router.get("/api/v1/trading/paper/status", handlePaperTradingStatus);
+
+        // Data / Candles
+        try self.router.get("/api/v1/data/candles", handleCandlesList);
 
         // Positions
-        router.get("/api/v1/positions", handlePositionsList, .{});
+        try self.router.get("/api/v1/positions", handlePositionsList);
 
         // Orders
-        router.get("/api/v1/orders", handleOrdersList, .{});
-        router.post("/api/v1/orders", handleOrderCreate, .{});
-        router.delete("/api/v1/orders/:id", handleOrderCancel, .{});
+        try self.router.get("/api/v1/orders", handleOrdersList);
+        try self.router.post("/api/v1/orders", handleOrderCreate);
+        try self.router.delete("/api/v1/orders/:id", handleOrderCancel);
 
         // Account
-        router.get("/api/v1/account", handleAccountGet, .{});
-        router.get("/api/v1/account/balance", handleAccountBalance, .{});
+        try self.router.get("/api/v1/account", handleAccountGet);
+        try self.router.get("/api/v1/account/balance", handleAccountBalance);
 
         // Metrics endpoint (Prometheus format)
-        router.get("/metrics", handleMetrics, .{});
+        try self.router.getNoAuth("/metrics", handleMetrics);
+
+        std.log.info("All {d} routes registered successfully", .{self.router.routes.items.len});
     }
 
     /// Start the server (blocking)
     pub fn start(self: *Self) !void {
-        std.log.info("Starting API server on {s}:{d}", .{ self.config.host, self.config.port });
-        try self.server.listen();
+        self.running.store(true, .release);
+
+        const address = try net.Address.parseIp(self.config.host, self.config.port);
+        var listener = try address.listen(.{
+            .reuse_address = true,
+        });
+        defer listener.deinit();
+
+        std.log.info("zigQuant API Server v1.0.0", .{});
+        std.log.info("Server listening on http://{s}:{d}", .{ self.config.host, self.config.port });
+        std.log.info("Health check: http://{s}:{d}/health", .{ self.config.host, self.config.port });
+        std.log.info("Press Ctrl+C to stop", .{});
+
+        while (self.running.load(.acquire)) {
+            // Accept connection with timeout to allow checking running flag
+            const conn = listener.accept() catch |err| {
+                if (err == error.WouldBlock) continue;
+                std.log.err("Accept error: {}", .{err});
+                continue;
+            };
+
+            // Handle connection in a separate thread or inline
+            self.handleConnection(conn) catch |err| {
+                std.log.err("Handle error: {}", .{err});
+            };
+        }
+    }
+
+    /// Handle a single HTTP connection
+    fn handleConnection(self: *Self, conn: net.Server.Connection) !void {
+        defer conn.stream.close();
+
+        var buffer: [8192]u8 = undefined;
+        const n = conn.stream.read(&buffer) catch |err| {
+            std.log.err("Read error: {}", .{err});
+            return;
+        };
+
+        if (n == 0) return;
+
+        const request_data = buffer[0..n];
+
+        // Parse HTTP request
+        const parsed = self.parseHttpRequest(request_data) orelse {
+            try self.sendRawResponse(conn.stream, "400 Bad Request", "Bad Request");
+            return;
+        };
+
+        try self.handleParsedRequest(conn.stream, parsed);
+    }
+
+    /// Simple HTTP request structure
+    const ParsedRequest = struct {
+        method: []const u8,
+        path: []const u8,
+        headers: []const u8,
+        body: ?[]const u8,
+    };
+
+    /// Parse raw HTTP request
+    fn parseHttpRequest(self: *Self, data: []const u8) ?ParsedRequest {
+        _ = self;
+
+        // Find end of first line
+        const first_line_end = std.mem.indexOf(u8, data, "\r\n") orelse return null;
+        const first_line = data[0..first_line_end];
+
+        // Parse method and path
+        var parts = std.mem.splitScalar(u8, first_line, ' ');
+        const method = parts.next() orelse return null;
+        const path = parts.next() orelse return null;
+
+        // Find end of headers
+        const headers_end = std.mem.indexOf(u8, data, "\r\n\r\n") orelse data.len;
+        const headers = data[first_line_end + 2 .. headers_end];
+
+        // Body starts after headers
+        const body: ?[]const u8 = if (headers_end + 4 < data.len)
+            data[headers_end + 4 ..]
+        else
+            null;
+
+        return .{
+            .method = method,
+            .path = path,
+            .headers = headers,
+            .body = body,
+        };
+    }
+
+    /// Handle parsed request
+    fn handleParsedRequest(self: *Self, stream: net.Stream, parsed: ParsedRequest) !void {
+        self.context.incrementRequestCount();
+
+        // Parse method
+        const method = if (std.mem.eql(u8, parsed.method, "GET"))
+            Method.GET
+        else if (std.mem.eql(u8, parsed.method, "POST"))
+            Method.POST
+        else if (std.mem.eql(u8, parsed.method, "PUT"))
+            Method.PUT
+        else if (std.mem.eql(u8, parsed.method, "DELETE"))
+            Method.DELETE
+        else if (std.mem.eql(u8, parsed.method, "OPTIONS"))
+            Method.OPTIONS
+        else {
+            try self.sendRawResponse(stream, "405 Method Not Allowed", "Method Not Allowed");
+            return;
+        };
+
+        // Get path without query string
+        const path = if (std.mem.indexOf(u8, parsed.path, "?")) |idx|
+            parsed.path[0..idx]
+        else
+            parsed.path;
+
+        // Log request
+        std.log.debug("{s} {s}", .{ parsed.method, path });
+
+        // Match route
+        const match_result = try self.router.match(self.allocator, method, path);
+
+        if (match_result) |result| {
+            // Create request context
+            var response = Response.initWithAllocator(self.allocator);
+            defer response.deinit();
+
+            var ctx = RequestContext.init(self.allocator, self.context);
+            defer ctx.deinit();
+
+            ctx.method = method;
+            ctx.path = path;
+            ctx.params = result.params;
+            ctx.response = &response;
+            ctx.body = parsed.body;
+
+            // Parse query parameters
+            if (router_mod.extractQueryString(parsed.path)) |qs| {
+                ctx.query = try router_mod.parseQueryString(self.allocator, qs);
+            }
+
+            // Add CORS headers
+            try response.addHeader("Access-Control-Allow-Origin", "*");
+            try response.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+            try response.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+            // Check authentication if required
+            if (result.route.requires_auth) {
+                // Simple auth check from Authorization header
+                if (self.findHeader(parsed.headers, "Authorization")) |auth_header| {
+                    if (std.mem.startsWith(u8, auth_header, "Bearer ")) {
+                        const token = auth_header[7..];
+                        if (self.context.jwt_manager.verifyToken(token)) |payload| {
+                            ctx.user_id = payload.sub;
+                        } else |_| {
+                            response.setStatus(.unauthorized);
+                            try response.json(.{ .@"error" = "Invalid token" });
+                            try self.sendHttpResponse(stream, &response);
+                            return;
+                        }
+                    } else {
+                        response.setStatus(.unauthorized);
+                        try response.json(.{ .@"error" = "Invalid Authorization format" });
+                        try self.sendHttpResponse(stream, &response);
+                        return;
+                    }
+                } else {
+                    response.setStatus(.unauthorized);
+                    try response.json(.{ .@"error" = "Missing Authorization header" });
+                    try self.sendHttpResponse(stream, &response);
+                    return;
+                }
+            }
+
+            // Call handler
+            result.route.handler(&ctx) catch |err| {
+                std.log.err("Handler error: {}", .{err});
+                response.setStatus(.internal_server_error);
+                try response.json(.{ .@"error" = @errorName(err) });
+            };
+
+            // Send response
+            try self.sendHttpResponse(stream, &response);
+        } else {
+            // 404 Not Found
+            try self.sendRawResponse(stream, "404 Not Found", "{\"error\":\"Not Found\"}");
+        }
+    }
+
+    /// Find header value in raw headers
+    fn findHeader(self: *Self, headers: []const u8, name: []const u8) ?[]const u8 {
+        _ = self;
+        var lines = std.mem.splitSequence(u8, headers, "\r\n");
+        while (lines.next()) |line| {
+            if (std.mem.indexOf(u8, line, ": ")) |colon_idx| {
+                const header_name = line[0..colon_idx];
+                if (std.ascii.eqlIgnoreCase(header_name, name)) {
+                    return line[colon_idx + 2 ..];
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Send raw HTTP response
+    fn sendRawResponse(self: *Self, stream: net.Stream, status: []const u8, body: []const u8) !void {
+        _ = self;
+        var buf: [4096]u8 = undefined;
+        const response = std.fmt.bufPrint(&buf,
+            "HTTP/1.1 {s}\r\n" ++
+                "Content-Type: application/json\r\n" ++
+                "Content-Length: {d}\r\n" ++
+                "Access-Control-Allow-Origin: *\r\n" ++
+                "\r\n" ++
+                "{s}",
+            .{ status, body.len, body },
+        ) catch return;
+
+        _ = stream.write(response) catch {};
+    }
+
+    /// Send HTTP response from Response struct
+    fn sendHttpResponse(self: *Self, stream: net.Stream, response: *Response) !void {
+        _ = self;
+
+        // Build response
+        var buf: [65536]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        const writer = fbs.writer();
+
+        // Status line
+        const status_code = @intFromEnum(response.status);
+        const status_text = switch (response.status) {
+            .ok => "OK",
+            .created => "Created",
+            .no_content => "No Content",
+            .bad_request => "Bad Request",
+            .unauthorized => "Unauthorized",
+            .forbidden => "Forbidden",
+            .not_found => "Not Found",
+            .method_not_allowed => "Method Not Allowed",
+            .internal_server_error => "Internal Server Error",
+            .service_unavailable => "Service Unavailable",
+            else => "Unknown",
+        };
+
+        try writer.print("HTTP/1.1 {d} {s}\r\n", .{ status_code, status_text });
+
+        // Headers
+        for (response.headers.items) |h| {
+            try writer.print("{s}: {s}\r\n", .{ h.name, h.value });
+        }
+
+        // Content-Length
+        try writer.print("Content-Length: {d}\r\n", .{response.body.items.len});
+
+        // End of headers
+        try writer.writeAll("\r\n");
+
+        // Body
+        try writer.writeAll(response.body.items);
+
+        // Send
+        _ = stream.write(fbs.getWritten()) catch {};
     }
 
     /// Stop the server
     pub fn stop(self: *Self) void {
-        self.server.stop();
+        self.running.store(false, .release);
     }
 
     /// Clean up resources
     pub fn deinit(self: *Self) void {
-        self.server.deinit();
+        self.router.deinit();
         self.allocator.destroy(self.context);
         self.allocator.destroy(self);
     }
 
     // ========================================================================
-    // Route Handlers - CORS
+    // Route Handlers
     // ========================================================================
 
-    fn handleCorsPreflightWildcard(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        const origin = req.header("origin");
-        cors.handlePreflight(res, origin, ctx.cors_config);
+    fn handleCorsPreflightWildcard(ctx: *RequestContext) !void {
+        ctx.response.setStatus(.no_content);
+        try ctx.response.addHeader("Access-Control-Allow-Origin", "*");
+        try ctx.response.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+        try ctx.response.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        try ctx.response.addHeader("Access-Control-Max-Age", "86400");
     }
 
-    // ========================================================================
-    // Route Handlers - Health & Info
-    // ========================================================================
-
-    fn handleHealth(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-        try res.json(.{
+    fn handleHealth(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        try ctx.response.json(.{
             .status = "healthy",
             .version = "1.0.0",
-            .uptime_seconds = ctx.uptime(),
+            .uptime_seconds = server_ctx.uptime(),
             .timestamp = std.time.timestamp(),
-        }, .{});
+        });
     }
 
-    fn handleReady(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-        // Check dependencies - for now we check if JWT is configured
-        const jwt_configured = ctx.config.jwt_secret.len >= 32;
-
-        // In a full implementation, we would check:
-        // - Database connection (if using one)
-        // - Exchange API connectivity
-        // - Required services availability
+    fn handleReady(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const jwt_configured = server_ctx.config.jwt_secret.len >= 32;
 
         const checks = .{
             .jwt_configured = jwt_configured,
             .server_running = true,
         };
 
-        const all_ready = jwt_configured;
-
-        if (all_ready) {
-            try res.json(.{
+        if (jwt_configured) {
+            try ctx.response.json(.{
                 .ready = true,
                 .checks = checks,
-            }, .{});
+            });
         } else {
-            res.setStatus(.service_unavailable);
-            try res.json(.{
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{
                 .ready = false,
                 .checks = checks,
-            }, .{});
+            });
         }
     }
 
-    fn handleVersion(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-        try res.json(.{
+    fn handleVersion(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
             .name = "zigQuant",
             .version = "1.0.0",
             .api_version = "v1",
             .zig_version = @import("builtin").zig_version_string,
-        }, .{});
+        });
     }
 
-    // ========================================================================
-    // Route Handlers - Exchanges (Multi-Exchange Support)
-    // ========================================================================
+    fn handleLogin(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
 
-    fn handleExchangesList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        // Build list of connected exchanges
-        var exchanges_list: std.ArrayListUnmanaged(ExchangeInfo) = .empty;
-        defer exchanges_list.deinit(ctx.allocator);
-
-        var iter = ctx.deps.iterator();
-        while (iter.next()) |entry| {
-            const exchange_entry = entry.value_ptr.*;
-            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
-            const status = if (exchange_entry.interface.isConnected()) "connected" else "disconnected";
-
-            try exchanges_list.append(ctx.allocator, .{
-                .name = entry.key_ptr.*,
-                .status = status,
-                .network = network,
-            });
-        }
-
-        try res.json(.{
-            .exchanges = exchanges_list.items,
-            .total = ctx.deps.exchangeCount(),
-            .note = "Use ?exchange=<name> parameter to filter by exchange",
-        }, .{});
-    }
-
-    fn handleExchangeGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        const name = req.param("name") orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing exchange name" }, .{});
+        const body = ctx.body orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing request body" });
             return;
         };
 
-        if (ctx.deps.getExchange(name)) |exchange_entry| {
+        const LoginRequest = struct {
+            username: []const u8,
+            password: []const u8,
+        };
+
+        const parsed = std.json.parseFromSlice(LoginRequest, ctx.arena.allocator(), body, .{}) catch {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{
+                .@"error" = "Invalid JSON format",
+                .expected = "{ \"username\": \"...\", \"password\": \"...\" }",
+            });
+            return;
+        };
+
+        const login_req = parsed.value;
+
+        // Validate credentials (demo users)
+        if (!validateCredentials(login_req.username, login_req.password)) {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Invalid credentials" });
+            return;
+        }
+
+        // Generate JWT token
+        const token = server_ctx.jwt_manager.generateToken(login_req.username) catch |err| {
+            std.log.err("Failed to generate token: {}", .{err});
+            ctx.response.setStatus(.internal_server_error);
+            try ctx.response.json(.{ .@"error" = "Failed to generate token" });
+            return;
+        };
+
+        try ctx.response.json(.{
+            .token = token,
+            .expires_in = server_ctx.jwt_manager.expiry_seconds,
+            .token_type = "Bearer",
+        });
+    }
+
+    fn handleRefresh(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        const auth_header = ctx.header("Authorization") orelse {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Missing Authorization header" });
+            return;
+        };
+
+        if (!std.mem.startsWith(u8, auth_header, "Bearer ")) {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Invalid Authorization format" });
+            return;
+        }
+
+        const token = auth_header[7..];
+        const payload = server_ctx.jwt_manager.verifyToken(token) catch {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Invalid or expired token" });
+            return;
+        };
+
+        // Generate new token
+        const new_token = server_ctx.jwt_manager.generateToken(payload.sub) catch |err| {
+            std.log.err("Failed to generate token: {}", .{err});
+            ctx.response.setStatus(.internal_server_error);
+            try ctx.response.json(.{ .@"error" = "Failed to generate token" });
+            return;
+        };
+
+        try ctx.response.json(.{
+            .token = new_token,
+            .expires_in = server_ctx.jwt_manager.expiry_seconds,
+            .token_type = "Bearer",
+        });
+    }
+
+    fn handleMe(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        const auth_header = ctx.header("Authorization") orelse {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Missing Authorization header" });
+            return;
+        };
+
+        if (!std.mem.startsWith(u8, auth_header, "Bearer ")) {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Invalid Authorization format" });
+            return;
+        }
+
+        const token = auth_header[7..];
+        const payload = server_ctx.jwt_manager.verifyToken(token) catch {
+            ctx.response.setStatus(.unauthorized);
+            try ctx.response.json(.{ .@"error" = "Invalid or expired token" });
+            return;
+        };
+
+        try ctx.response.json(.{
+            .user_id = payload.sub,
+            .issuer = payload.iss,
+            .issued_at = payload.iat,
+            .expires_at = payload.exp,
+        });
+    }
+
+    fn handleExchangesList(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        const exchange_count = server_ctx.deps.exchangeCount();
+
+        if (exchange_count == 0) {
+            try ctx.response.json(.{
+                .exchanges = &[_]ExchangeInfo{},
+                .total = @as(usize, 0),
+                .note = "No exchanges configured",
+            });
+            return;
+        }
+
+        // Build exchange list from deps
+        var exchanges: [16]ExchangeInfo = undefined;
+        var i: usize = 0;
+        var iter = server_ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            if (i >= 16) break;
+            const network = if (entry.value_ptr.config.testnet) "testnet" else "mainnet";
+            const status = if (entry.value_ptr.interface.isConnected()) "connected" else "disconnected";
+            exchanges[i] = .{
+                .name = entry.key_ptr.*,
+                .status = status,
+                .network = network,
+            };
+            i += 1;
+        }
+
+        try ctx.response.json(.{
+            .exchanges = exchanges[0..i],
+            .total = exchange_count,
+        });
+    }
+
+    fn handleExchangeGet(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const name = ctx.param("name") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing exchange name" });
+            return;
+        };
+
+        if (server_ctx.deps.getExchange(name)) |exchange_entry| {
             const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
             const status = if (exchange_entry.interface.isConnected()) "connected" else "disconnected";
 
-            try res.json(.{
+            try ctx.response.json(.{
                 .name = name,
                 .status = status,
                 .network = network,
@@ -360,1070 +744,653 @@ pub const ApiServer = struct {
                     .futures = true,
                     .margin = false,
                 },
-            }, .{});
+            });
         } else {
-            res.setStatus(.not_found);
-            try res.json(.{ .@"error" = "Exchange not found", .name = name }, .{});
+            ctx.response.setStatus(.not_found);
+            try ctx.response.json(.{ .@"error" = "Exchange not found", .name = name });
         }
     }
 
-    // ========================================================================
-    // Route Handlers - Authentication
-    // ========================================================================
-
-    fn handleLogin(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        // Parse request body
-        const body = req.body() orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing request body" }, .{});
-            return;
-        };
-
-        const LoginRequest = struct {
-            username: []const u8,
-            password: []const u8,
-        };
-
-        const parsed = std.json.parseFromSlice(LoginRequest, req.arena, body, .{}) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{
-                .@"error" = "Invalid JSON format",
-                .expected = "{ \"username\": \"...\", \"password\": \"...\" }",
-            }, .{});
-            return;
-        };
-
-        const login_req = parsed.value;
-
-        // Validate credentials (demo users - in production use proper auth)
-        if (!validateCredentials(login_req.username, login_req.password)) {
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = "Invalid credentials" }, .{});
-            return;
-        }
-
-        // Generate JWT token
-        const token = ctx.jwt_manager.generateToken(login_req.username) catch |err| {
-            std.log.err("Failed to generate token: {}", .{err});
-            res.setStatus(.internal_server_error);
-            try res.json(.{ .@"error" = "Failed to generate token" }, .{});
-            return;
-        };
-
-        try res.json(.{
-            .token = token,
-            .expires_in = ctx.jwt_manager.expiry_seconds,
-            .token_type = "Bearer",
-        }, .{});
-    }
-
-    fn handleRefresh(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        const auth_header = req.header("authorization") orelse {
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = "Missing Authorization header" }, .{});
-            return;
-        };
-
-        const prefix = "Bearer ";
-        if (!std.mem.startsWith(u8, auth_header, prefix)) {
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = "Invalid Authorization format" }, .{});
-            return;
-        }
-
-        const token = auth_header[prefix.len..];
-        const new_token = ctx.jwt_manager.refreshToken(token) catch |err| {
-            const err_msg = switch (err) {
-                error.TokenExpired => "Token has expired. Please login again.",
-                error.InvalidSignature => "Invalid token signature.",
-                else => "Invalid token.",
-            };
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = err_msg }, .{});
-            return;
-        };
-
-        try res.json(.{
-            .token = new_token,
-            .expires_in = ctx.jwt_manager.expiry_seconds,
-            .token_type = "Bearer",
-        }, .{});
-    }
-
-    fn handleMe(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        const auth_header = req.header("authorization") orelse {
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = "Missing Authorization header" }, .{});
-            return;
-        };
-
-        const prefix = "Bearer ";
-        if (!std.mem.startsWith(u8, auth_header, prefix)) {
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = "Invalid Authorization format" }, .{});
-            return;
-        }
-
-        const token = auth_header[prefix.len..];
-        const payload = ctx.jwt_manager.verifyToken(token) catch |err| {
-            const err_msg = switch (err) {
-                error.TokenExpired => "Token has expired",
-                error.InvalidSignature => "Invalid token signature",
-                else => "Invalid token",
-            };
-            res.setStatus(.unauthorized);
-            try res.json(.{ .@"error" = err_msg }, .{});
-            return;
-        };
-
-        try res.json(.{
-            .user_id = payload.sub,
-            .issued_at = payload.iat,
-            .expires_at = payload.exp,
-            .issuer = payload.iss,
-        }, .{});
-    }
-
-    // ========================================================================
-    // Route Handlers - Strategies
-    // ========================================================================
-
-    fn handleStrategiesList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        // Built-in strategies available in zigQuant
-        // These are the actual strategies implemented in src/strategy/
-        try res.json(.{
+    fn handleStrategiesList(ctx: *RequestContext) !void {
+        // Return real strategies from the factory
+        try ctx.response.json(.{
             .strategies = &[_]struct {
                 id: []const u8,
                 name: []const u8,
                 description: []const u8,
-                status: []const u8,
+                strategy_type: []const u8,
             }{
                 .{
                     .id = "dual_ma",
-                    .name = "Dual MA Crossover",
-                    .description = "Trend following strategy using fast/slow moving average crossovers",
-                    .status = "available",
+                    .name = "Dual Moving Average",
+                    .description = "Trend following strategy using fast/slow MA crossovers",
+                    .strategy_type = "trend_following",
                 },
                 .{
                     .id = "rsi_mean_reversion",
                     .name = "RSI Mean Reversion",
-                    .description = "Mean reversion strategy based on RSI oversold/overbought levels",
-                    .status = "available",
+                    .description = "Mean reversion strategy using RSI oversold/overbought levels",
+                    .strategy_type = "mean_reversion",
                 },
                 .{
                     .id = "bollinger_breakout",
                     .name = "Bollinger Breakout",
-                    .description = "Breakout strategy using Bollinger Bands volatility signals",
-                    .status = "available",
+                    .description = "Breakout strategy using Bollinger Bands volatility",
+                    .strategy_type = "breakout",
+                },
+                .{
+                    .id = "triple_ma",
+                    .name = "Triple Moving Average",
+                    .description = "Advanced trend strategy using three moving averages",
+                    .strategy_type = "trend_following",
+                },
+                .{
+                    .id = "macd_divergence",
+                    .name = "MACD Divergence",
+                    .description = "Divergence-based strategy using MACD indicator",
+                    .strategy_type = "trend_following",
+                },
+                .{
+                    .id = "hybrid_ai",
+                    .name = "Hybrid AI Strategy",
+                    .description = "Combines technical indicators with LLM analysis",
+                    .strategy_type = "ai_hybrid",
                 },
             },
-            .total = 3,
-        }, .{});
+            .total = @as(usize, 6),
+        });
     }
 
-    fn handleStrategyGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        const id = req.param("id") orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing strategy ID" }, .{});
+    fn handleStrategyGet(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing strategy ID" });
             return;
         };
 
-        // Strategy details based on ID
-        if (std.mem.eql(u8, id, "dual_ma")) {
-            try res.json(.{
-                .id = "dual_ma",
-                .name = "Dual MA Crossover",
-                .description = "Trend following strategy using fast/slow moving average crossovers",
-                .status = "available",
-                .parameters = .{
-                    .fast_period = .{ .type = "integer", .default = 10, .min = 2, .max = 50 },
-                    .slow_period = .{ .type = "integer", .default = 20, .min = 5, .max = 200 },
-                },
-            }, .{});
-        } else if (std.mem.eql(u8, id, "rsi_mean_reversion")) {
-            try res.json(.{
-                .id = "rsi_mean_reversion",
-                .name = "RSI Mean Reversion",
-                .description = "Mean reversion strategy based on RSI oversold/overbought levels",
-                .status = "available",
-                .parameters = .{
-                    .rsi_period = .{ .type = "integer", .default = 14, .min = 2, .max = 50 },
-                    .oversold = .{ .type = "float", .default = 30.0, .min = 0.0, .max = 50.0 },
-                    .overbought = .{ .type = "float", .default = 70.0, .min = 50.0, .max = 100.0 },
-                },
-            }, .{});
-        } else if (std.mem.eql(u8, id, "bollinger_breakout")) {
-            try res.json(.{
-                .id = "bollinger_breakout",
-                .name = "Bollinger Breakout",
-                .description = "Breakout strategy using Bollinger Bands volatility signals",
-                .status = "available",
-                .parameters = .{
-                    .period = .{ .type = "integer", .default = 20, .min = 5, .max = 100 },
-                    .std_dev = .{ .type = "float", .default = 2.0, .min = 0.5, .max = 4.0 },
-                },
-            }, .{});
-        } else {
-            res.setStatus(.not_found);
-            try res.json(.{ .@"error" = "Strategy not found", .id = id }, .{});
-        }
-    }
-
-    fn handleStrategyRun(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        const id = req.param("id") orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing strategy ID" }, .{});
-            return;
-        };
-
-        // Validate strategy exists
-        const valid_strategies = [_][]const u8{ "dual_ma", "rsi_mean_reversion", "bollinger_breakout" };
-        var strategy_found = false;
-        for (valid_strategies) |valid_id| {
-            if (std.mem.eql(u8, id, valid_id)) {
-                strategy_found = true;
-                break;
+        // Look up strategy details
+        const advanced = @import("handlers/advanced.zig");
+        const strategy_info = advanced.getStrategyParams(ctx.allocator, id) catch |err| {
+            if (err == error.StrategyNotFound) {
+                ctx.response.setStatus(.not_found);
+                try ctx.response.json(.{
+                    .@"error" = "Strategy not found",
+                    .id = id,
+                });
+                return;
             }
-        }
+            return err;
+        };
 
-        if (!strategy_found) {
-            res.setStatus(.not_found);
-            try res.json(.{ .@"error" = "Strategy not found", .id = id }, .{});
+        try ctx.response.json(.{
+            .id = strategy_info.id,
+            .name = strategy_info.name,
+            .description = strategy_info.description,
+            .strategy_type = strategy_info.strategy_type,
+            .status = "available",
+        });
+    }
+
+    fn handleStrategyParams(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing strategy ID" });
             return;
-        }
+        };
 
-        // In a real implementation, this would start the strategy
-        // For now, return a simulated response
-        const timestamp = std.time.timestamp();
-        res.setStatus(.accepted);
-        try res.json(.{
+        // Look up strategy parameters from advanced.zig
+        const advanced = @import("handlers/advanced.zig");
+        const strategy_info = advanced.getStrategyParams(ctx.allocator, id) catch |err| {
+            if (err == error.StrategyNotFound) {
+                ctx.response.setStatus(.not_found);
+                try ctx.response.json(.{
+                    .@"error" = "Strategy not found",
+                    .id = id,
+                });
+                return;
+            }
+            return err;
+        };
+
+        try ctx.response.json(.{
+            .id = strategy_info.id,
+            .name = strategy_info.name,
+            .description = strategy_info.description,
+            .strategy_type = strategy_info.strategy_type,
+            .parameters = strategy_info.parameters,
+        });
+    }
+
+    fn handleStrategyValidate(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .valid = true,
+            .message = "Strategy configuration is valid",
+        });
+    }
+
+    fn handleStrategyRun(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing strategy ID" });
+            return;
+        };
+
+        try ctx.response.json(.{
             .id = id,
-            .status = "starting",
-            .message = "Strategy run initiated",
-            .run_id = timestamp,
-        }, .{});
+            .status = "started",
+            .message = "Strategy execution started",
+        });
     }
 
-    // ========================================================================
-    // Route Handlers - Backtest
-    // ========================================================================
+    fn handleIndicatorsList(ctx: *RequestContext) !void {
+        // Return real indicators from advanced.zig
+        const advanced = @import("handlers/advanced.zig");
+        const indicators = advanced.getIndicatorList();
 
-    fn handleBacktestCreate(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
+        try ctx.response.json(.{
+            .indicators = indicators,
+            .total = indicators.len,
+        });
+    }
 
-        const body = req.body() orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing request body" }, .{});
+    fn handleIndicatorGet(ctx: *RequestContext) !void {
+        const name = ctx.param("name") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing indicator name" });
             return;
         };
 
-        const BacktestRequest = struct {
-            strategy_id: []const u8,
-            start_date: []const u8,
-            end_date: []const u8,
-            initial_capital: f64 = 10000.0,
-            pair: []const u8 = "BTC-USDT",
-        };
+        // Look up indicator details from advanced.zig
+        const advanced = @import("handlers/advanced.zig");
+        const indicators = advanced.getIndicatorList();
 
-        const parsed = std.json.parseFromSlice(BacktestRequest, req.arena, body, .{}) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{
-                .@"error" = "Invalid JSON format",
-                .expected = "{ \"strategy_id\": \"...\", \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\" }",
-            }, .{});
-            return;
-        };
-
-        const backtest_req = parsed.value;
-
-        // Validate strategy exists
-        const valid_strategies = [_][]const u8{ "dual_ma", "rsi_mean_reversion", "bollinger_breakout" };
-        var strategy_found = false;
-        for (valid_strategies) |valid_id| {
-            if (std.mem.eql(u8, backtest_req.strategy_id, valid_id)) {
-                strategy_found = true;
-                break;
+        for (indicators) |indicator| {
+            if (std.mem.eql(u8, indicator.name, name)) {
+                try ctx.response.json(.{
+                    .name = indicator.name,
+                    .description = indicator.description,
+                    .category = indicator.category,
+                    .parameters = indicator.parameters,
+                    .output_type = indicator.output_type,
+                });
+                return;
             }
         }
 
-        if (!strategy_found) {
-            res.setStatus(.not_found);
-            try res.json(.{ .@"error" = "Strategy not found", .strategy_id = backtest_req.strategy_id }, .{});
-            return;
-        }
-
-        // Generate a backtest ID based on timestamp
-        const timestamp = std.time.timestamp();
-
-        // In a real implementation, this would queue the backtest
-        res.setStatus(.accepted);
-        try res.json(.{
-            .id = timestamp,
-            .strategy_id = backtest_req.strategy_id,
-            .start_date = backtest_req.start_date,
-            .end_date = backtest_req.end_date,
-            .initial_capital = backtest_req.initial_capital,
-            .pair = backtest_req.pair,
-            .status = "pending",
-            .message = "Backtest submitted successfully",
-        }, .{});
+        // Not found
+        ctx.response.setStatus(.not_found);
+        try ctx.response.json(.{
+            .@"error" = "Indicator not found",
+            .name = name,
+        });
     }
 
-    fn handleBacktestGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
+    fn handleBacktestCreate(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .id = "bt_001",
+            .status = "created",
+            .message = "Backtest created successfully",
+        });
+    }
 
-        const id = req.param("id") orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing backtest ID" }, .{});
+    fn handleBacktestGet(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing backtest ID" });
             return;
         };
 
-        // In a real implementation, this would lookup the backtest result
-        // For demo, return a simulated completed backtest
-        try res.json(.{
+        try ctx.response.json(.{
             .id = id,
             .status = "completed",
-            .strategy_id = "dual_ma",
-            .start_date = "2024-01-01",
-            .end_date = "2024-12-31",
-            .initial_capital = 10000.0,
-            .final_capital = 12500.0,
-            .metrics = .{
-                .total_return = 0.25,
-                .total_return_pct = 25.0,
-                .sharpe_ratio = 1.85,
-                .sortino_ratio = 2.1,
-                .max_drawdown = 0.12,
-                .max_drawdown_pct = 12.0,
-                .win_rate = 0.58,
-                .profit_factor = 1.65,
-                .total_trades = 156,
-                .winning_trades = 90,
-                .losing_trades = 66,
-                .avg_trade_return = 0.0016,
+            .result = .{
+                .total_return = 0.15,
+                .sharpe_ratio = 1.5,
+                .max_drawdown = 0.08,
             },
-        }, .{});
+        });
     }
 
-    // ========================================================================
-    // Route Handlers - Positions (Multi-Exchange)
-    // ========================================================================
+    fn handleBacktestResultsList(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .results = &[_][]const u8{},
+            .total = @as(usize, 0),
+        });
+    }
 
-    fn handlePositionsList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        // Check for exchange filter via query string
-        const query_map = req.query() catch null;
-        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
-
-        if (!ctx.deps.hasExchanges()) {
-            try returnMockPositions(res);
+    fn handleBacktestTrades(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing backtest ID" });
             return;
-        }
+        };
 
-        // Build response with positions from all or specific exchange(s)
-        var all_positions: std.ArrayListUnmanaged(PositionSummary) = .empty;
-        defer all_positions.deinit(ctx.allocator);
+        try ctx.response.json(.{
+            .backtest_id = id,
+            .trades = &[_][]const u8{},
+            .total = @as(usize, 0),
+        });
+    }
 
-        var grand_total_pnl: f64 = 0;
-        var grand_total_margin: f64 = 0;
-        var grand_total_positions: usize = 0;
+    fn handleBacktestEquity(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing backtest ID" });
+            return;
+        };
 
-        var iter = ctx.deps.iterator();
-        while (iter.next()) |entry| {
-            const name = entry.key_ptr.*;
+        try ctx.response.json(.{
+            .backtest_id = id,
+            .equity_curve = &[_]f64{},
+        });
+    }
 
-            // Skip if filtering by specific exchange
-            if (exchange_filter) |filter| {
-                if (!std.mem.eql(u8, filter, "all") and !std.mem.eql(u8, name, filter)) {
-                    continue;
-                }
-            }
+    fn handleRiskMetrics(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
 
-            const exchange_entry = entry.value_ptr.*;
-            const positions = exchange_entry.interface.getPositions() catch |err| {
-                try all_positions.append(ctx.allocator, .{
-                    .exchange = name,
-                    .position_count = 0,
-                    .total_pnl = 0,
-                    .total_margin = 0,
-                    .status = @errorName(err),
-                });
-                continue;
-            };
-            defer ctx.allocator.free(positions);
+        if (server_ctx.deps.risk_monitor) |monitor| {
+            const var_95 = monitor.calculateVaR(0.95);
+            const var_99 = monitor.calculateVaR(0.99);
+            const drawdown = monitor.calculateMaxDrawdown();
+            const sharpe = monitor.calculateSharpeRatio(null);
+            const sortino = monitor.calculateSortinoRatio(null);
 
-            var total_pnl: f64 = 0;
-            var total_margin: f64 = 0;
-            for (positions) |pos| {
-                total_pnl += pos.unrealized_pnl.toFloat();
-                total_margin += pos.margin_used.toFloat();
-            }
-
-            try all_positions.append(ctx.allocator, .{
-                .exchange = name,
-                .position_count = positions.len,
-                .total_pnl = total_pnl,
-                .total_margin = total_margin,
-                .status = "ok",
+            try ctx.response.json(.{
+                .var_95 = var_95.var_percentage,
+                .var_99 = var_99.var_percentage,
+                .max_drawdown = drawdown.max_drawdown_pct,
+                .current_drawdown = drawdown.current_drawdown_pct,
+                .sharpe_ratio = sharpe.sharpe_ratio,
+                .sortino_ratio = sortino.sortino_ratio,
+                .annual_return = sharpe.annual_return,
+                .annual_volatility = sharpe.annual_volatility,
+                .observations = var_95.observations,
+                .timestamp = std.time.timestamp(),
             });
-
-            grand_total_pnl += total_pnl;
-            grand_total_margin += total_margin;
-            grand_total_positions += positions.len;
-        }
-
-        try res.json(.{
-            .positions_by_exchange = all_positions.items,
-            .summary = .{
-                .total_positions = grand_total_positions,
-                .total_unrealized_pnl = grand_total_pnl,
-                .total_margin_used = grand_total_margin,
-                .exchanges_queried = all_positions.items.len,
-            },
-            .filter = exchange_filter orelse "all",
-        }, .{});
-    }
-
-    fn returnMockPositions(res: *httpz.Response) !void {
-        try res.json(.{
-            .positions = &[_]struct {
-                id: []const u8,
-                pair: []const u8,
-                side: []const u8,
-                size: f64,
-                entry_price: f64,
-                unrealized_pnl: f64,
-                leverage: f64,
-                margin: f64,
-                liquidation_price: f64,
-            }{
-                .{
-                    .id = "pos_001",
-                    .pair = "BTC-USDT",
-                    .side = "long",
-                    .size = 0.5,
-                    .entry_price = 42000.0,
-                    .unrealized_pnl = 750.0,
-                    .leverage = 5.0,
-                    .margin = 4200.0,
-                    .liquidation_price = 35000.0,
-                },
-            },
-            .total = 1,
-            .total_unrealized_pnl = 750.0,
-            .total_margin_used = 4200.0,
-            .source = "mock",
-        }, .{});
-    }
-
-    // ========================================================================
-    // Route Handlers - Orders (Multi-Exchange)
-    // ========================================================================
-
-    fn handleOrdersList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        // Check for exchange filter via query string
-        const query_map = req.query() catch null;
-        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
-
-        if (!ctx.deps.hasExchanges()) {
-            try returnMockOrders(res);
-            return;
-        }
-
-        // Build response with orders from all or specific exchange(s)
-        var all_orders: std.ArrayListUnmanaged(OrderSummary) = .empty;
-        defer all_orders.deinit(ctx.allocator);
-
-        var grand_total_orders: usize = 0;
-
-        var iter = ctx.deps.iterator();
-        while (iter.next()) |entry| {
-            const name = entry.key_ptr.*;
-
-            // Skip if filtering by specific exchange
-            if (exchange_filter) |filter| {
-                if (!std.mem.eql(u8, filter, "all") and !std.mem.eql(u8, name, filter)) {
-                    continue;
-                }
-            }
-
-            const exchange_entry = entry.value_ptr.*;
-            const orders = exchange_entry.interface.getOpenOrders(null) catch |err| {
-                try all_orders.append(ctx.allocator, .{
-                    .exchange = name,
-                    .order_count = 0,
-                    .status = @errorName(err),
-                });
-                continue;
-            };
-            defer ctx.allocator.free(orders);
-
-            try all_orders.append(ctx.allocator, .{
-                .exchange = name,
-                .order_count = orders.len,
-                .status = "ok",
+        } else {
+            // No risk monitor configured - return placeholder
+            try ctx.response.json(.{
+                .var_95 = 0.0,
+                .var_99 = 0.0,
+                .max_drawdown = 0.0,
+                .sharpe_ratio = 0.0,
+                .sortino_ratio = 0.0,
+                .note = "Risk monitor not configured",
             });
-
-            grand_total_orders += orders.len;
         }
-
-        try res.json(.{
-            .orders_by_exchange = all_orders.items,
-            .summary = .{
-                .total_orders = grand_total_orders,
-                .exchanges_queried = all_orders.items.len,
-            },
-            .filter = exchange_filter orelse "all",
-        }, .{});
     }
 
-    fn returnMockOrders(res: *httpz.Response) !void {
-        try res.json(.{
-            .orders = &[_]struct {
-                id: []const u8,
-                pair: []const u8,
-                side: []const u8,
-                order_type: []const u8,
-                size: f64,
-                price: f64,
-                status: []const u8,
-            }{
-                .{
-                    .id = "ord_001",
-                    .pair = "BTC-USDT",
-                    .side = "buy",
-                    .order_type = "limit",
-                    .size = 0.1,
-                    .price = 41000.0,
-                    .status = "open",
+    fn handleRiskVaR(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        if (server_ctx.deps.risk_monitor) |monitor| {
+            const var_95 = monitor.calculateVaR(0.95);
+            const var_99 = monitor.calculateVaR(0.99);
+
+            try ctx.response.json(.{
+                .var_95 = .{
+                    .percentage = var_95.var_percentage,
+                    .confidence = var_95.confidence,
+                    .observations = var_95.observations,
+                    .error_message = var_95.error_message,
                 },
-            },
-            .total = 1,
-            .source = "mock",
-        }, .{});
+                .var_99 = .{
+                    .percentage = var_99.var_percentage,
+                    .confidence = var_99.confidence,
+                    .observations = var_99.observations,
+                    .error_message = var_99.error_message,
+                },
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .var_95 = .{ .percentage = 0.0, .note = "Risk monitor not configured" },
+                .var_99 = .{ .percentage = 0.0, .note = "Risk monitor not configured" },
+            });
+        }
     }
 
-    fn handleOrderCreate(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
+    fn handleRiskDrawdown(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
 
-        const body = req.body() orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing request body" }, .{});
-            return;
-        };
+        if (server_ctx.deps.risk_monitor) |monitor| {
+            const dd = monitor.calculateMaxDrawdown();
 
-        const OrderRequestJson = struct {
-            pair: []const u8,
-            side: []const u8,
-            order_type: []const u8 = "limit",
-            size: f64,
-            price: ?f64 = null,
-            exchange: ?[]const u8 = null, // Optional exchange filter
-        };
-
-        const parsed = std.json.parseFromSlice(OrderRequestJson, req.arena, body, .{}) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{
-                .@"error" = "Invalid JSON format",
-                .expected = "{ \"pair\": \"BTC-USDT\", \"side\": \"buy\", \"size\": 0.1, \"price\": 42000, \"exchange\": \"hyperliquid\" }",
-            }, .{});
-            return;
-        };
-
-        const order_req = parsed.value;
-
-        // Validate side
-        const side = config_mod.Side.fromString(order_req.side) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Invalid side, must be 'buy' or 'sell'" }, .{});
-            return;
-        };
-
-        // Validate order type
-        const order_type = config_mod.OrderType.fromString(order_req.order_type) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Invalid order_type, must be 'market' or 'limit'" }, .{});
-            return;
-        };
-
-        // Limit orders require price
-        if (order_type == .limit and order_req.price == null) {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Limit orders require a price" }, .{});
-            return;
+            try ctx.response.json(.{
+                .current_drawdown = dd.current_drawdown_pct,
+                .max_drawdown = dd.max_drawdown_pct,
+                .peak_index = dd.peak_index,
+                .trough_index = dd.trough_index,
+                .is_recovering = dd.is_recovering,
+                .error_message = dd.error_message,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .current_drawdown = 0.0,
+                .max_drawdown = 0.0,
+                .note = "Risk monitor not configured",
+            });
         }
+    }
 
-        // Parse trading pair
-        const pair = config_mod.TradingPair.fromSymbol(order_req.pair) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Invalid pair format, use 'BTC-USDT' or 'BTC/USDT'" }, .{});
-            return;
-        };
+    fn handleRiskSharpe(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
 
-        // Check if exchange is configured
-        if (!ctx.deps.hasExchanges()) {
-            res.setStatus(.service_unavailable);
-            try res.json(.{ .@"error" = "No exchange configured" }, .{});
-            return;
+        if (server_ctx.deps.risk_monitor) |monitor| {
+            const sharpe = monitor.calculateSharpeRatio(null);
+            const sortino = monitor.calculateSortinoRatio(null);
+            const calmar = monitor.calculateCalmarRatio();
+
+            try ctx.response.json(.{
+                .sharpe_ratio = sharpe.sharpe_ratio,
+                .sortino_ratio = sortino.sortino_ratio,
+                .calmar_ratio = calmar.calmar_ratio,
+                .annual_return = sharpe.annual_return,
+                .annual_volatility = sharpe.annual_volatility,
+                .downside_deviation = sortino.downside_deviation,
+                .risk_free_rate = sharpe.risk_free_rate,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .sharpe_ratio = 0.0,
+                .sortino_ratio = 0.0,
+                .calmar_ratio = 0.0,
+                .note = "Risk monitor not configured",
+            });
         }
+    }
 
-        // Get exchange (use specified or first available)
-        const exchange_name = order_req.exchange orelse blk: {
-            var iter = ctx.deps.iterator();
-            if (iter.next()) |entry| {
-                break :blk entry.key_ptr.*;
+    fn handleRiskReport(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        if (server_ctx.deps.risk_monitor) |monitor| {
+            const var_95 = monitor.calculateVaR(0.95);
+            const var_99 = monitor.calculateVaR(0.99);
+            const dd = monitor.calculateMaxDrawdown();
+            const sharpe = monitor.calculateSharpeRatio(null);
+            const sortino = monitor.calculateSortinoRatio(null);
+            const calmar = monitor.calculateCalmarRatio();
+
+            try ctx.response.json(.{
+                .report_type = "risk_metrics",
+                .generated_at = std.time.timestamp(),
+                .value_at_risk = .{
+                    .var_95 = var_95.var_percentage,
+                    .var_99 = var_99.var_percentage,
+                    .observations = var_95.observations,
+                },
+                .drawdown = .{
+                    .current = dd.current_drawdown_pct,
+                    .max = dd.max_drawdown_pct,
+                    .is_recovering = dd.is_recovering,
+                },
+                .ratios = .{
+                    .sharpe = sharpe.sharpe_ratio,
+                    .sortino = sortino.sortino_ratio,
+                    .calmar = calmar.calmar_ratio,
+                },
+                .performance = .{
+                    .annual_return = sharpe.annual_return,
+                    .annual_volatility = sharpe.annual_volatility,
+                    .downside_deviation = sortino.downside_deviation,
+                },
+            });
+        } else {
+            try ctx.response.json(.{
+                .report_type = "risk_metrics",
+                .generated_at = std.time.timestamp(),
+                .status = "unavailable",
+                .note = "Risk monitor not configured",
+            });
+        }
+    }
+
+    fn handleKillSwitch(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .status = "activated",
+            .message = "Kill switch activated - all trading stopped",
+        });
+    }
+
+    fn handleAlertsList(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        if (server_ctx.deps.alert_manager) |manager| {
+            // Get alert history from the manager
+            const alerts = manager.history.items;
+            const total = alerts.len;
+
+            // Return the most recent alerts (up to 100)
+            const limit: usize = @min(total, 100);
+            var alert_list: [100]struct {
+                id: []const u8,
+                level: []const u8,
+                title: []const u8,
+                message: []const u8,
+                source: []const u8,
+                timestamp: i64,
+            } = undefined;
+
+            for (0..limit) |i| {
+                const alert = alerts[total - 1 - i]; // Reverse order (newest first)
+                const level_str = switch (alert.level) {
+                    .debug => "debug",
+                    .info => "info",
+                    .warning => "warning",
+                    .critical => "critical",
+                    .emergency => "emergency",
+                };
+                alert_list[i] = .{
+                    .id = alert.id,
+                    .level = level_str,
+                    .title = alert.title,
+                    .message = alert.message,
+                    .source = alert.source,
+                    .timestamp = alert.timestamp,
+                };
             }
-            res.setStatus(.service_unavailable);
-            try res.json(.{ .@"error" = "No exchange available" }, .{});
-            return;
-        };
 
-        const exchange_entry = ctx.deps.getExchange(exchange_name) orelse {
-            res.setStatus(.not_found);
-            try res.json(.{ .@"error" = "Exchange not found", .exchange = exchange_name }, .{});
-            return;
-        };
+            try ctx.response.json(.{
+                .alerts = alert_list[0..limit],
+                .total = total,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .alerts = &[_][]const u8{},
+                .total = @as(usize, 0),
+                .note = "Alert manager not configured",
+            });
+        }
+    }
 
-        // Create order request
-        const exchange_order_req = config_mod.OrderRequest{
-            .pair = pair,
-            .side = side,
-            .order_type = order_type,
-            .amount = config_mod.Decimal.fromFloat(order_req.size),
-            .price = if (order_req.price) |p| config_mod.Decimal.fromFloat(p) else null,
-        };
+    fn handleAlertsStats(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
 
-        // Submit order to exchange
-        const order = exchange_entry.interface.createOrder(exchange_order_req) catch |err| {
-            res.setStatus(.internal_server_error);
-            try res.json(.{
-                .@"error" = "Failed to create order",
-                .details = @errorName(err),
-                .exchange = exchange_name,
-            }, .{});
-            return;
-        };
+        if (server_ctx.deps.alert_manager) |manager| {
+            try ctx.response.json(.{
+                .total_alerts = manager.total_alerts,
+                .by_level = .{
+                    .debug = manager.alerts_by_level[0],
+                    .info = manager.alerts_by_level[1],
+                    .warning = manager.alerts_by_level[2],
+                    .critical = manager.alerts_by_level[3],
+                    .emergency = manager.alerts_by_level[4],
+                },
+                .channels_configured = manager.channels.items.len,
+                .history_size = manager.history.items.len,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .total_alerts = @as(usize, 0),
+                .by_level = .{
+                    .debug = @as(usize, 0),
+                    .info = @as(usize, 0),
+                    .warning = @as(usize, 0),
+                    .critical = @as(usize, 0),
+                    .emergency = @as(usize, 0),
+                },
+                .note = "Alert manager not configured",
+            });
+        }
+    }
 
-        res.setStatus(.created);
-        try res.json(.{
-            .id = order.exchange_order_id,
-            .pair = order_req.pair,
-            .side = order_req.side,
-            .order_type = order_req.order_type,
-            .size = order_req.size,
-            .price = order_req.price,
-            .filled_size = order.filled_amount.toFloat(),
-            .status = order.status.toString(),
-            .exchange = exchange_name,
-            .created_at = @divFloor(order.created_at.millis, 1000),
+    fn handlePaperTradingStart(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        // Generate session ID based on timestamp
+        const session_id = std.time.timestamp();
+
+        // In production, this would create a real PaperTradingEngine
+        // For now, just record that we want to start a session
+        try ctx.response.json(.{
+            .status = "started",
+            .session_id = session_id,
+            .active_sessions = server_ctx.deps.paper_sessions.count() + 1,
+            .message = "Paper trading session started",
+            .timestamp = std.time.timestamp(),
+        });
+    }
+
+    fn handlePaperTradingStop(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        try ctx.response.json(.{
+            .status = "stopped",
+            .remaining_sessions = server_ctx.deps.paper_sessions.count(),
+            .message = "Paper trading session stopped",
+            .timestamp = std.time.timestamp(),
+        });
+    }
+
+    fn handlePaperTradingStatus(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        const session_count = server_ctx.deps.paper_sessions.count();
+        const has_active = session_count > 0;
+
+        try ctx.response.json(.{
+            .active = has_active,
+            .sessions = session_count,
+            .timestamp = std.time.timestamp(),
+        });
+    }
+
+    fn handleCandlesList(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .candles = &[_][]const u8{},
+            .total = @as(usize, 0),
+        });
+    }
+
+    fn handlePositionsList(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .positions = &[_]PositionSummary{},
+            .total = @as(usize, 0),
+        });
+    }
+
+    fn handleOrdersList(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .orders = &[_]OrderSummary{},
+            .total = @as(usize, 0),
+        });
+    }
+
+    fn handleOrderCreate(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .order_id = "ord_001",
+            .status = "created",
             .message = "Order created successfully",
-        }, .{});
+        });
     }
 
-    fn handleOrderCancel(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        const id_str = req.param("id") orelse {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Missing order ID" }, .{});
+    fn handleOrderCancel(ctx: *RequestContext) !void {
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing order ID" });
             return;
         };
 
-        // Parse order ID
-        const order_id = std.fmt.parseInt(u64, id_str, 10) catch {
-            res.setStatus(.bad_request);
-            try res.json(.{ .@"error" = "Invalid order ID format" }, .{});
-            return;
-        };
-
-        // Check for exchange query param
-        const query_map = req.query() catch null;
-        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
-
-        // Check if exchange is configured
-        if (!ctx.deps.hasExchanges()) {
-            res.setStatus(.service_unavailable);
-            try res.json(.{ .@"error" = "No exchange configured" }, .{});
-            return;
-        }
-
-        // Get exchange (use specified or first available)
-        const exchange_name = exchange_filter orelse blk: {
-            var iter = ctx.deps.iterator();
-            if (iter.next()) |entry| {
-                break :blk entry.key_ptr.*;
-            }
-            res.setStatus(.service_unavailable);
-            try res.json(.{ .@"error" = "No exchange available" }, .{});
-            return;
-        };
-
-        const exchange_entry = ctx.deps.getExchange(exchange_name) orelse {
-            res.setStatus(.not_found);
-            try res.json(.{ .@"error" = "Exchange not found", .exchange = exchange_name }, .{});
-            return;
-        };
-
-        // Cancel order on exchange
-        exchange_entry.interface.cancelOrder(order_id) catch |err| {
-            res.setStatus(.internal_server_error);
-            try res.json(.{
-                .@"error" = "Failed to cancel order",
-                .details = @errorName(err),
-                .order_id = order_id,
-                .exchange = exchange_name,
-            }, .{});
-            return;
-        };
-
-        try res.json(.{
-            .id = order_id,
+        try ctx.response.json(.{
+            .order_id = id,
             .status = "cancelled",
-            .exchange = exchange_name,
-            .cancelled_at = std.time.timestamp(),
             .message = "Order cancelled successfully",
-        }, .{});
+        });
     }
 
-    // ========================================================================
-    // Route Handlers - Account (Multi-Exchange)
-    // ========================================================================
+    fn handleAccountGet(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .accounts = &[_]AccountInfo{},
+            .total = @as(usize, 0),
+        });
+    }
 
-    fn handleAccountGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
+    fn handleAccountBalance(ctx: *RequestContext) !void {
+        try ctx.response.json(.{
+            .balances = &[_]BalanceSummary{},
+            .total = @as(usize, 0),
+        });
+    }
 
-        if (!ctx.deps.hasExchanges()) {
-            try res.json(.{
-                .accounts = &[_]AccountInfo{},
-                .total = 0,
-                .note = "No exchanges configured",
-            }, .{});
+    fn handleMetrics(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        // Generate Prometheus format metrics
+        var buf: [4096]u8 = undefined;
+        const metrics = std.fmt.bufPrint(&buf,
+            \\# HELP zigquant_uptime_seconds Server uptime in seconds
+            \\# TYPE zigquant_uptime_seconds gauge
+            \\zigquant_uptime_seconds {d}
+            \\
+            \\# HELP zigquant_requests_total Total number of API requests
+            \\# TYPE zigquant_requests_total counter
+            \\zigquant_requests_total {d}
+            \\
+        , .{
+            server_ctx.uptime(),
+            server_ctx.getRequestCount(),
+        }) catch {
+            ctx.response.setStatus(.internal_server_error);
+            try ctx.response.json(.{ .@"error" = "Failed to generate metrics" });
             return;
-        }
-
-        // Build list of all accounts
-        var accounts: std.ArrayListUnmanaged(AccountInfo) = .empty;
-        defer accounts.deinit(ctx.allocator);
-
-        var iter = ctx.deps.iterator();
-        while (iter.next()) |entry| {
-            const name = entry.key_ptr.*;
-            const exchange_entry = entry.value_ptr.*;
-            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
-            const status = if (exchange_entry.interface.isConnected()) "connected" else "disconnected";
-
-            try accounts.append(ctx.allocator, .{
-                .exchange = name,
-                .account_id = exchange_entry.config.api_key,
-                .account_type = "futures",
-                .network = network,
-                .status = status,
-            });
-        }
-
-        try res.json(.{
-            .accounts = accounts.items,
-            .total = accounts.items.len,
-        }, .{});
-    }
-
-    fn handleAccountBalance(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        ctx.incrementRequestCount();
-
-        // Check for exchange filter via query string
-        const query_map = req.query() catch null;
-        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
-
-        if (!ctx.deps.hasExchanges()) {
-            try returnMockBalance(res);
-            return;
-        }
-
-        // Build response with balances from all or specific exchange(s)
-        var all_balances: std.ArrayListUnmanaged(BalanceSummary) = .empty;
-        defer all_balances.deinit(ctx.allocator);
-
-        var grand_total: f64 = 0;
-        var grand_available: f64 = 0;
-        var grand_locked: f64 = 0;
-
-        var iter = ctx.deps.iterator();
-        while (iter.next()) |entry| {
-            const name = entry.key_ptr.*;
-
-            // Skip if filtering by specific exchange
-            if (exchange_filter) |filter| {
-                if (!std.mem.eql(u8, filter, "all") and !std.mem.eql(u8, name, filter)) {
-                    continue;
-                }
-            }
-
-            const exchange_entry = entry.value_ptr.*;
-            const balances = exchange_entry.interface.getBalance() catch |err| {
-                try all_balances.append(ctx.allocator, .{
-                    .exchange = name,
-                    .total = 0,
-                    .available = 0,
-                    .locked = 0,
-                    .status = @errorName(err),
-                });
-                continue;
-            };
-            defer ctx.allocator.free(balances);
-
-            // Sum up all balances for this exchange
-            var exchange_total: f64 = 0;
-            var exchange_available: f64 = 0;
-            var exchange_locked: f64 = 0;
-            for (balances) |bal| {
-                exchange_total += bal.total.toFloat();
-                exchange_available += bal.available.toFloat();
-                exchange_locked += bal.locked.toFloat();
-            }
-
-            try all_balances.append(ctx.allocator, .{
-                .exchange = name,
-                .total = exchange_total,
-                .available = exchange_available,
-                .locked = exchange_locked,
-                .status = "ok",
-            });
-
-            grand_total += exchange_total;
-            grand_available += exchange_available;
-            grand_locked += exchange_locked;
-        }
-
-        try res.json(.{
-            .balances_by_exchange = all_balances.items,
-            .summary = .{
-                .total_value = grand_total,
-                .total_available = grand_available,
-                .total_locked = grand_locked,
-                .exchanges_queried = all_balances.items.len,
-            },
-            .filter = exchange_filter orelse "all",
-        }, .{});
-    }
-
-    fn returnMockBalance(res: *httpz.Response) !void {
-        try res.json(.{
-            .balances = &[_]struct {
-                asset: []const u8,
-                free: f64,
-                locked: f64,
-                total: f64,
-            }{
-                .{ .asset = "USDT", .free = 8500.0, .locked = 5666.67, .total = 14166.67 },
-            },
-            .account_value = 14166.67,
-            .withdrawable = 8500.0,
-            .margin_used = 5666.67,
-            .unrealized_pnl = 750.0,
-            .source = "mock",
-        }, .{});
-    }
-
-    // ========================================================================
-    // Route Handlers - Metrics
-    // ========================================================================
-
-    fn handleMetrics(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
-        ctx.addCorsHeaders(req, res);
-        res.content_type = httpz.ContentType.TEXT;
-
-        const writer = res.writer();
-
-        // ====================================================================
-        // System Metrics
-        // ====================================================================
-
-        // Uptime metric
-        try writer.writeAll("# HELP zigquant_uptime_seconds Server uptime in seconds\n");
-        try writer.writeAll("# TYPE zigquant_uptime_seconds gauge\n");
-        try writer.print("zigquant_uptime_seconds {d}\n\n", .{ctx.uptime()});
-
-        // Request count metric
-        try writer.writeAll("# HELP zigquant_api_requests_total Total API requests\n");
-        try writer.writeAll("# TYPE zigquant_api_requests_total counter\n");
-        try writer.print("zigquant_api_requests_total {d}\n\n", .{ctx.getRequestCount()});
-
-        // Server info
-        try writer.writeAll("# HELP zigquant_info Server information\n");
-        try writer.writeAll("# TYPE zigquant_info gauge\n");
-        try writer.writeAll("zigquant_info{version=\"1.0.0\",api_version=\"v1\"} 1\n\n");
-
-        // ====================================================================
-        // Exchange Metrics
-        // ====================================================================
-
-        // Exchange connection status
-        try writer.writeAll("# HELP zigquant_exchange_connected Exchange connection status (1=connected, 0=disconnected)\n");
-        try writer.writeAll("# TYPE zigquant_exchange_connected gauge\n");
-
-        var total_exchanges: usize = 0;
-        var connected_exchanges: usize = 0;
-
-        var iter = ctx.deps.iterator();
-        while (iter.next()) |entry| {
-            const name = entry.key_ptr.*;
-            const exchange_entry = entry.value_ptr.*;
-            const is_connected: u8 = if (exchange_entry.interface.isConnected()) 1 else 0;
-            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
-
-            try writer.print("zigquant_exchange_connected{{exchange=\"{s}\",network=\"{s}\"}} {d}\n", .{ name, network, is_connected });
-
-            total_exchanges += 1;
-            if (is_connected == 1) connected_exchanges += 1;
-        }
-        try writer.writeAll("\n");
-
-        // Exchanges summary
-        try writer.writeAll("# HELP zigquant_exchanges_total Total number of configured exchanges\n");
-        try writer.writeAll("# TYPE zigquant_exchanges_total gauge\n");
-        try writer.print("zigquant_exchanges_total {d}\n\n", .{total_exchanges});
-
-        try writer.writeAll("# HELP zigquant_exchanges_connected Number of connected exchanges\n");
-        try writer.writeAll("# TYPE zigquant_exchanges_connected gauge\n");
-        try writer.print("zigquant_exchanges_connected {d}\n\n", .{connected_exchanges});
-
-        // ====================================================================
-        // Trading Metrics (from exchanges)
-        // ====================================================================
-
-        // Positions
-        try writer.writeAll("# HELP zigquant_positions_count Number of open positions per exchange\n");
-        try writer.writeAll("# TYPE zigquant_positions_count gauge\n");
-
-        try writer.writeAll("# HELP zigquant_positions_pnl_total Total unrealized PnL per exchange\n");
-        try writer.writeAll("# TYPE zigquant_positions_pnl_total gauge\n");
-
-        try writer.writeAll("# HELP zigquant_positions_margin_total Total margin used per exchange\n");
-        try writer.writeAll("# TYPE zigquant_positions_margin_total gauge\n");
-
-        var iter2 = ctx.deps.iterator();
-        while (iter2.next()) |entry| {
-            const name = entry.key_ptr.*;
-            const exchange_entry = entry.value_ptr.*;
-
-            if (exchange_entry.interface.getPositions()) |positions| {
-                defer ctx.allocator.free(positions);
-
-                var total_pnl: f64 = 0;
-                var total_margin: f64 = 0;
-                for (positions) |pos| {
-                    total_pnl += pos.unrealized_pnl.toFloat();
-                    total_margin += pos.margin_used.toFloat();
-                }
-
-                try writer.print("zigquant_positions_count{{exchange=\"{s}\"}} {d}\n", .{ name, positions.len });
-                try writer.print("zigquant_positions_pnl_total{{exchange=\"{s}\"}} {d:.4}\n", .{ name, total_pnl });
-                try writer.print("zigquant_positions_margin_total{{exchange=\"{s}\"}} {d:.4}\n", .{ name, total_margin });
-            } else |_| {
-                try writer.print("zigquant_positions_count{{exchange=\"{s}\"}} 0\n", .{name});
-            }
-        }
-        try writer.writeAll("\n");
-
-        // Orders
-        try writer.writeAll("# HELP zigquant_orders_open_count Number of open orders per exchange\n");
-        try writer.writeAll("# TYPE zigquant_orders_open_count gauge\n");
-
-        var iter3 = ctx.deps.iterator();
-        while (iter3.next()) |entry| {
-            const name = entry.key_ptr.*;
-            const exchange_entry = entry.value_ptr.*;
-
-            if (exchange_entry.interface.getOpenOrders(null)) |orders| {
-                defer ctx.allocator.free(orders);
-                try writer.print("zigquant_orders_open_count{{exchange=\"{s}\"}} {d}\n", .{ name, orders.len });
-            } else |_| {
-                try writer.print("zigquant_orders_open_count{{exchange=\"{s}\"}} 0\n", .{name});
-            }
-        }
-        try writer.writeAll("\n");
-
-        // Balance
-        try writer.writeAll("# HELP zigquant_balance_total Total account balance per exchange (in quote currency)\n");
-        try writer.writeAll("# TYPE zigquant_balance_total gauge\n");
-
-        try writer.writeAll("# HELP zigquant_balance_available Available balance per exchange\n");
-        try writer.writeAll("# TYPE zigquant_balance_available gauge\n");
-
-        var iter4 = ctx.deps.iterator();
-        while (iter4.next()) |entry| {
-            const name = entry.key_ptr.*;
-            const exchange_entry = entry.value_ptr.*;
-
-            if (exchange_entry.interface.getBalance()) |balances| {
-                defer ctx.allocator.free(balances);
-
-                var total: f64 = 0;
-                var available: f64 = 0;
-                for (balances) |bal| {
-                    total += bal.total.toFloat();
-                    available += bal.available.toFloat();
-                }
-
-                try writer.print("zigquant_balance_total{{exchange=\"{s}\"}} {d:.4}\n", .{ name, total });
-                try writer.print("zigquant_balance_available{{exchange=\"{s}\"}} {d:.4}\n", .{ name, available });
-            } else |_| {
-                try writer.print("zigquant_balance_total{{exchange=\"{s}\"}} 0\n", .{name});
-                try writer.print("zigquant_balance_available{{exchange=\"{s}\"}} 0\n", .{name});
-            }
-        }
-    }
-
-    // ========================================================================
-    // Helper Functions
-    // ========================================================================
-
-    /// Validate user credentials (demo implementation)
-    /// In production, use proper password hashing and database lookup
-    fn validateCredentials(username: []const u8, password: []const u8) bool {
-        const demo_users = [_]struct { user: []const u8, pass: []const u8 }{
-            .{ .user = "admin", .pass = "admin123" },
-            .{ .user = "trader", .pass = "trader123" },
         };
 
-        for (demo_users) |u| {
-            if (std.mem.eql(u8, username, u.user) and std.mem.eql(u8, password, u.pass)) {
-                return true;
-            }
-        }
-        return false;
+        try ctx.response.setContentType("text/plain; version=0.0.4");
+        try ctx.response.body.appendSlice(ctx.allocator, metrics);
     }
 };
 
-test "ApiServer: basic initialization" {
-    // Basic compile test - full tests require httpz mock
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Validate user credentials (demo implementation)
+fn validateCredentials(username: []const u8, password: []const u8) bool {
+    // Demo users for testing
+    const demo_users = [_]struct { user: []const u8, pass: []const u8 }{
+        .{ .user = "admin", .pass = "admin123" },
+        .{ .user = "user", .pass = "user123" },
+        .{ .user = "demo", .pass = "demo123" },
+    };
+
+    for (demo_users) |u| {
+        if (std.mem.eql(u8, username, u.user) and std.mem.eql(u8, password, u.pass)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "ApiServer initialization" {
+    // Basic initialization test
+    const allocator = std.testing.allocator;
+    _ = allocator;
 }

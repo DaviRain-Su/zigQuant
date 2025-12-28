@@ -51,13 +51,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Add http.zig dependency for REST API server
-    // Note: httpz has its own websocket module which may conflict with our websocket dependency.
-    // The API server is built as a separate executable to avoid module conflicts.
-    const httpz = b.dependency("httpz", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    // Note: httpz removed - using std.http.Server for REST API
+    // This eliminates third-party dependency issues with Zig 0.15
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -127,7 +122,7 @@ pub fn build(b: *std.Build) void {
                 // importing modules from different packages).
                 .{ .name = "zigQuant", .module = mod },
                 .{ .name = "clap", .module = clap.module("clap") },
-                .{ .name = "httpz", .module = httpz.module("httpz") },
+                // httpz removed - using std.http.Server instead
             },
         }),
     });

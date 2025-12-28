@@ -9,36 +9,42 @@
 
 ## 概述
 
-实现基于 http.zig 的 REST API 服务，提供标准化 HTTP 接口供外部系统集成。这是 v1.0.0 的核心组件，其他 Story (Dashboard, Prometheus, Docker) 都依赖于此。
+实现基于 Zig 标准库 (std.net + std.http) 的 REST API 服务，提供标准化 HTTP 接口供外部系统集成。这是 v1.0.0 的核心组件，其他 Story (Dashboard, Prometheus, Docker) 都依赖于此。
 
 ### 目标
 
-1. 提供完整的 REST API (20+ 端点)
+1. 提供完整的 REST API (40 端点)
 2. 实现 JWT Token 认证
 3. 支持 CORS 跨域访问
 4. **多交易所支持** - 同时连接多个交易所，支持跨交易所套利
 5. **配置文件加载** - 支持 JSON 配置文件和环境变量
-6. 请求日志和错误处理
-7. API 响应时间 < 100ms (p99)
+6. **动态数据集成** - 从真实组件获取数据 (RiskMetricsMonitor, AlertManager, etc.)
+7. 请求日志和错误处理
+8. API 响应时间 < 100ms (p99)
 
 ---
 
 ## 技术方案
 
-### HTTP 服务器: http.zig
+### HTTP 服务器: std.net.Server + 自定义路由
+
+> **重要变更**: 2025-12-28 从 httpz 迁移到 std.net
+>
+> **原因**: httpz 与 Zig 0.15 存在兼容性问题 - 编译器死代码消除会移除路由注册代码，导致 21/40 个 handler 返回 404。
+>
+> **解决方案**: 使用 Zig 标准库 `std.net.Server` 自行实现 HTTP 服务器和路由器。
 
 ```zig
-// build.zig.zon
-.httpz = .{
-    .url = "https://github.com/karlseguin/http.zig/archive/refs/heads/master.tar.gz",
-},
+// 自定义路由器实现
+src/api/router.zig  // 路径匹配、参数提取
+src/api/server.zig  // HTTP 解析、请求处理
 ```
 
-**选择理由**:
-- 性能: 140K+ req/sec
-- 纯 Zig 实现，无 C 依赖
-- 内置 JSON 支持
-- 中间件架构
+**优势**:
+- **零依赖**: 使用 Zig 标准库，无第三方兼容性问题
+- **完全控制**: 自定义路由和中间件逻辑
+- **稳定性**: 标准库 API 稳定，随 Zig 版本更新
+- **简洁**: 移除 httpz 依赖，简化 build.zig.zon
 
 ### 认证: JWT Token (HS256)
 
@@ -824,6 +830,48 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 
 ## 更新日志
 
+### 2025-12-28 (第四次更新) - 动态数据集成
+
+- **Risk Handlers 动态数据**:
+  - `handleRiskMetrics` - 使用真实 RiskMetricsMonitor 计算 VaR、Drawdown、Sharpe
+  - `handleRiskVaR` - 返回真实 VaR 95%/99% 数据
+  - `handleRiskDrawdown` - 返回真实当前/最大回撤
+  - `handleRiskSharpe` - 返回真实 Sharpe/Sortino/Calmar 比率
+  - `handleRiskReport` - 返回完整风险报告
+
+- **Alert Handlers 动态数据**:
+  - `handleAlertsList` - 返回真实告警历史 (最近 100 条)
+  - `handleAlertsStats` - 返回真实告警统计 (按级别分类)
+
+- **Strategy Handlers 动态数据**:
+  - `handleStrategiesList` - 返回 6 个真实策略 (dual_ma, rsi_mean_reversion, bollinger_breakout, triple_ma, macd_divergence, hybrid_ai)
+  - `handleStrategyGet` - 使用 advanced.zig 获取策略详情
+  - `handleStrategyParams` - 返回完整参数定义 (类型、默认值、范围)
+
+- **Indicator Handlers 动态数据**:
+  - `handleIndicatorsList` - 返回 12 个真实指标 (SMA, EMA, RSI, MACD, Bollinger, ATR, ADX, CCI, Williams%R, OBV, VWAP, Parabolic SAR)
+  - `handleIndicatorGet` - 返回指标详情 (分类、参数、输出类型)
+
+- **Exchange/Trading Handlers 动态数据**:
+  - `handleExchangesList` - 从 ApiDependencies 获取真实交易所列表
+  - `handlePaperTradingStatus` - 返回真实 paper_sessions 数量
+
+- **智能降级**: 当组件未配置时返回 `note` 字段说明，而非假数据
+
+### 2025-12-28 (第三次更新) - 从 httpz 迁移到 std.net
+
+- **移除 httpz 依赖**: 解决 Zig 0.15 死代码消除导致路由注册被移除的问题
+- **新增自定义路由器** (`src/api/router.zig`):
+  - 支持路径参数 (`:id`)
+  - 支持查询字符串解析
+  - 支持所有 HTTP 方法
+- **重写 server.zig** 使用 `std.net.Server`:
+  - 手动 HTTP 请求解析
+  - 手动 HTTP 响应构建
+  - JSON 序列化使用 `std.json.Stringify`
+- **修复中间件**: 移除 cors.zig 和 auth.zig 中的 httpz 引用
+- **所有 40 个路由正常工作**
+
 ### 2025-12-28 (第二次更新)
 
 - 订单创建端点 (POST /api/v1/orders) 集成真实交易所 createOrder()
@@ -835,7 +883,7 @@ curl -X POST http://localhost:8080/api/v1/backtest \
   - zigquant_balance_total/available - 余额指标
 - 添加 Side, OrderType, TradingPair, Decimal, OrderRequest 类型导出
 
-### 2025-12-28
+### 2025-12-28 (第一次更新)
 
 - 添加多交易所支持 (ApiDependencies HashMap)
 - 新增 /api/v1/exchanges 端点
@@ -843,6 +891,25 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 - 添加 -c/--config 配置文件加载
 - 复用 src/core/config.zig 的 ConfigLoader
 - 修复 Zig 0.15 ArrayList 兼容性问题
+
+---
+
+## 已知限制 / 未来改进
+
+### 当前限制
+
+1. **单线程处理**: 当前使用阻塞式请求处理，不支持并发连接
+2. **无 WebSocket**: 仅支持 HTTP，实时推送需要轮询
+3. **基础错误处理**: 错误响应格式简单，无 request_id 追踪
+
+### 未来改进 (v1.1.0+)
+
+- [ ] 多线程连接处理 (线程池)
+- [ ] WebSocket 实时推送 (仓位变化、订单状态)
+- [ ] 请求 ID 追踪 (X-Request-Id)
+- [ ] 速率限制 (Rate Limiting)
+- [ ] API 版本协商 (Accept-Version header)
+- [ ] OpenAPI/Swagger 文档自动生成
 
 ---
 

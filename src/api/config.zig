@@ -20,6 +20,22 @@ pub const TradingPair = zigQuant.TradingPair;
 pub const Decimal = zigQuant.Decimal;
 pub const OrderRequest = zigQuant.OrderRequest;
 
+// Risk and Alert types
+pub const RiskMetricsMonitor = zigQuant.RiskMetricsMonitor;
+pub const RiskMetricsConfig = zigQuant.RiskMetricsConfig;
+pub const AlertManager = zigQuant.AlertManager;
+pub const AlertConfig = zigQuant.AlertConfig;
+pub const Alert = zigQuant.Alert;
+
+// Paper Trading
+pub const PaperTradingEngine = zigQuant.PaperTradingEngine;
+pub const PaperTradingConfig = zigQuant.PaperTradingConfig;
+
+// Backtest
+pub const ResultLoader = zigQuant.ResultLoader;
+pub const Candle = zigQuant.Candle;
+pub const CandleCache = zigQuant.CandleCache;
+
 /// API Server Configuration
 pub const ApiConfig = struct {
     /// Host to bind to
@@ -129,18 +145,74 @@ pub const ApiDependencies = struct {
     /// Backtest results directory
     backtest_results_dir: []const u8 = "backtest_results",
 
+    /// Risk metrics monitor (optional)
+    risk_monitor: ?*RiskMetricsMonitor = null,
+
+    /// Alert manager (optional)
+    alert_manager: ?*AlertManager = null,
+
+    /// Paper trading sessions (by session ID)
+    paper_sessions: std.AutoHashMap(i64, *PaperTradingEngine),
+
+    /// Backtest result loader (optional)
+    backtest_loader: ?*ResultLoader = null,
+
+    /// Candle cache for market data (optional)
+    candle_cache: ?*CandleCache = null,
+
     /// Initialize dependencies
     pub fn init(allocator: std.mem.Allocator) ApiDependencies {
         return .{
             .exchanges = std.StringHashMap(ExchangeEntry).init(allocator),
             .allocator = allocator,
             .backtest_results_dir = "backtest_results",
+            .risk_monitor = null,
+            .alert_manager = null,
+            .paper_sessions = std.AutoHashMap(i64, *PaperTradingEngine).init(allocator),
+            .backtest_loader = null,
+            .candle_cache = null,
         };
     }
 
     /// Deinitialize dependencies
     pub fn deinit(self: *ApiDependencies) void {
         self.exchanges.deinit();
+        self.paper_sessions.deinit();
+    }
+
+    /// Set risk metrics monitor
+    pub fn setRiskMonitor(self: *ApiDependencies, monitor: *RiskMetricsMonitor) void {
+        self.risk_monitor = monitor;
+    }
+
+    /// Set alert manager
+    pub fn setAlertManager(self: *ApiDependencies, manager: *AlertManager) void {
+        self.alert_manager = manager;
+    }
+
+    /// Set backtest result loader
+    pub fn setBacktestLoader(self: *ApiDependencies, loader: *ResultLoader) void {
+        self.backtest_loader = loader;
+    }
+
+    /// Set candle cache
+    pub fn setCandleCache(self: *ApiDependencies, cache: *CandleCache) void {
+        self.candle_cache = cache;
+    }
+
+    /// Add paper trading session
+    pub fn addPaperSession(self: *ApiDependencies, session_id: i64, engine: *PaperTradingEngine) !void {
+        try self.paper_sessions.put(session_id, engine);
+    }
+
+    /// Get paper trading session
+    pub fn getPaperSession(self: *const ApiDependencies, session_id: i64) ?*PaperTradingEngine {
+        return self.paper_sessions.get(session_id);
+    }
+
+    /// Remove paper trading session
+    pub fn removePaperSession(self: *ApiDependencies, session_id: i64) void {
+        _ = self.paper_sessions.remove(session_id);
     }
 
     /// Add an exchange

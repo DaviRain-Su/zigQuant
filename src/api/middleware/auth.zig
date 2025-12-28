@@ -2,9 +2,11 @@
 //!
 //! JWT-based authentication middleware for the API server.
 //! Validates Bearer tokens and attaches user context to requests.
+//!
+//! Note: Authentication is now handled directly in server.zig handleParsedRequest.
+//! This module provides types and helper functions only.
 
 const std = @import("std");
-const httpz = @import("httpz");
 const jwt = @import("../jwt.zig");
 
 /// Authentication context attached to requests

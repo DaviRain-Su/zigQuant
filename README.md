@@ -7,7 +7,7 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-558+-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](docs/stories/v0.9.0/OVERVIEW.md)
+[![Version](https://img.shields.io/badge/version-1.0.0--dev-blue.svg)](docs/stories/v1.0.0/OVERVIEW.md)
 
 ---
 
@@ -111,12 +111,20 @@
 - [Alert System](./docs/stories/v0.8.0/STORY_044_ALERT.md) - 多级警报系统
 - [Crash Recovery](./docs/stories/v0.8.0/STORY_045_RECOVERY.md) - 崩溃恢复机制
 
-#### ✅ V0.9 AI 策略集成 (NEW!)
+#### ✅ V0.9 AI 策略集成
 - [AI 策略概览](./docs/stories/v0.9.0/OVERVIEW.md) - AI 辅助交易决策 ⭐
 - [AI 模块 API](./docs/features/ai/README.md) - LLMClient/AIAdvisor/HybridAIStrategy
 - [Story 046: AI 策略](./docs/stories/v0.9.0/STORY_046_AI_STRATEGY.md) - 完整实现文档
 - [实现细节](./docs/features/ai/implementation.md) - openai-zig 集成
 - [Release Notes](./docs/releases/RELEASE_v0.9.0.md) - v0.9.0 发布说明
+
+#### 🚧 V1.0 生产就绪 (开发中)
+- [v1.0.0 概览](./docs/stories/v1.0.0/OVERVIEW.md) - 生产就绪目标 ⭐
+- [REST API](./docs/stories/v1.0.0/STORY_047_REST_API.md) - 40 个端点, JWT 认证, 动态数据 ✅
+- [Web Dashboard](./docs/stories/v1.0.0/STORY_048_WEB_DASHBOARD.md) - Vue 3 监控面板 (待开始)
+- [Prometheus 监控](./docs/stories/v1.0.0/STORY_049_PROMETHEUS.md) - 指标导出 ✅
+- [Docker 部署](./docs/stories/v1.0.0/STORY_050_DOCKER.md) - 容器化 (待开始)
+- [Telegram/Email 通知](./docs/stories/v1.0.0/STORY_052_NOTIFICATIONS.md) - 多渠道告警 (待开始)
 
 ### 🎓 教程和示例
 - **[示例总览](./examples/README.md)** - 25个完整示例 (NEW: 11个v0.6-v0.7示例)
@@ -588,7 +596,7 @@ v0.6 混合计算模式        ████████████████�
 v0.7 做市策略            ████████████████████ (100%) ✅ 完成
 v0.8 风险管理            ████████████████████ (100%) ✅ 完成
 v0.9 AI 策略集成         ████████████████████ (100%) ✅ 完成 (NEW!)
-v1.0 生产就绪            ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
+v1.0 生产就绪            ████████░░░░░░░░░░░░ (40%)  ← 开发中 (REST API ✅)
 ```
 
 **整体进度**: 90% (9/10 版本完成) → v1.0.0 生产就绪规划中
@@ -670,13 +678,15 @@ v1.0 生产就绪            ░░░░░░░░░░░░░░░░░
 **完成时间**: 2025-12-28
 **发布说明**: [RELEASE_v0.9.0.md](./docs/releases/RELEASE_v0.9.0.md)
 
-### 📋 V1.0 - 生产就绪 (下一步)
+### 🚧 V1.0 - 生产就绪 (开发中)
 
 **核心目标**: Web 管理界面和完整运维支持
 
-- [ ] REST API 服务
-- [ ] Web Dashboard
-- [ ] Prometheus Metrics
+- [x] **REST API 服务** - 40 端点, JWT 认证, 动态数据 ✅
+- [x] **Prometheus Metrics** - /metrics 端点导出 ✅
+- [ ] Web Dashboard - Vue 3 监控面板
+- [ ] Docker 部署 - 容器化部署
+- [ ] Telegram/Email 通知 - 多渠道告警
 - [ ] 完整运维文档
 
 详见 [Roadmap](./roadmap.md) 和 [架构演进战略](./roadmap.md#架构演进战略)
@@ -844,6 +854,6 @@ zig build test -freference-trace=10
 
 ---
 
-**状态**: ✅ V0.9.0 AI 策略集成已完成 | **版本**: 0.9.0 | **更新时间**: 2025-12-28
+**状态**: 🚧 V1.0.0 生产就绪开发中 (REST API ✅) | **版本**: 1.0.0-dev | **更新时间**: 2025-12-28
 **测试**: 558+ 全部通过 ✅ | **示例**: 26 个完整示例 | **文档**: 10,000+ 行 | **性能**: 全部达标 ✅
-**下一步**: v1.0.0 生产就绪 → **REST API + Web Dashboard**
+**下一步**: Web Dashboard + Docker 部署 + 通知系统
