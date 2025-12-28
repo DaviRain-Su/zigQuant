@@ -4,7 +4,7 @@
 
 本目录包含 ZigQuant 所有核心功能的详细文档。
 
-**当前版本**: v0.8.0
+**当前版本**: v0.9.0
 **更新时间**: 2025-12-28
 
 ---
@@ -20,6 +20,7 @@
 | v0.6.0 | 5 个模块 | ✅ 完成 |
 | v0.7.0 | 7 个模块 | ✅ 完成 |
 | v0.8.0 | 6 个模块 | ✅ 完成 |
+| v0.9.0 | 5 个模块 | 🚧 开发中 |
 | v1.0.0 | Web 管理 | 📋 规划中 |
 
 ---
@@ -591,6 +592,86 @@ HFTBacktest 风格的行情和订单延迟模拟。
 
 ---
 
+## v0.9.0 功能模块 🚧
+
+### 34. AI 模块 (AI-Powered Trading)
+
+基于 `zig-ai-sdk` 的 AI 辅助交易决策系统。
+
+- [功能概览](./ai/README.md)
+- [API 参考](./ai/api.md)
+- [实现细节](./ai/implementation.md)
+- [测试文档](./ai/testing.md)
+- [Bug 追踪](./ai/bugs.md)
+- [变更日志](./ai/changelog.md)
+
+**核心特性**:
+- ILLMClient 接口 (VTable 模式)
+- 多提供商支持 (OpenAI, Anthropic 30+)
+- AIAdvisor 结构化交易建议
+- HybridAIStrategy 混合策略
+- PromptBuilder 市场分析 Prompt 构建
+
+**Story**: [Story 046](../../stories/v0.9.0/STORY_046_AI_STRATEGY.md)
+
+---
+
+### 35. LLMClient (LLM 客户端)
+
+统一的大语言模型客户端接口。
+
+**核心特性**:
+- OpenAI 客户端 (GPT-4o, o1, o3)
+- Anthropic 客户端 (Claude Sonnet 4.5, Opus 4.5, Haiku)
+- 结构化输出 (JSON Schema)
+- 请求超时和重试
+
+**Story**: [Story 046](../../stories/v0.9.0/STORY_046_AI_STRATEGY.md)
+
+---
+
+### 36. AIAdvisor (AI 交易建议)
+
+封装 LLM 调用，提供结构化交易建议。
+
+**核心特性**:
+- AIAdvice 结构化建议
+- 置信度评分 [0, 1]
+- 请求统计和延迟追踪
+- 缓存和重试机制
+
+**Story**: [Story 046](../../stories/v0.9.0/STORY_046_AI_STRATEGY.md)
+
+---
+
+### 37. HybridAIStrategy (混合策略)
+
+结合技术指标和 AI 建议的加权决策策略。
+
+**核心特性**:
+- 可配置权重 (默认: 技术 60%, AI 40%)
+- 综合得分计算
+- AI 失败时自动回退
+- 完整 IStrategy 实现
+
+**Story**: [Story 046](../../stories/v0.9.0/STORY_046_AI_STRATEGY.md)
+
+---
+
+### 38. PromptBuilder (Prompt 构建器)
+
+专业的市场分析 Prompt 工程。
+
+**核心特性**:
+- 市场数据格式化
+- 技术指标解读
+- 仓位上下文
+- JSON Schema 约束
+
+**Story**: [Story 046](../../stories/v0.9.0/STORY_046_AI_STRATEGY.md)
+
+---
+
 ## 文档结构
 
 ```
@@ -664,6 +745,15 @@ docs/features/
 │   ├── bugs.md
 │   └── changelog.md
 │
+├── ─────── v0.9.0 模块 ───────
+├── ai/                                 # AI 模块
+│   ├── README.md
+│   ├── api.md
+│   ├── implementation.md
+│   ├── testing.md
+│   ├── bugs.md
+│   └── changelog.md
+│
 ├── ─────── 基础设施模块 ───────
 ├── decimal/                            # 高精度小数
 ├── time/                               # 时间处理
@@ -723,6 +813,11 @@ docs/features/
 - Risk Metrics - 风险指标
 - Alert System - 告警系统
 - Crash Recovery - 崩溃恢复
+
+**AI 策略集成** (v0.9.0):
+- [AI 模块](./ai/README.md) - ILLMClient, LLMClient, AIAdvisor
+- [HybridAIStrategy](./ai/README.md#hybridaistrategy) - 混合决策策略
+- [PromptBuilder](./ai/README.md#promptbuilder) - Prompt 构建器
 
 **市场数据**:
 - [订单簿维护](./orderbook/README.md)
@@ -793,8 +888,9 @@ docs/features/
 - **Stories v0.6**: [v0.6 技术设计](../../stories/v0.6.0/) - 混合计算模式设计
 - **Stories v0.7**: [v0.7 技术设计](../../stories/v0.7.0/) - 做市策略设计
 - **Stories v0.8**: [v0.8 技术设计](../../stories/v0.8.0/) - 风险管理设计
+- **Stories v0.9**: [v0.9 技术设计](../../stories/v0.9.0/) - AI 策略集成设计
 - **使用指南**: [回测指南](../guides/BACKTEST_GUIDE.md) | [优化指南](../guides/OPTIMIZATION_GUIDE.md)
-- **示例代码**: [Examples](../../examples/README.md) - 31 个完整示例
+- **示例代码**: [Examples](../../examples/README.md) - 32 个完整示例
 
 ---
 
@@ -802,6 +898,7 @@ docs/features/
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v0.9.0 | 2025-12-28 | 添加 AI 策略集成：ILLMClient、LLMClient、AIAdvisor、HybridAIStrategy、PromptBuilder |
 | v0.8.0 | 2025-12-28 | 添加风险管理：RiskEngine、StopLoss、MoneyManagement、RiskMetrics、AlertSystem、CrashRecovery |
 | v0.7.0 | 2025-12-27 | 添加做市策略：Clock-Driven、PureMarketMaking、Inventory、Arbitrage、QueuePosition、LatencySimulation |
 | v0.6.0 | 2025-12-27 | 添加混合计算模式：VectorizedBacktest、HyperliquidAdapter、PaperTrading、HotReload |
