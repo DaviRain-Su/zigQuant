@@ -1,4 +1,19 @@
-# API 端点详情
+# REST API 端点详情
+
+> 完整的 REST API 端点说明
+
+**最后更新**: 2025-12-28
+
+---
+
+## 概览
+
+- **Base URL**: `http://localhost:8080`
+- **API Version**: `v1`
+- **Content-Type**: `application/json`
+- **认证方式**: JWT Bearer Token
+
+---
 
 ## 健康检查
 
@@ -281,8 +296,7 @@ Authorization: Bearer <current-token>
   },
   "equity_curve": [
     {"time": "2024-01-01", "equity": 10000},
-    {"time": "2024-01-02", "equity": 10050},
-    ...
+    {"time": "2024-01-02", "equity": 10050}
   ],
   "trades": [
     {
@@ -510,6 +524,47 @@ zigquant_win_rate{strategy="sma_cross"} 0.62
 # TYPE zigquant_uptime_seconds counter
 zigquant_uptime_seconds 86400
 ```
+
+---
+
+## 错误响应
+
+### 错误格式
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid request body",
+    "details": {
+      "field": "strategy_id",
+      "reason": "required"
+    }
+  }
+}
+```
+
+### 错误码
+
+| HTTP 状态码 | 错误码 | 描述 |
+|-------------|--------|------|
+| 400 | `VALIDATION_ERROR` | 请求参数错误 |
+| 401 | `UNAUTHORIZED` | 未认证或 Token 过期 |
+| 403 | `FORBIDDEN` | 权限不足 |
+| 404 | `NOT_FOUND` | 资源不存在 |
+| 429 | `RATE_LIMITED` | 请求过于频繁 |
+| 500 | `INTERNAL_ERROR` | 服务器内部错误 |
+
+---
+
+## 速率限制
+
+| 端点类型 | 限制 |
+|----------|------|
+| 认证端点 | 10 次/分钟 |
+| 其他端点 | 100 次/分钟 |
+
+超出限制返回 429 状态码。
 
 ---
 
