@@ -1,12 +1,12 @@
 # 顶级量化交易平台深度对比分析
 
-**分析时间**: 2024-12-26
-**对比项目**: NautilusTrader vs Hummingbot vs Freqtrade vs HFTBacktest
+**分析时间**: 2024-12-28 (更新)
+**对比项目**: NautilusTrader vs Hummingbot vs Freqtrade vs HFTBacktest vs Artemis
 **目标**: 为 zigQuant 设计提供参考
 
 ---
 
-## 🎯 四大平台核心定位
+## 🎯 五大平台核心定位
 
 | 平台 | 核心定位 | 主要用户 | 技术栈 |
 |------|---------|---------|--------|
@@ -14,6 +14,7 @@
 | **Hummingbot** | 做市机器人框架 | 做市商、流动性提供者 | Python + Cython |
 | **Freqtrade** | 加密货币策略回测和交易 | 零售交易员、爱好者 | Python + pandas |
 | **HFTBacktest** | 高频交易回测框架 | HFT/做市策略开发者 | Rust + Python (Numba) |
+| **Artemis** | MEV 机器人框架 | MEV 搜索者、套利者 | Rust + Solidity |
 
 ---
 
@@ -311,25 +312,139 @@ HFTBacktest 明确文档化了精度-速度权衡:
 
 ---
 
+### 5. Artemis - MEV 流水线专家 ✨ NEW
+
+#### 架构亮点
+
+**三阶段流水线架构**（Pipeline Pattern）:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Artemis Engine                           │
+├─────────────────────────────────────────────────────────────┤
+│  Collectors (数据收集)                                       │
+│    ├─ BlockCollector (新区块)                                │
+│    ├─ MempoolCollector (待处理交易)                          │
+│    └─ OpenseaCollector (NFT 订单)                            │
+│              ↓ Broadcast Channel                             │
+├─────────────────────────────────────────────────────────────┤
+│  Strategies (策略逻辑)                                       │
+│    ├─ sync_state() → 初始化链上状态                          │
+│    └─ process_event() → 分析事件，生成动作                   │
+│              ↓ Action Channel                                │
+├─────────────────────────────────────────────────────────────┤
+│  Executors (执行层)                                          │
+│    ├─ FlashbotsExecutor (MEV 捆绑提交)                       │
+│    └─ MempoolExecutor (普通交易提交)                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**核心 Trait 设计**:
+```rust
+// Collector: 事件源抽象
+trait Collector<E> {
+    async fn get_event_stream(&self) -> CollectorStream<E>;
+}
+
+// Strategy: 策略逻辑抽象
+trait Strategy<E, A> {
+    async fn sync_state(&mut self) -> Result<()>;
+    async fn process_event(&mut self, event: E) -> Option<A>;
+}
+
+// Executor: 执行器抽象
+trait Executor<A> {
+    async fn execute(&self, action: A) -> Result<()>;
+}
+```
+
+**Engine 编排**:
+```rust
+// 独立任务并行运行
+let mut set = JoinSet::new();
+
+// 1. Collectors 并行收集
+for collector in collectors {
+    set.spawn(async move {
+        while let Some(event) = collector.get_event_stream().next().await {
+            event_sender.send(event)?;
+        }
+    });
+}
+
+// 2. Strategies 处理事件
+for strategy in strategies {
+    strategy.sync_state().await?;  // 状态同步
+    set.spawn(async move {
+        while let Ok(event) = event_receiver.recv().await {
+            if let Some(action) = strategy.process_event(event).await {
+                action_sender.send(action)?;
+            }
+        }
+    });
+}
+
+// 3. Executors 执行动作
+for executor in executors {
+    set.spawn(async move {
+        while let Ok(action) = action_receiver.recv().await {
+            executor.execute(action).await?;
+        }
+    });
+}
+```
+
+**独特优势**:
+1. ✅ **清晰的职责分离** - Collector/Strategy/Executor 完全解耦
+2. ✅ **Broadcast Channel** - 多策略同时订阅相同事件流
+3. ✅ **泛型类型安全** - `Strategy<E, A>` 编译时保证事件/动作类型
+4. ✅ **状态同步机制** - `sync_state()` 确保策略初始化完成
+5. ✅ **适配器模式** - CollectorMap/ExecutorMap 灵活转换类型
+6. ✅ **优雅降级** - 错误不中断整体流水线
+
+**技术决策**:
+- **流水线** vs 事件驱动 → 职责更清晰，适合多阶段处理
+- **Broadcast Channel** vs 单播 → 支持多策略并行
+- **泛型 Trait** vs 具体类型 → 高度可扩展
+- **JoinSet 并发** vs 单线程 → 充分利用多核
+
+#### 性能特点
+
+| 指标 | 性能 |
+|------|------|
+| 事件处理 | 亚毫秒级 |
+| 并发能力 | 多任务并行 |
+| 内存占用 | 低（事件流式处理） |
+| 扩展性 | 高（泛型设计） |
+
+#### 适用场景
+
+- ✅ MEV 套利（跨市场、跨协议）
+- ✅ NFT 套利（Opensea/Sudoswap）
+- ✅ 链上事件驱动交易
+- ✅ 多数据源聚合策略
+- ⚠️ 区块链特定（需适配传统市场）
+
+---
+
 ## 🔍 核心差异对比表
 
-| 维度 | NautilusTrader | Hummingbot | Freqtrade | HFTBacktest |
-|------|---------------|-----------|-----------|------------|
-| **主要语言** | Rust (59%) + Python | Python + Cython | Python | Rust (76%) + Python |
-| **架构模式** | 事件驱动 | Tick 驱动 (Clock) | 向量化 (Pandas) | Tick-by-Tick 回放 |
-| **性能层级** | 🔥🔥🔥🔥🔥 极致 | 🔥🔥🔥🔥 高 | 🔥🔥🔥 中 | 🔥🔥🔥🔥 高 |
-| **易用性** | ⭐⭐⭐ 中等 | ⭐⭐⭐⭐ 较好 | ⭐⭐⭐⭐⭐ 优秀 | ⭐⭐⭐ 中等 |
-| **回测精度** | 🎯🎯🎯🎯 高 | 🎯🎯🎯 中 | 🎯🎯 低 | 🎯🎯🎯🎯🎯 极高 |
-| **回测速度** | 🚀🚀🚀🚀🚀 | 🚀🚀🚀 | 🚀🚀🚀🚀 | 🚀🚀🚀 中 |
-| **代码 Parity** | ✅ 完美 | ⚠️ 部分 | ⚠️ 部分 | ✅ 完美 |
-| **多资产类** | ✅ 全面 | ⚠️ 有限 | ❌ 仅加密货币 | ⚠️ 有限 |
-| **做市优化** | ⚠️ 支持 | ✅ 专精 | ❌ 不适合 | ✅✅ 极致 |
-| **Queue 建模** | ❌ 无 | ❌ 无 | ❌ 无 | ✅✅ 4+ 模型 |
-| **延迟建模** | ⚠️ 基础 | ⚠️ 基础 | ❌ 无 | ✅✅ 双向纳秒级 |
-| **策略复杂度** | 🔥 高级 | 🔥 中高级 | 🔥 中级 | 🔥🔥 极高级 (HFT) |
-| **学习曲线** | 陡峭 | 中等 | 平缓 | 陡峭 |
-| **社区规模** | 小 | 中 | 大 | 中 |
-| **适用场景** | 全能型 | 做市/套利 | 趋势策略 | HFT/做市 |
+| 维度 | NautilusTrader | Hummingbot | Freqtrade | HFTBacktest | Artemis |
+|------|---------------|-----------|-----------|------------|---------|
+| **主要语言** | Rust (59%) + Python | Python + Cython | Python | Rust (76%) + Python | Rust (74%) + Solidity |
+| **架构模式** | 事件驱动 | Tick 驱动 (Clock) | 向量化 (Pandas) | Tick-by-Tick 回放 | 流水线 (Pipeline) |
+| **性能层级** | 🔥🔥🔥🔥🔥 极致 | 🔥🔥🔥🔥 高 | 🔥🔥🔥 中 | 🔥🔥🔥🔥 高 | 🔥🔥🔥🔥🔥 极致 |
+| **易用性** | ⭐⭐⭐ 中等 | ⭐⭐⭐⭐ 较好 | ⭐⭐⭐⭐⭐ 优秀 | ⭐⭐⭐ 中等 | ⭐⭐⭐ 中等 |
+| **回测精度** | 🎯🎯🎯🎯 高 | 🎯🎯🎯 中 | 🎯🎯 低 | 🎯🎯🎯🎯🎯 极高 | N/A (实时为主) |
+| **回测速度** | 🚀🚀🚀🚀🚀 | 🚀🚀🚀 | 🚀🚀🚀🚀 | 🚀🚀🚀 中 | N/A |
+| **代码 Parity** | ✅ 完美 | ⚠️ 部分 | ⚠️ 部分 | ✅ 完美 | ✅ 完美 |
+| **多资产类** | ✅ 全面 | ⚠️ 有限 | ❌ 仅加密货币 | ⚠️ 有限 | ⚠️ 区块链资产 |
+| **做市优化** | ⚠️ 支持 | ✅ 专精 | ❌ 不适合 | ✅✅ 极致 | ⚠️ MEV 专用 |
+| **Queue 建模** | ❌ 无 | ❌ 无 | ❌ 无 | ✅✅ 4+ 模型 | ❌ 无 |
+| **延迟建模** | ⚠️ 基础 | ⚠️ 基础 | ❌ 无 | ✅✅ 双向纳秒级 | ⚠️ 区块时间 |
+| **策略复杂度** | 🔥 高级 | 🔥 中高级 | 🔥 中级 | 🔥🔥 极高级 (HFT) | 🔥🔥 高级 (MEV) |
+| **学习曲线** | 陡峭 | 中等 | 平缓 | 陡峭 | 陡峭 |
+| **社区规模** | 小 | 中 | 大 | 中 | 小 |
+| **适用场景** | 全能型 | 做市/套利 | 趋势策略 | HFT/做市 | MEV/链上套利 |
 
 ---
 
@@ -391,6 +506,22 @@ HFTBacktest 明确文档化了精度-速度权衡:
 - ✅ Level-3 数据回测
 - ✅ 延迟敏感策略
 - ❌ 不适合趋势策略（过度工程）
+
+### Artemis: "Pipeline & Modularity" ✨ NEW
+
+**设计原则**:
+1. **Pipeline Architecture** - Collector → Strategy → Executor 清晰分离
+2. **Broadcast Events** - 多策略同时订阅相同事件流
+3. **Type-Safe Generics** - `Strategy<E, A>` 编译时保证类型
+4. **Graceful Degradation** - 错误不中断整体流水线
+5. **State Synchronization** - `sync_state()` 确保初始化完成
+
+**适用场景**:
+- ✅✅ MEV 套利 - 专精
+- ✅✅ 跨协议套利 (NFT, DeFi)
+- ✅ 链上事件驱动交易
+- ✅ 多数据源聚合策略
+- ⚠️ 传统市场需适配
 
 ---
 
@@ -839,9 +970,317 @@ pub const BacktestConfig = struct {
 
 ---
 
+### 从 Artemis 学习 ✨ NEW
+
+#### 1. Collector-Strategy-Executor 流水线
+
+**核心理念**: 数据收集、策略逻辑、执行动作完全分离
+
+```zig
+// zigQuant 可借鉴的流水线设计
+pub const ICollector = struct {
+    ptr: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// 获取事件流
+        getEventStream: *const fn (ptr: *anyopaque) EventStream,
+        /// 关闭收集器
+        close: *const fn (ptr: *anyopaque) void,
+    };
+};
+
+pub const IExecutor = struct {
+    ptr: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// 执行动作
+        execute: *const fn (ptr: *anyopaque, action: Action) anyerror!void,
+    };
+};
+
+// Engine 编排多个组件
+pub const Engine = struct {
+    collectors: ArrayList(ICollector),
+    strategies: ArrayList(IStrategy),
+    executors: ArrayList(IExecutor),
+
+    event_channel: Channel(Event),
+    action_channel: Channel(Action),
+
+    pub fn run(self: *Engine) !void {
+        // 1. 初始化策略状态
+        for (self.strategies.items) |s| try s.syncState();
+
+        // 2. 启动 collectors
+        for (self.collectors.items) |c| {
+            try self.spawnCollector(c);
+        }
+
+        // 3. 处理事件循环
+        while (self.event_channel.receive()) |event| {
+            for (self.strategies.items) |s| {
+                if (s.processEvent(event)) |action| {
+                    self.action_channel.send(action);
+                }
+            }
+        }
+
+        // 4. 执行动作
+        while (self.action_channel.receive()) |action| {
+            for (self.executors.items) |e| {
+                e.execute(action) catch |err| {
+                    // 优雅降级：错误不中断流水线
+                    log.warn("Executor error: {}", .{err});
+                };
+            }
+        }
+    }
+};
+```
+
+**应用场景**:
+- 多数据源聚合（多交易所 K 线、订单簿）
+- 多策略并行运行
+- 多执行器（模拟 + 实盘）
+
+#### 2. Broadcast Channel 多订阅模式
+
+**问题**: 单播 Channel 只能有一个消费者
+
+```zig
+// 广播 Channel - 多策略同时接收相同事件
+pub fn BroadcastChannel(comptime T: type) type {
+    return struct {
+        subscribers: ArrayList(*Subscriber),
+
+        pub const Subscriber = struct {
+            buffer: RingBuffer(T),
+
+            pub fn receive(self: *Subscriber) ?T {
+                return self.buffer.pop();
+            }
+        };
+
+        pub fn send(self: *@This(), item: T) void {
+            for (self.subscribers.items) |sub| {
+                sub.buffer.push(item);
+            }
+        }
+
+        pub fn subscribe(self: *@This()) *Subscriber {
+            const sub = self.allocator.create(Subscriber) catch unreachable;
+            sub.* = .{ .buffer = RingBuffer(T).init(1024) };
+            self.subscribers.append(sub) catch unreachable;
+            return sub;
+        }
+    };
+}
+
+// 使用示例
+var event_bus = BroadcastChannel(MarketEvent).init(allocator);
+
+// 多策略订阅同一事件流
+var strategy1_sub = event_bus.subscribe();
+var strategy2_sub = event_bus.subscribe();
+var strategy3_sub = event_bus.subscribe();
+
+// 发送事件 - 所有订阅者都收到
+event_bus.send(.{ .type = .trade, .price = 50000.0 });
+```
+
+**zigQuant 应用**:
+- 多策略同时分析相同市场数据
+- 风控引擎 + 策略引擎同时处理订单事件
+- 日志/监控订阅交易事件
+
+#### 3. CollectorMap 类型适配器
+
+**问题**: 不同数据源返回不同类型，策略需要统一类型
+
+```zig
+// 事件类型转换适配器
+pub fn CollectorMap(
+    comptime Source: type,
+    comptime Target: type,
+) type {
+    return struct {
+        inner: *ICollector(Source),
+        map_fn: *const fn (Source) ?Target,
+
+        pub fn getEventStream(self: *@This()) EventStream(Target) {
+            return .{
+                .next = struct {
+                    fn next(ctx: *anyopaque) ?Target {
+                        const s: *@This() = @ptrCast(@alignCast(ctx));
+                        while (s.inner.next()) |source_event| {
+                            if (s.map_fn(source_event)) |target_event| {
+                                return target_event;
+                            }
+                        }
+                        return null;
+                    }
+                }.next,
+                .ctx = self,
+            };
+        }
+    };
+}
+
+// 使用示例
+const HyperliquidTradeCollector = struct {
+    // 返回 Hyperliquid 特定格式
+    pub fn next(self: *@This()) ?HyperliquidTrade { ... }
+};
+
+const BinanceTradeCollector = struct {
+    // 返回 Binance 特定格式
+    pub fn next(self: *@This()) ?BinanceTrade { ... }
+};
+
+// 统一转换为通用 Trade 类型
+const unified_hl = CollectorMap(HyperliquidTrade, Trade).init(
+    &hl_collector,
+    hyperliquidToTrade,
+);
+
+const unified_bn = CollectorMap(BinanceTrade, Trade).init(
+    &bn_collector,
+    binanceToTrade,
+);
+
+// 策略只处理统一的 Trade 类型
+strategy.process(unified_hl.next());
+strategy.process(unified_bn.next());
+```
+
+**zigQuant 应用**:
+- 多交易所数据统一格式
+- 不同 API 版本兼容
+- 测试 Mock 数据注入
+
+#### 4. 状态同步机制 (sync_state)
+
+**问题**: 策略启动时需要初始化历史状态
+
+```zig
+pub const IStrategy = struct {
+    // ... existing vtable ...
+
+    pub const VTable = struct {
+        // 新增：状态同步方法
+        syncState: *const fn (ptr: *anyopaque) anyerror!void,
+
+        // 现有方法
+        processEvent: *const fn (ptr: *anyopaque, event: Event) ?Action,
+        // ...
+    };
+};
+
+// 策略实现
+pub const ArbitrageStrategy = struct {
+    order_book_a: OrderBook,
+    order_book_b: OrderBook,
+
+    /// 同步链上/交易所状态
+    pub fn syncState(self: *@This()) !void {
+        // 1. 获取当前订单簿快照
+        self.order_book_a = try self.exchange_a.getOrderBook();
+        self.order_book_b = try self.exchange_b.getOrderBook();
+
+        // 2. 获取当前持仓
+        self.position = try self.exchange_a.getPosition();
+
+        // 3. 获取历史成交用于统计
+        self.recent_trades = try self.exchange_a.getRecentTrades(100);
+
+        log.info("State synced: {} bids, {} asks", .{
+            self.order_book_a.bids.len,
+            self.order_book_a.asks.len,
+        });
+    }
+
+    pub fn processEvent(self: *@This(), event: Event) ?Action {
+        // 状态已同步，可以安全处理事件
+        // ...
+    }
+};
+
+// Engine 在启动前调用
+pub fn run(self: *Engine) !void {
+    // ✅ 先同步状态
+    for (self.strategies.items) |s| {
+        try s.syncState();
+    }
+
+    // 然后开始事件循环
+    // ...
+}
+```
+
+**zigQuant 应用**:
+- 策略启动时加载历史 K 线填充指标
+- 恢复上次运行的仓位状态
+- 预热缓存和统计数据
+
+#### 5. 优雅降级模式
+
+**问题**: 单个组件失败不应导致整个系统崩溃
+
+```zig
+pub const Engine = struct {
+    pub fn processAction(self: *Engine, action: Action) void {
+        for (self.executors.items) |executor| {
+            executor.execute(action) catch |err| {
+                // ✅ 优雅降级：记录错误但继续运行
+                self.logger.warn("Executor {} failed: {}", .{
+                    executor.name,
+                    err,
+                });
+
+                // 可选：触发告警
+                self.alertManager.notify(.{
+                    .level = .warning,
+                    .message = "Executor failure",
+                    .error = err,
+                });
+
+                // 继续尝试下一个 executor
+                continue;
+            };
+        }
+    }
+
+    pub fn processEvent(self: *Engine, event: Event) void {
+        for (self.strategies.items) |strategy| {
+            const action = strategy.processEvent(event) catch |err| {
+                // ✅ 策略失败不影响其他策略
+                self.logger.warn("Strategy {} failed: {}", .{
+                    strategy.name,
+                    err,
+                });
+                continue;
+            };
+
+            if (action) |a| {
+                self.action_channel.send(a);
+            }
+        }
+    }
+};
+```
+
+**zigQuant 应用**:
+- AI Advisor 失败时回退到纯技术指标（已实现）
+- 交易所 API 超时时使用缓存数据
+- 风控检查失败时拒绝订单但继续运行
+
+---
+
 ## 🏗️ zigQuant 架构设计建议
 
-基于**四大平台**的优势，为 zigQuant 设计混合架构：
+基于**五大平台**的优势，为 zigQuant 设计混合架构：
 
 ### 阶段 1: v0.4.0 - 事件驱动核心（借鉴 NautilusTrader）
 
@@ -1090,17 +1529,25 @@ pub const MarketMakingEngine = struct {
 2. ✅ **向量化回测** - 快速迭代
 3. ✅ **社区友好** - 开源策略共享
 
-### 从 HFTBacktest 学到 ✨ NEW
+### 从 HFTBacktest 学到
 1. ✅ **Queue Position Modeling** - 微观市场结构建模
 2. ✅ **Dual Latency** - Feed + Order 双向延迟模拟
 3. ✅ **Accuracy Tradeoffs** - 显式文档化精度-速度权衡
 4. ✅ **Partial Fill** - 真实的部分成交模拟
 
+### 从 Artemis 学到 ✨ NEW
+1. ✅ **Pipeline Architecture** - Collector → Strategy → Executor 清晰分离
+2. ✅ **Broadcast Channel** - 多策略同时订阅相同事件流
+3. ✅ **CollectorMap 适配器** - 类型转换，多数据源统一
+4. ✅ **State Synchronization** - `sync_state()` 确保初始化完成
+5. ✅ **Graceful Degradation** - 错误不中断整体流水线
+
 ### zigQuant 独特价值
 1. 🔥 **单一语言栈** - 100% Zig（vs Rust + Python）
 2. 🔥 **编译速度** - 比 Rust 快得多
-3. 🔥 **混合模式** - 向量化 + 事件驱动 + 队列建模
+3. 🔥 **混合模式** - 向量化 + 事件驱动 + 流水线 + 队列建模
 4. 🔥 **性能 + 易用性 + 精度** - 三者兼顾
+5. 🔥 **多架构融合** - 借鉴五大平台最佳实践
 
 ---
 
@@ -1133,3 +1580,10 @@ pub const MarketMakingEngine = struct {
 - [Queue Position Models Tutorial](https://hftbacktest.readthedocs.io/en/latest/tutorials/Probability%20Queue%20Models.html)
 - [Order Fill Documentation](https://hftbacktest.readthedocs.io/en/latest/order_fill.html)
 - [Accelerated Backtesting](https://hftbacktest.readthedocs.io/en/latest/tutorials/Accelerated%20Backtesting.html)
+
+### Artemis ✨ NEW
+- [GitHub Repository](https://github.com/paradigmxyz/artemis)
+- [README - Architecture Overview](https://github.com/paradigmxyz/artemis/blob/main/README.md)
+- [Core Types](https://github.com/paradigmxyz/artemis/blob/main/crates/artemis-core/src/types.rs)
+- [Engine Implementation](https://github.com/paradigmxyz/artemis/blob/main/crates/artemis-core/src/engine.rs)
+- [OpenSea-Sudo Arbitrage Strategy](https://github.com/paradigmxyz/artemis/tree/main/crates/strategies/opensea-sudo-arb)
