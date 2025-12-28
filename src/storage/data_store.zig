@@ -378,12 +378,38 @@ pub const DataStore = struct {
             candle_count += @intCast(entry.value_ptr.items.len);
         }
 
+        // 计算文件大小
+        const file_size = self.calculateTotalFileSize();
+
         return .{
             .candle_count = candle_count,
             .result_count = @intCast(self.memory_results.items.len),
             .trade_count = @intCast(self.memory_trades.items.len),
-            .file_size = 0, // TODO: 计算实际文件大小
+            .file_size = file_size,
         };
+    }
+
+    /// 计算存储目录下所有文件的总大小
+    fn calculateTotalFileSize(self: *Self) u64 {
+        if (self.is_memory) return 0;
+
+        var total_size: u64 = 0;
+
+        // 打开存储目录
+        var dir = std.fs.cwd().openDir(self.db_path, .{ .iterate = true }) catch return 0;
+        defer dir.close();
+
+        // 遍历目录中的所有文件
+        var dir_iter = dir.iterate();
+        while (dir_iter.next() catch null) |entry| {
+            if (entry.kind == .file) {
+                // 获取文件大小
+                const stat = dir.statFile(entry.name) catch continue;
+                total_size += stat.size;
+            }
+        }
+
+        return total_size;
     }
 
     // ========================================================================

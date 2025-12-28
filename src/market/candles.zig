@@ -120,7 +120,7 @@ pub const IndicatorSeries = struct {
 
         // Initialize with NaN to indicate unset values
         for (values) |*v| {
-            v.* = Decimal.ZERO; // TODO: Use NaN when Decimal supports it
+            v.* = Decimal.NaN;
         }
 
         return .{
@@ -144,13 +144,40 @@ pub const IndicatorSeries = struct {
     }
 
     /// Get indicator value at index
+    /// Returns null if index out of bounds or value is NaN (unset)
     pub fn get(self: *const IndicatorSeries, index: usize) ?IndicatorValue {
+        if (index >= self.values.len) {
+            return null;
+        }
+        const value = self.values[index];
+        // Return null if value is NaN (unset)
+        if (isNaN(value)) {
+            return null;
+        }
+        return value;
+    }
+
+    /// Get raw value at index (including NaN)
+    pub fn getRaw(self: *const IndicatorSeries, index: usize) ?IndicatorValue {
         if (index >= self.values.len) {
             return null;
         }
         return self.values[index];
     }
+
+    /// Check if indicator value at index is set (not NaN)
+    pub fn isSet(self: *const IndicatorSeries, index: usize) bool {
+        if (index >= self.values.len) {
+            return false;
+        }
+        return !isNaN(self.values[index]);
+    }
 };
+
+/// Check if a Decimal value is NaN
+pub fn isNaN(value: Decimal) bool {
+    return value.value == Decimal.NaN.value;
+}
 
 // ============================================================================
 // Candles Container

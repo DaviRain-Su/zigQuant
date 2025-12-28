@@ -232,9 +232,9 @@ pub const MmapDataLoader = struct {
 
         // 解析时间戳
         const timestamp_str = field_iter.next() orelse return null;
-        const timestamp = std.fmt.parseInt(i64, timestamp_str, 10) catch {
-            // 尝试解析日期格式
-            return null; // TODO: 支持日期格式
+        const timestamp = std.fmt.parseInt(i64, timestamp_str, 10) catch blk: {
+            // 尝试解析日期格式 (ISO 8601: YYYY-MM-DDTHH:MM:SS 或 YYYY-MM-DD HH:MM:SS)
+            break :blk parseTimestampFromDate(timestamp_str) catch return null;
         };
 
         // 解析 OHLCV
@@ -301,6 +301,78 @@ pub const MmapDataLoader = struct {
         return dataset;
     }
 };
+
+/// 解析日期格式为 Unix 时间戳 (毫秒)
+/// 支持格式:
+/// - ISO 8601: YYYY-MM-DDTHH:MM:SS, YYYY-MM-DDTHH:MM:SSZ, YYYY-MM-DDTHH:MM:SS.sssZ
+/// - 空格分隔: YYYY-MM-DD HH:MM:SS
+/// - 仅日期: YYYY-MM-DD
+fn parseTimestampFromDate(date_str: []const u8) !i64 {
+    if (date_str.len < 10) return error.InvalidDateFormat;
+
+    // 解析日期部分 YYYY-MM-DD
+    const year = try std.fmt.parseInt(i32, date_str[0..4], 10);
+    if (date_str[4] != '-') return error.InvalidDateFormat;
+    const month = try std.fmt.parseInt(u32, date_str[5..7], 10);
+    if (date_str[7] != '-') return error.InvalidDateFormat;
+    const day = try std.fmt.parseInt(u32, date_str[8..10], 10);
+
+    // 验证日期范围
+    if (month < 1 or month > 12) return error.InvalidDateFormat;
+    if (day < 1 or day > 31) return error.InvalidDateFormat;
+
+    var hour: u32 = 0;
+    var minute: u32 = 0;
+    var second: u32 = 0;
+
+    // 解析时间部分 (如果有)
+    if (date_str.len >= 19) {
+        // 检查分隔符 (T 或空格)
+        if (date_str[10] != 'T' and date_str[10] != ' ') return error.InvalidDateFormat;
+        hour = try std.fmt.parseInt(u32, date_str[11..13], 10);
+        if (date_str[13] != ':') return error.InvalidDateFormat;
+        minute = try std.fmt.parseInt(u32, date_str[14..16], 10);
+        if (date_str[16] != ':') return error.InvalidDateFormat;
+        second = try std.fmt.parseInt(u32, date_str[17..19], 10);
+
+        // 验证时间范围
+        if (hour > 23 or minute > 59 or second > 59) return error.InvalidDateFormat;
+    }
+
+    // 计算 Unix 时间戳
+    // 简化计算: 使用 epoch days 方法
+    const epoch_year: i32 = 1970;
+    var days: i64 = 0;
+
+    // 计算从 1970 到目标年份的天数
+    var y = epoch_year;
+    while (y < year) : (y += 1) {
+        days += if (isLeapYear(y)) 366 else 365;
+    }
+
+    // 计算当年已过的天数
+    const days_before_month = [_]u32{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+    days += days_before_month[month - 1];
+
+    // 闰年 2 月后加一天
+    if (month > 2 and isLeapYear(year)) {
+        days += 1;
+    }
+
+    days += day - 1;
+
+    // 转换为毫秒时间戳
+    const timestamp_sec: i64 = days * 86400 + @as(i64, hour) * 3600 + @as(i64, minute) * 60 + @as(i64, second);
+    return timestamp_sec * 1000; // 返回毫秒
+}
+
+/// 判断是否闰年
+fn isLeapYear(year: i32) bool {
+    if (@mod(year, 400) == 0) return true;
+    if (@mod(year, 100) == 0) return false;
+    if (@mod(year, 4) == 0) return true;
+    return false;
+}
 
 /// 生成测试数据
 pub fn generateTestData(allocator: Allocator, count: usize, seed: u64) !DataSet {
