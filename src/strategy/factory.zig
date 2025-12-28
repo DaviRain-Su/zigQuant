@@ -35,6 +35,8 @@ const RSIMeanReversionStrategy = @import("./builtin/mean_reversion.zig").RSIMean
 const RSIConfig = @import("./builtin/mean_reversion.zig").Config;
 const BollingerBreakoutStrategy = @import("./builtin/breakout.zig").BollingerBreakoutStrategy;
 const BollingerConfig = @import("./builtin/breakout.zig").Config;
+const GridStrategy = @import("./builtin/grid.zig").GridStrategy;
+const GridConfig = @import("./builtin/grid.zig").Config;
 
 // ============================================================================
 // Errors
@@ -77,6 +79,7 @@ const strategy_list = [_]StrategyInfo{
     .{ .name = "dual_ma", .description = "Dual Moving Average Strategy" },
     .{ .name = "rsi_mean_reversion", .description = "RSI Mean Reversion Strategy" },
     .{ .name = "bollinger_breakout", .description = "Bollinger Bands Breakout Strategy" },
+    .{ .name = "grid", .description = "Grid Trading Strategy" },
 };
 
 // ============================================================================
@@ -114,6 +117,8 @@ pub const StrategyFactory = struct {
             return try self.createRSIMeanReversion(root);
         } else if (std.mem.eql(u8, strategy_name, "bollinger_breakout")) {
             return try self.createBollingerBreakout(root);
+        } else if (std.mem.eql(u8, strategy_name, "grid")) {
+            return try self.createGrid(root);
         } else {
             return StrategyFactoryError.UnknownStrategy;
         }
@@ -258,6 +263,60 @@ pub const StrategyFactory = struct {
     }
 
     // ------------------------------------------------------------------------
+    // Grid Strategy
+    // ------------------------------------------------------------------------
+
+    fn createGrid(self: *StrategyFactory, root: std.json.Value) !StrategyWrapper {
+        const pair = try self.parseTradingPair(root, "pair");
+
+        const params_obj = root.object.get("parameters") orelse
+            return StrategyFactoryError.MissingParameter;
+
+        // Required parameters
+        const upper_price = try self.getDecimal(params_obj, "upper_price", null);
+        const lower_price = try self.getDecimal(params_obj, "lower_price", null);
+
+        if (upper_price == null or lower_price == null) {
+            return StrategyFactoryError.MissingParameter;
+        }
+
+        // Optional parameters with defaults
+        const grid_count = try self.getU32(params_obj, "grid_count", 10);
+        const order_size = try self.getDecimal(params_obj, "order_size", Decimal.fromFloat(0.001));
+        const take_profit_pct = try self.getF64(params_obj, "take_profit_pct", 0.5);
+        const enable_long = try self.getBool(params_obj, "enable_long", true);
+        const enable_short = try self.getBool(params_obj, "enable_short", false);
+        const max_position = try self.getDecimal(params_obj, "max_position", Decimal.fromFloat(1.0));
+
+        const config = GridConfig{
+            .pair = pair,
+            .upper_price = upper_price.?,
+            .lower_price = lower_price.?,
+            .grid_count = grid_count,
+            .order_size = order_size.?,
+            .take_profit_pct = take_profit_pct,
+            .enable_long = enable_long,
+            .enable_short = enable_short,
+            .max_position = max_position.?,
+        };
+
+        try config.validate();
+
+        const strategy = try GridStrategy.create(self.allocator, config);
+
+        return StrategyWrapper{
+            .strategy_ptr = strategy,
+            .interface = strategy.toStrategy(),
+            .destroy_fn = destroyGrid,
+        };
+    }
+
+    fn destroyGrid(ptr: *anyopaque) void {
+        const strategy: *GridStrategy = @ptrCast(@alignCast(ptr));
+        strategy.destroy();
+    }
+
+    // ------------------------------------------------------------------------
     // JSON Parsing Helpers
     // ------------------------------------------------------------------------
 
@@ -318,6 +377,18 @@ pub const StrategyFactory = struct {
 
         return switch (value) {
             .string => |s| s,
+            else => return StrategyFactoryError.InvalidParameter,
+        };
+    }
+
+    fn getDecimal(self: *StrategyFactory, obj: std.json.Value, key: []const u8, default: ?Decimal) !?Decimal {
+        _ = self;
+        const value = obj.object.get(key) orelse return default;
+
+        return switch (value) {
+            .float => |f| Decimal.fromFloat(f),
+            .integer => |i| Decimal.fromInt(i),
+            .string => |s| Decimal.fromString(s) catch return StrategyFactoryError.InvalidParameter,
             else => return StrategyFactoryError.InvalidParameter,
         };
     }

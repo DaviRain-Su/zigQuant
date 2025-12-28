@@ -1,0 +1,15 @@
+{
+  "strategy": "grid",
+  "pair": { "base": "ETH", "quote": "USDC" },
+  "timeframe": "m1",
+  "parameters": {
+    "upper_price": 4000,
+    "lower_price": 3500,
+    "grid_count": 20,
+    "order_size": 0.01,
+    "take_profit_pct": 0.3,
+    "enable_long": true,
+    "enable_short": false,
+    "max_position": 1.0
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "strategy": "grid",
+  "pair": { "base": "BTC", "quote": "USDC" },
+  "timeframe": "m1",
+  "parameters": {
+    "upper_price": 100000,
+    "lower_price": 90000,
+    "grid_count": 10,
+    "order_size": 0.001,
+    "take_profit_pct": 0.5,
+    "enable_long": true,
+    "enable_short": false,
+    "max_position": 0.1
+  }
+}

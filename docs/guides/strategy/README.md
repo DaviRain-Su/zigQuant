@@ -66,9 +66,14 @@
     - 市场环境检测
 
 11. **[示例 5: 复杂入场确认](./examples/05_complex_entry.md)**
-    - 高级策略
-    - 多层过滤器
-    - 风险管理
+     - 高级策略
+     - 多层过滤器
+     - 风险管理
+
+12. **[示例 6: 网格交易](./examples/06_grid_trading.md)** 🆕
+     - 网格策略原理
+     - 配置和参数优化
+     - 风险管理集成
 
 ### ❓ 参考资料
 
@@ -124,12 +129,15 @@ examples/strategies/
     ├── tutorial_configs/            # 配置文件
     │   ├── 01_hello_strategy.json
     │   └── ...
+    ├── grid_btc.json                # 网格策略配置 (v0.10.0)
+    ├── grid_eth.json
     └── builtin/                     # 内置策略参考
         ├── dual_ma.zig
         ├── rsi_mean_reversion.zig
         ├── bollinger_breakout.zig
         ├── triple_ma.zig            # v0.4.0
-        └── macd_divergence.zig      # v0.4.0
+        ├── macd_divergence.zig      # v0.4.0
+        └── grid.zig                 # v0.10.0 网格交易
 ```
 
 ### 测试数据
@@ -283,6 +291,9 @@ graph LR
 - [Indicators 文档](../../features/indicators/README.md)
 - [CLI 使用指南](../../features/cli/usage-guide.md)
 - [Optimizer 文档](../../features/optimizer/README.md)
+- [Grid Trading 文档](../../features/grid-trading/README.md) 🆕
+- [Risk Engine 文档](../../features/risk-engine/README.md)
+- [Paper Trading 文档](../../features/paper-trading/README.md)
 
 ### 外部资源
 
@@ -338,5 +349,5 @@ graph LR
 ---
 
 **创建时间**: 2024-12-26
-**最后更新**: 2024-12-26
+**最后更新**: 2025-12-28
 **维护者**: zigQuant Team

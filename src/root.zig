@@ -65,6 +65,9 @@ pub const strategy_macd_divergence = @import("strategy/builtin/macd_divergence.z
 // v0.9.0 AI Strategy
 pub const strategy_hybrid_ai = @import("strategy/builtin/hybrid_ai.zig");
 
+// Grid Trading Strategy
+pub const strategy_grid = @import("strategy/builtin/grid.zig");
+
 // Strategy factory
 pub const StrategyFactory = @import("strategy/factory.zig").StrategyFactory;
 pub const StrategyWrapper = @import("strategy/factory.zig").StrategyWrapper;
@@ -204,6 +207,11 @@ pub const MACDDivergenceStrategy = strategy_macd_divergence.MACDDivergenceStrate
 // Re-export v0.9.0 AI strategy
 pub const HybridAIStrategy = strategy_hybrid_ai.HybridAIStrategy;
 pub const HybridAIConfig = strategy_hybrid_ai.Config;
+
+// Re-export Grid Trading strategy
+pub const GridStrategy = strategy_grid.GridStrategy;
+pub const GridStrategyConfig = strategy_grid.Config;
+pub const GridLevel = strategy_grid.GridLevel;
 
 // Re-export indicator types
 pub const IIndicator = indicator_interface.IIndicator;
@@ -641,6 +649,9 @@ test {
 
     // v0.9.0 AI strategy
     _ = strategy_hybrid_ai;
+
+    // Grid Trading strategy
+    _ = strategy_grid;
 
     // Indicator modules
     _ = indicator_interface;

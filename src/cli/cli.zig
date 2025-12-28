@@ -181,15 +181,18 @@ pub const CLI = struct {
             const repl = @import("repl.zig");
             try repl.run(self);
         } else if (std.mem.eql(u8, command, "strategy")) {
-            // Strategy commands: backtest, optimize, run-strategy
+            // Strategy commands: backtest, optimize, run-strategy, grid
             if (args.len < 2) {
                 try format.printError(&self.stderr.interface, "Usage: strategy <subcommand>", .{});
-                try (&self.stderr.interface).writeAll("Available subcommands: backtest, optimize, run-strategy\n");
+                try (&self.stderr.interface).writeAll("Available subcommands: backtest, optimize, run-strategy, grid\n");
                 try (&self.stderr.interface).writeAll("Use 'strategy <subcommand> --help' for more information\n");
                 return;
             }
             const subcommand = args[1];
             try strategy_commands.executeStrategyCommand(self.allocator, &self.logger, subcommand, args[1..]);
+        } else if (std.mem.eql(u8, command, "grid")) {
+            // Direct grid command shortcut
+            try strategy_commands.executeStrategyCommand(self.allocator, &self.logger, "grid", args);
         } else {
             try format.printError(&self.stderr.interface, "Unknown command: {s}", .{command});
             try (&self.stderr.interface).writeAll("Use 'help' to see available commands\n");
