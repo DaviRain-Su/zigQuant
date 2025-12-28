@@ -77,6 +77,10 @@
             .url = "https://github.com/DaviRain-Su/openai-zig/archive/refs/heads/master.tar.gz",
             .hash = "openai_zig-0.0.0-xCfcQBnxBQDkrxZmwJkZsZgZP6KOpZU7qqlOqjfpseHO",
         },
+        .httpz = .{
+            .url = "https://github.com/karlseguin/http.zig/archive/refs/heads/master.tar.gz",
+            .hash = "httpz-0.0.0-PNVzrEktBwCzPoiua-S8LAYo2tILqczm3tSpneEzLQ9L",
+        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that
