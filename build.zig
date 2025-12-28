@@ -135,10 +135,29 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     // ========================================================================
-    // API Server Executable (v1.0.0)
+    // API Server Executable (v1.0.0) - Microservices Architecture
     // ========================================================================
-    // The API server uses httpz which has its own websocket dependency.
-    // To avoid conflicts with our main websocket module, we build it separately.
+    //
+    // The API server is built as a SEPARATE executable for these reasons:
+    //
+    // 1. Dependency Isolation: httpz has its own websocket module which
+    //    conflicts with our main websocket dependency. Separating avoids this.
+    //
+    // 2. Microservices Benefits:
+    //    - Independent deployment and scaling
+    //    - Fault isolation (API crash doesn't affect trading engine)
+    //    - Flexible resource allocation
+    //    - Can run on different machines
+    //
+    // 3. Communication Options:
+    //    - Shared database/files for state
+    //    - Unix sockets for IPC
+    //    - HTTP calls between services
+    //
+    // Usage:
+    //   zig build run-api              # Start API server
+    //   zig build run -- backtest ...  # Run main CLI
+    //
     const api_server = b.addExecutable(.{
         .name = "zigquant-api",
         .root_module = b.createModule(.{
@@ -154,7 +173,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(api_server);
 
     const run_api_server = b.addRunArtifact(api_server);
-    const api_server_step = b.step("run-api", "Run the REST API server");
+    const api_server_step = b.step("run-api", "Run the REST API server (port 8080)");
     api_server_step.dependOn(&run_api_server.step);
     run_api_server.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
