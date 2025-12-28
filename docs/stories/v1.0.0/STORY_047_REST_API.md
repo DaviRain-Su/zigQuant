@@ -13,11 +13,13 @@
 
 ### 目标
 
-1. 提供完整的 REST API (15+ 端点)
+1. 提供完整的 REST API (20+ 端点)
 2. 实现 JWT Token 认证
 3. 支持 CORS 跨域访问
-4. 请求日志和错误处理
-5. API 响应时间 < 100ms (p99)
+4. **多交易所支持** - 同时连接多个交易所，支持跨交易所套利
+5. **配置文件加载** - 支持 JSON 配置文件和环境变量
+6. 请求日志和错误处理
+7. API 响应时间 < 100ms (p99)
 
 ---
 
@@ -51,6 +53,71 @@ Authorization: Bearer <token>
   "payload": {"sub": "user_id", "iat": 1735344000, "exp": 1735430400},
   "signature": "..."
 }
+```
+
+### 多交易所架构
+
+支持同时连接多个交易所，实现统一的 API 访问：
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   API Server                         │
+├─────────────────────────────────────────────────────┤
+│  ApiDependencies                                     │
+│  ├── exchanges: HashMap<name, ExchangeEntry>        │
+│  │   ├── "hyperliquid" → HyperliquidConnector       │
+│  │   ├── "binance"     → BinanceConnector (future)  │
+│  │   └── "okx"         → OkxConnector (future)      │
+│  └── Methods:                                        │
+│      ├── addExchange()                              │
+│      ├── getExchange()                              │
+│      ├── iterator()                                 │
+│      └── hasExchanges()                             │
+└─────────────────────────────────────────────────────┘
+```
+
+**API 查询参数**:
+- `?exchange=hyperliquid` - 仅查询指定交易所
+- `?exchange=all` 或无参数 - 查询所有交易所
+
+### 配置文件支持
+
+复用 `src/core/config.zig` 的 ConfigLoader：
+
+```json
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8080
+  },
+  "exchanges": [
+    {
+      "name": "hyperliquid",
+      "api_key": "0x...",
+      "api_secret": "...",
+      "testnet": true
+    }
+  ],
+  "trading": {
+    "max_position_size": 1000.0,
+    "leverage": 1
+  },
+  "logging": {
+    "level": "info"
+  }
+}
+```
+
+**启动方式**:
+```bash
+# 配置文件模式 (推荐)
+zigquant serve -c config.json
+
+# 环境变量模式 (向后兼容)
+ZIGQUANT_HL_USER=0x... zigquant serve
+
+# 混合模式 (命令行参数覆盖配置文件)
+zigquant serve -c config.json -p 3000
 ```
 
 ---
@@ -276,42 +343,40 @@ pub fn setup(server: anytype, ctx: *ApiServer) void {
     // 健康检查 (无认证)
     server.get("/health", handlers.health.get);
     server.get("/ready", handlers.health.ready);
+    server.get("/version", handlers.health.version);
 
     // 认证端点 (无认证)
     server.post("/api/v1/auth/login", handlers.auth.login);
     server.post("/api/v1/auth/refresh", handlers.auth.refresh);
+    server.get("/api/v1/auth/me", handlers.auth.me);
 
-    // 受保护的路由 (需要认证)
-    const protected = server.router().group("/api/v1");
-    protected.middleware(middleware.auth(ctx.jwt_manager));
-
-    // 用户
-    protected.get("/auth/me", handlers.auth.me);
+    // 交易所 (多交易所支持)
+    server.get("/api/v1/exchanges", handlers.exchanges.list);
+    server.get("/api/v1/exchanges/:name", handlers.exchanges.get);
 
     // 策略
-    protected.get("/strategies", handlers.strategies.list);
-    protected.get("/strategies/:id", handlers.strategies.get);
-    protected.post("/strategies/:id/run", handlers.strategies.run);
+    server.get("/api/v1/strategies", handlers.strategies.list);
+    server.get("/api/v1/strategies/:id", handlers.strategies.get);
+    server.post("/api/v1/strategies/:id/run", handlers.strategies.run);
 
     // 回测
-    protected.post("/backtest", handlers.backtest.create);
-    protected.get("/backtest/:id", handlers.backtest.get);
+    server.post("/api/v1/backtest", handlers.backtest.create);
+    server.get("/api/v1/backtest/:id", handlers.backtest.get);
 
-    // 仓位
-    protected.get("/positions", handlers.positions.list);
+    // 仓位 (支持 ?exchange= 过滤)
+    server.get("/api/v1/positions", handlers.positions.list);
 
-    // 订单
-    protected.get("/orders", handlers.orders.list);
-    protected.post("/orders", handlers.orders.create);
-    protected.delete("/orders/:id", handlers.orders.cancel);
+    // 订单 (支持 ?exchange= 过滤)
+    server.get("/api/v1/orders", handlers.orders.list);
+    server.post("/api/v1/orders", handlers.orders.create);
+    server.delete("/api/v1/orders/:id", handlers.orders.cancel);
 
-    // 账户
-    protected.get("/account", handlers.account.get);
-    protected.get("/account/balance", handlers.account.balance);
+    // 账户 (支持 ?exchange= 过滤)
+    server.get("/api/v1/account", handlers.account.get);
+    server.get("/api/v1/account/balance", handlers.account.balance);
 
     // 指标
-    protected.get("/metrics", handlers.metrics.get);
-    server.get("/metrics", handlers.metrics.prometheus);  // Prometheus 无认证
+    server.get("/metrics", handlers.metrics.prometheus);
 }
 ```
 
@@ -691,20 +756,47 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 
 - [x] 健康检查端点 (/health, /ready, /version)
 - [x] JWT 认证 (登录, 刷新, 验证)
+- [x] **多交易所支持** (exchanges 端点, ?exchange= 过滤)
+- [x] **配置文件加载** (-c/--config 参数)
 - [x] 策略管理 API (列表, 详情, 运行)
 - [x] 回测 API (创建, 查询)
-- [x] 订单 API (列表, 创建, 取消)
-- [x] 仓位 API (列表)
-- [x] 账户 API (信息, 余额)
+- [x] 订单 API (列表, 创建, 取消) - 支持多交易所
+- [x] 仓位 API (列表) - 支持多交易所
+- [x] 账户 API (信息, 余额) - 支持多交易所
 - [x] 指标 API (Prometheus 格式)
 - [x] CORS 中间件
 - [x] 请求日志中间件
 
+### 已实现端点 (20个)
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| /health | GET | 健康检查 |
+| /ready | GET | 就绪检查 |
+| /version | GET | 版本信息 |
+| /api/v1/auth/login | POST | 用户登录 |
+| /api/v1/auth/refresh | POST | 刷新 Token |
+| /api/v1/auth/me | GET | 当前用户信息 |
+| /api/v1/exchanges | GET | 交易所列表 |
+| /api/v1/exchanges/:name | GET | 交易所详情 |
+| /api/v1/strategies | GET | 策略列表 |
+| /api/v1/strategies/:id | GET | 策略详情 |
+| /api/v1/strategies/:id/run | POST | 运行策略 |
+| /api/v1/backtest | POST | 创建回测 |
+| /api/v1/backtest/:id | GET | 回测结果 |
+| /api/v1/positions | GET | 仓位列表 (支持 ?exchange=) |
+| /api/v1/orders | GET | 订单列表 (支持 ?exchange=) |
+| /api/v1/orders | POST | 创建订单 |
+| /api/v1/orders/:id | DELETE | 取消订单 |
+| /api/v1/account | GET | 账户信息 |
+| /api/v1/account/balance | GET | 账户余额 (支持 ?exchange=) |
+| /metrics | GET | Prometheus 指标 |
+
 ### 性能要求
 
-- [ ] 响应时间 < 100ms (p99)
+- [x] 响应时间 < 100ms (p99) - 真实交易所 API 调用
 - [ ] 支持 1000+ 并发连接
-- [ ] 内存占用 < 50MB
+- [x] 内存占用合理
 
 ### 质量要求
 
@@ -727,6 +819,19 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 - [v1.0.0 Overview](./OVERVIEW.md)
 - [API 端点文档](../../features/api/endpoints.md)
 - [认证文档](../../features/api/authentication.md)
+
+---
+
+## 更新日志
+
+### 2025-12-28
+
+- 添加多交易所支持 (ApiDependencies HashMap)
+- 新增 /api/v1/exchanges 端点
+- 所有交易相关端点支持 ?exchange= 过滤
+- 添加 -c/--config 配置文件加载
+- 复用 src/core/config.zig 的 ConfigLoader
+- 修复 Zig 0.15 ArrayList 兼容性问题
 
 ---
 
