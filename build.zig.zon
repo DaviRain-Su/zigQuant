@@ -61,9 +61,10 @@
             //    // actually used.
             //    .lazy = false,
         },
+        // Use the same websocket version as httpz to avoid module conflicts
         .websocket = .{
             .url = "https://github.com/karlseguin/websocket.zig/archive/refs/heads/master.tar.gz",
-            .hash = "websocket-0.1.0-ZPISdRNzAwAGszh62EpRtoQxu8wb1MSMVI6Ow0o2dmyJ",
+            .hash = "websocket-0.1.0-ZPISdZJxAwAt6Ys_JpoHQQV3NpWCof_N9Jg-Ul2g7OoV",
         },
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.11.0.tar.gz",

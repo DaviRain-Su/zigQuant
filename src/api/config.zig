@@ -1,8 +1,18 @@
 //! API Configuration
 //!
 //! Configuration types for the REST API server.
+//! Imports exchange types from zigQuant module to avoid module conflicts.
 
 const std = @import("std");
+
+// Import from zigQuant module (not direct file imports to avoid module conflicts)
+const zigQuant = @import("zigQuant");
+pub const IExchange = zigQuant.IExchange;
+pub const ExchangeConfig = zigQuant.ExchangeConfig;
+pub const Position = zigQuant.Position;
+pub const Balance = zigQuant.Balance;
+pub const Order = zigQuant.Order;
+pub const Logger = zigQuant.Logger;
 
 /// API Server Configuration
 pub const ApiConfig = struct {
@@ -98,20 +108,19 @@ pub const ApiConfig = struct {
 
 /// Dependencies for the API server
 pub const ApiDependencies = struct {
-    /// Strategy registry for managing strategies
-    strategy_registry: ?*anyopaque = null,
+    /// Exchange interface (polymorphic - can be any exchange implementation)
+    exchange: ?IExchange = null,
 
-    /// Backtest engine for running backtests
-    backtest_engine: ?*anyopaque = null,
+    /// Exchange configuration
+    exchange_config: ?ExchangeConfig = null,
 
-    /// Live trading engine (optional)
-    trading_engine: ?*anyopaque = null,
+    /// Backtest results directory
+    backtest_results_dir: []const u8 = "backtest_results",
 
-    /// Message bus for events
-    message_bus: ?*anyopaque = null,
-
-    /// Cache for market data
-    cache: ?*anyopaque = null,
+    /// Check if exchange is configured
+    pub fn isExchangeConfigured(self: ApiDependencies) bool {
+        return self.exchange != null;
+    }
 };
 
 test "ApiConfig: validate - valid config" {

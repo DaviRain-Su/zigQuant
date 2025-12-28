@@ -16,8 +16,8 @@ pub const execution_engine = @import("core/execution_engine.zig");
 pub const live_engine = @import("trading/live_engine.zig");
 
 // API modules (v1.0.0)
-// Note: API module uses httpz which has its own websocket dependency.
-// To avoid conflicts, the api module should be imported directly in CLI commands.
+// Note: API module is imported directly in main.zig to avoid httpz/websocket dependency conflicts.
+// The api/config.zig imports exchange types directly, not through root.zig.
 // pub const api = @import("api/mod.zig");
 
 // Exchange modules

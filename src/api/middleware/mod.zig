@@ -13,8 +13,11 @@ pub const AuthError = auth.AuthError;
 pub const cors = @import("cors.zig");
 pub const CorsConfig = cors.CorsConfig;
 
-// Future middleware:
-// pub const logger = @import("logger.zig");
+/// Logger middleware
+pub const logger = @import("logger.zig");
+pub const LogEntry = logger.LogEntry;
+pub const LogLevel = logger.LogLevel;
+pub const LoggerConfig = logger.LoggerConfig;
 
 test {
     std.testing.refAllDecls(@This());

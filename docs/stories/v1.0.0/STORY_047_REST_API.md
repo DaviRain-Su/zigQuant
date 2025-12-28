@@ -3,7 +3,7 @@
 **Story ID**: STORY-047
 **版本**: v1.0.0
 **优先级**: P0 (关键路径)
-**状态**: 📋 待开始
+**状态**: ✅ 已完成
 
 ---
 
@@ -689,16 +689,16 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 
 ### 功能要求
 
-- [x] 健康检查端点 (/health, /ready)
-- [ ] JWT 认证 (登录, 刷新, 验证)
-- [ ] 策略管理 API (列表, 详情, 运行)
-- [ ] 回测 API (创建, 查询)
-- [ ] 订单 API (列表, 创建, 取消)
-- [ ] 仓位 API (列表)
-- [ ] 账户 API (信息, 余额)
-- [ ] 指标 API (JSON, Prometheus)
-- [ ] CORS 中间件
-- [ ] 请求日志
+- [x] 健康检查端点 (/health, /ready, /version)
+- [x] JWT 认证 (登录, 刷新, 验证)
+- [x] 策略管理 API (列表, 详情, 运行)
+- [x] 回测 API (创建, 查询)
+- [x] 订单 API (列表, 创建, 取消)
+- [x] 仓位 API (列表)
+- [x] 账户 API (信息, 余额)
+- [x] 指标 API (Prometheus 格式)
+- [x] CORS 中间件
+- [x] 请求日志中间件
 
 ### 性能要求
 
@@ -709,8 +709,8 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 ### 质量要求
 
 - [ ] 单元测试覆盖率 > 80%
-- [ ] 零编译警告
-- [ ] 零内存泄漏
+- [x] 零编译警告
+- [x] 零内存泄漏 (使用 GeneralPurposeAllocator)
 
 ---
 

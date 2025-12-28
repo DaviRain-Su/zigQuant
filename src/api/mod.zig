@@ -16,7 +16,9 @@ const std = @import("std");
 
 // Re-export public types
 pub const Server = @import("server.zig").ApiServer;
-pub const Config = @import("config.zig").ApiConfig;
+pub const config_mod = @import("config.zig");
+pub const Config = config_mod.ApiConfig;
+pub const Dependencies = config_mod.ApiDependencies;
 pub const Jwt = @import("jwt.zig");
 pub const JwtManager = Jwt.JwtManager;
 pub const JwtPayload = Jwt.JwtPayload;

@@ -82,6 +82,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "websocket", .module = websocket.module("websocket") },
             .{ .name = "xev", .module = libxev.module("xev") },
             .{ .name = "openai_zig", .module = openai_zig.module("openai_zig") },
+            // Note: httpz is NOT added here because:
+            // 1. API module is not exported from root.zig (to avoid websocket conflicts)
+            // 2. httpz is added directly to the exe for the serve command
         },
     });
 
@@ -124,6 +127,7 @@ pub fn build(b: *std.Build) void {
                 // importing modules from different packages).
                 .{ .name = "zigQuant", .module = mod },
                 .{ .name = "clap", .module = clap.module("clap") },
+                .{ .name = "httpz", .module = httpz.module("httpz") },
             },
         }),
     });
@@ -135,50 +139,18 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     // ========================================================================
-    // API Server Executable (v1.0.0) - Microservices Architecture
+    // API Server Integration (v1.0.0)
     // ========================================================================
     //
-    // The API server is built as a SEPARATE executable for these reasons:
-    //
-    // 1. Dependency Isolation: httpz has its own websocket module which
-    //    conflicts with our main websocket dependency. Separating avoids this.
-    //
-    // 2. Microservices Benefits:
-    //    - Independent deployment and scaling
-    //    - Fault isolation (API crash doesn't affect trading engine)
-    //    - Flexible resource allocation
-    //    - Can run on different machines
-    //
-    // 3. Communication Options:
-    //    - Shared database/files for state
-    //    - Unix sockets for IPC
-    //    - HTTP calls between services
+    // The API server is now integrated into the main CLI as `zigquant serve`.
+    // This allows full code reuse of exchange implementations and avoids
+    // module duplication. The httpz dependency is added to the main module.
     //
     // Usage:
-    //   zig build run-api              # Start API server
-    //   zig build run -- backtest ...  # Run main CLI
+    //   zig build run -- serve           # Start API server
+    //   zig build run -- serve --port 3000
+    //   zig build run -- backtest ...    # Run backtest
     //
-    const api_server = b.addExecutable(.{
-        .name = "zigquant-api",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/api/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "httpz", .module = httpz.module("httpz") },
-                .{ .name = "zigeth", .module = zigeth.module("zigeth") },
-            },
-        }),
-    });
-    b.installArtifact(api_server);
-
-    const run_api_server = b.addRunArtifact(api_server);
-    const api_server_step = b.step("run-api", "Run the REST API server (port 8080)");
-    api_server_step.dependOn(&run_api_server.step);
-    run_api_server.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_api_server.addArgs(args);
-    }
 
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).

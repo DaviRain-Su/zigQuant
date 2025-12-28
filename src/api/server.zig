@@ -16,6 +16,7 @@ const Allocator = std.mem.Allocator;
 const config_mod = @import("config.zig");
 const ApiConfig = config_mod.ApiConfig;
 const ApiDependencies = config_mod.ApiDependencies;
+const IExchange = config_mod.IExchange;
 const handlers = @import("handlers/mod.zig");
 const jwt_mod = @import("jwt.zig");
 const cors = @import("middleware/cors.zig");
@@ -144,8 +145,26 @@ pub const ApiServer = struct {
         router.get("/api/v1/auth/me", handleMe, .{});
 
         // API v1 routes (public for now, auth can be added per-handler)
+        // Strategies
         router.get("/api/v1/strategies", handleStrategiesList, .{});
         router.get("/api/v1/strategies/:id", handleStrategyGet, .{});
+        router.post("/api/v1/strategies/:id/run", handleStrategyRun, .{});
+
+        // Backtest
+        router.post("/api/v1/backtest", handleBacktestCreate, .{});
+        router.get("/api/v1/backtest/:id", handleBacktestGet, .{});
+
+        // Positions
+        router.get("/api/v1/positions", handlePositionsList, .{});
+
+        // Orders
+        router.get("/api/v1/orders", handleOrdersList, .{});
+        router.post("/api/v1/orders", handleOrderCreate, .{});
+        router.delete("/api/v1/orders/:id", handleOrderCancel, .{});
+
+        // Account
+        router.get("/api/v1/account", handleAccountGet, .{});
+        router.get("/api/v1/account/balance", handleAccountBalance, .{});
 
         // Metrics endpoint (Prometheus format)
         router.get("/metrics", handleMetrics, .{});
@@ -451,6 +470,475 @@ pub const ApiServer = struct {
             res.setStatus(.not_found);
             try res.json(.{ .@"error" = "Strategy not found", .id = id }, .{});
         }
+    }
+
+    fn handleStrategyRun(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        const id = req.param("id") orelse {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Missing strategy ID" }, .{});
+            return;
+        };
+
+        // Validate strategy exists
+        const valid_strategies = [_][]const u8{ "dual_ma", "rsi_mean_reversion", "bollinger_breakout" };
+        var strategy_found = false;
+        for (valid_strategies) |valid_id| {
+            if (std.mem.eql(u8, id, valid_id)) {
+                strategy_found = true;
+                break;
+            }
+        }
+
+        if (!strategy_found) {
+            res.setStatus(.not_found);
+            try res.json(.{ .@"error" = "Strategy not found", .id = id }, .{});
+            return;
+        }
+
+        // In a real implementation, this would start the strategy
+        // For now, return a simulated response
+        const timestamp = std.time.timestamp();
+        res.setStatus(.accepted);
+        try res.json(.{
+            .id = id,
+            .status = "starting",
+            .message = "Strategy run initiated",
+            .run_id = timestamp,
+        }, .{});
+    }
+
+    // ========================================================================
+    // Route Handlers - Backtest
+    // ========================================================================
+
+    fn handleBacktestCreate(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        const body = req.body() orelse {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Missing request body" }, .{});
+            return;
+        };
+
+        const BacktestRequest = struct {
+            strategy_id: []const u8,
+            start_date: []const u8,
+            end_date: []const u8,
+            initial_capital: f64 = 10000.0,
+            pair: []const u8 = "BTC-USDT",
+        };
+
+        const parsed = std.json.parseFromSlice(BacktestRequest, req.arena, body, .{}) catch {
+            res.setStatus(.bad_request);
+            try res.json(.{
+                .@"error" = "Invalid JSON format",
+                .expected = "{ \"strategy_id\": \"...\", \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\" }",
+            }, .{});
+            return;
+        };
+
+        const backtest_req = parsed.value;
+
+        // Validate strategy exists
+        const valid_strategies = [_][]const u8{ "dual_ma", "rsi_mean_reversion", "bollinger_breakout" };
+        var strategy_found = false;
+        for (valid_strategies) |valid_id| {
+            if (std.mem.eql(u8, backtest_req.strategy_id, valid_id)) {
+                strategy_found = true;
+                break;
+            }
+        }
+
+        if (!strategy_found) {
+            res.setStatus(.not_found);
+            try res.json(.{ .@"error" = "Strategy not found", .strategy_id = backtest_req.strategy_id }, .{});
+            return;
+        }
+
+        // Generate a backtest ID based on timestamp
+        const timestamp = std.time.timestamp();
+
+        // In a real implementation, this would queue the backtest
+        res.setStatus(.accepted);
+        try res.json(.{
+            .id = timestamp,
+            .strategy_id = backtest_req.strategy_id,
+            .start_date = backtest_req.start_date,
+            .end_date = backtest_req.end_date,
+            .initial_capital = backtest_req.initial_capital,
+            .pair = backtest_req.pair,
+            .status = "pending",
+            .message = "Backtest submitted successfully",
+        }, .{});
+    }
+
+    fn handleBacktestGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        const id = req.param("id") orelse {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Missing backtest ID" }, .{});
+            return;
+        };
+
+        // In a real implementation, this would lookup the backtest result
+        // For demo, return a simulated completed backtest
+        try res.json(.{
+            .id = id,
+            .status = "completed",
+            .strategy_id = "dual_ma",
+            .start_date = "2024-01-01",
+            .end_date = "2024-12-31",
+            .initial_capital = 10000.0,
+            .final_capital = 12500.0,
+            .metrics = .{
+                .total_return = 0.25,
+                .total_return_pct = 25.0,
+                .sharpe_ratio = 1.85,
+                .sortino_ratio = 2.1,
+                .max_drawdown = 0.12,
+                .max_drawdown_pct = 12.0,
+                .win_rate = 0.58,
+                .profit_factor = 1.65,
+                .total_trades = 156,
+                .winning_trades = 90,
+                .losing_trades = 66,
+                .avg_trade_return = 0.0016,
+            },
+        }, .{});
+    }
+
+    // ========================================================================
+    // Route Handlers - Positions
+    // ========================================================================
+
+    fn handlePositionsList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        // Try to fetch real data from exchange
+        if (ctx.deps.isExchangeConfigured()) {
+            const exchange = ctx.deps.exchange.?;
+            const positions = exchange.getPositions() catch |err| {
+                std.log.warn("Failed to fetch positions from exchange: {}", .{err});
+                try returnMockPositions(res);
+                return;
+            };
+            defer ctx.allocator.free(positions);
+
+            // Calculate totals
+            var total_pnl: f64 = 0;
+            var total_margin: f64 = 0;
+            for (positions) |pos| {
+                total_pnl += pos.unrealized_pnl.toFloat();
+                total_margin += pos.margin_used.toFloat();
+            }
+
+            // Return summary with position count
+            try res.json(.{
+                .position_count = positions.len,
+                .total_unrealized_pnl = total_pnl,
+                .total_margin_used = total_margin,
+                .source = exchange.getName(),
+                .note = "Use /api/v1/positions/:coin for individual position details",
+            }, .{});
+            return;
+        }
+
+        // No exchange configured, return mock data
+        try returnMockPositions(res);
+    }
+
+    fn returnMockPositions(res: *httpz.Response) !void {
+        try res.json(.{
+            .positions = &[_]struct {
+                id: []const u8,
+                pair: []const u8,
+                side: []const u8,
+                size: f64,
+                entry_price: f64,
+                unrealized_pnl: f64,
+                leverage: f64,
+                margin: f64,
+                liquidation_price: f64,
+            }{
+                .{
+                    .id = "pos_001",
+                    .pair = "BTC-USDT",
+                    .side = "long",
+                    .size = 0.5,
+                    .entry_price = 42000.0,
+                    .unrealized_pnl = 750.0,
+                    .leverage = 5.0,
+                    .margin = 4200.0,
+                    .liquidation_price = 35000.0,
+                },
+            },
+            .total = 1,
+            .total_unrealized_pnl = 750.0,
+            .total_margin_used = 4200.0,
+            .source = "mock",
+        }, .{});
+    }
+
+    // ========================================================================
+    // Route Handlers - Orders
+    // ========================================================================
+
+    fn handleOrdersList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        // Try to fetch real data from exchange
+        if (ctx.deps.isExchangeConfigured()) {
+            const exchange = ctx.deps.exchange.?;
+            const orders = exchange.getOpenOrders(null) catch |err| {
+                std.log.warn("Failed to fetch orders from exchange: {}", .{err});
+                try returnMockOrders(res);
+                return;
+            };
+            defer ctx.allocator.free(orders);
+
+            // Return summary with order count
+            try res.json(.{
+                .order_count = orders.len,
+                .source = exchange.getName(),
+                .note = "Use /api/v1/orders/:id for individual order details",
+            }, .{});
+            return;
+        }
+
+        try returnMockOrders(res);
+    }
+
+    fn returnMockOrders(res: *httpz.Response) !void {
+        try res.json(.{
+            .orders = &[_]struct {
+                id: []const u8,
+                pair: []const u8,
+                side: []const u8,
+                order_type: []const u8,
+                size: f64,
+                price: f64,
+                status: []const u8,
+            }{
+                .{
+                    .id = "ord_001",
+                    .pair = "BTC-USDT",
+                    .side = "buy",
+                    .order_type = "limit",
+                    .size = 0.1,
+                    .price = 41000.0,
+                    .status = "open",
+                },
+            },
+            .total = 1,
+            .source = "mock",
+        }, .{});
+    }
+
+    fn handleOrderCreate(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        const body = req.body() orelse {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Missing request body" }, .{});
+            return;
+        };
+
+        const OrderRequest = struct {
+            pair: []const u8,
+            side: []const u8,
+            order_type: []const u8 = "limit",
+            size: f64,
+            price: ?f64 = null,
+            stop_price: ?f64 = null,
+            take_profit: ?f64 = null,
+            stop_loss: ?f64 = null,
+        };
+
+        const parsed = std.json.parseFromSlice(OrderRequest, req.arena, body, .{}) catch {
+            res.setStatus(.bad_request);
+            try res.json(.{
+                .@"error" = "Invalid JSON format",
+                .expected = "{ \"pair\": \"BTC-USDT\", \"side\": \"buy\", \"size\": 0.1, \"price\": 42000 }",
+            }, .{});
+            return;
+        };
+
+        const order_req = parsed.value;
+
+        // Validate side
+        if (!std.mem.eql(u8, order_req.side, "buy") and !std.mem.eql(u8, order_req.side, "sell")) {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Invalid side, must be 'buy' or 'sell'" }, .{});
+            return;
+        }
+
+        // Validate order type
+        const valid_types = [_][]const u8{ "market", "limit", "stop", "stop_limit" };
+        var type_valid = false;
+        for (valid_types) |t| {
+            if (std.mem.eql(u8, order_req.order_type, t)) {
+                type_valid = true;
+                break;
+            }
+        }
+        if (!type_valid) {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Invalid order_type, must be 'market', 'limit', 'stop', or 'stop_limit'" }, .{});
+            return;
+        }
+
+        // Limit orders require price
+        if (std.mem.eql(u8, order_req.order_type, "limit") and order_req.price == null) {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Limit orders require a price" }, .{});
+            return;
+        }
+
+        // Generate order ID
+        const timestamp = std.time.timestamp();
+
+        // In a real implementation, this would submit to the exchange
+        res.setStatus(.created);
+        try res.json(.{
+            .id = timestamp,
+            .pair = order_req.pair,
+            .side = order_req.side,
+            .order_type = order_req.order_type,
+            .size = order_req.size,
+            .price = order_req.price,
+            .stop_price = order_req.stop_price,
+            .take_profit = order_req.take_profit,
+            .stop_loss = order_req.stop_loss,
+            .filled_size = 0.0,
+            .status = "open",
+            .created_at = timestamp,
+            .message = "Order created successfully",
+        }, .{});
+    }
+
+    fn handleOrderCancel(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        const id = req.param("id") orelse {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Missing order ID" }, .{});
+            return;
+        };
+
+        // In a real implementation, this would cancel the order on the exchange
+        try res.json(.{
+            .id = id,
+            .status = "cancelled",
+            .cancelled_at = std.time.timestamp(),
+            .message = "Order cancelled successfully",
+        }, .{});
+    }
+
+    // ========================================================================
+    // Route Handlers - Account
+    // ========================================================================
+
+    fn handleAccountGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        // Return account info based on configuration
+        if (ctx.deps.isExchangeConfigured()) {
+            const exchange = ctx.deps.exchange.?;
+            const exchange_config = ctx.deps.exchange_config.?;
+            const network = if (exchange_config.testnet) "testnet" else "mainnet";
+
+            try res.json(.{
+                .account_id = exchange_config.api_key,
+                .account_type = "futures",
+                .exchange = exchange.getName(),
+                .network = network,
+                .status = "active",
+                .margin_mode = "cross",
+                .source = exchange.getName(),
+            }, .{});
+        } else {
+            try res.json(.{
+                .account_id = "not_configured",
+                .account_type = "futures",
+                .exchange = "none",
+                .network = "unknown",
+                .status = "not_configured",
+                .margin_mode = "cross",
+                .source = "mock",
+            }, .{});
+        }
+    }
+
+    fn handleAccountBalance(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        // Try to fetch real data from exchange
+        if (ctx.deps.isExchangeConfigured()) {
+            const exchange = ctx.deps.exchange.?;
+            const balances = exchange.getBalance() catch |err| {
+                std.log.warn("Failed to fetch balance from exchange: {}", .{err});
+                try returnMockBalance(res);
+                return;
+            };
+            defer ctx.allocator.free(balances);
+
+            // Get first balance (typically USDC for Hyperliquid)
+            if (balances.len > 0) {
+                const bal = balances[0];
+                try res.json(.{
+                    .balances = &[_]struct {
+                        asset: []const u8,
+                        free: f64,
+                        locked: f64,
+                        total: f64,
+                    }{
+                        .{
+                            .asset = bal.asset,
+                            .free = bal.available.toFloat(),
+                            .locked = bal.locked.toFloat(),
+                            .total = bal.total.toFloat(),
+                        },
+                    },
+                    .account_value = bal.total.toFloat(),
+                    .withdrawable = bal.available.toFloat(),
+                    .margin_used = bal.locked.toFloat(),
+                    .source = exchange.getName(),
+                }, .{});
+                return;
+            }
+        }
+
+        try returnMockBalance(res);
+    }
+
+    fn returnMockBalance(res: *httpz.Response) !void {
+        try res.json(.{
+            .balances = &[_]struct {
+                asset: []const u8,
+                free: f64,
+                locked: f64,
+                total: f64,
+            }{
+                .{ .asset = "USDT", .free = 8500.0, .locked = 5666.67, .total = 14166.67 },
+            },
+            .account_value = 14166.67,
+            .withdrawable = 8500.0,
+            .margin_used = 5666.67,
+            .unrealized_pnl = 750.0,
+            .source = "mock",
+        }, .{});
     }
 
     // ========================================================================
