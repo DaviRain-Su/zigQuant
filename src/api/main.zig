@@ -62,7 +62,8 @@ pub fn main() !void {
     std.log.info("zigQuant API Server v{s}", .{@import("mod.zig").version});
     std.log.info("Starting server on {s}:{d}...", .{ config.host, config.port });
 
-    // Create dependencies (placeholder for now)
+    // Create dependencies
+    // In microservices architecture, these would be configured for IPC or shared storage
     const deps = ApiDependencies{};
 
     // Initialize and start the server

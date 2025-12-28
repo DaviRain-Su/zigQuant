@@ -53,24 +53,14 @@ pub const JwtManager = struct {
         const header_b64 = try base64UrlEncode(self.allocator, header);
         defer self.allocator.free(header_b64);
 
-        // Create payload
-        var payload_buf = std.ArrayList(u8).init(self.allocator);
-        defer payload_buf.deinit();
+        // Create payload JSON string
+        var payload_buf: [512]u8 = undefined;
+        const payload = if (self.issuer) |iss|
+            try std.fmt.bufPrint(&payload_buf, "{{\"sub\":\"{s}\",\"iat\":{d},\"exp\":{d},\"iss\":\"{s}\"}}", .{ user_id, now, now + self.expiry_seconds, iss })
+        else
+            try std.fmt.bufPrint(&payload_buf, "{{\"sub\":\"{s}\",\"iat\":{d},\"exp\":{d}}}", .{ user_id, now, now + self.expiry_seconds });
 
-        const writer = payload_buf.writer();
-        try writer.writeAll("{\"sub\":\"");
-        try writer.writeAll(user_id);
-        try writer.print("\",\"iat\":{d},\"exp\":{d}", .{ now, now + self.expiry_seconds });
-
-        if (self.issuer) |iss| {
-            try writer.writeAll(",\"iss\":\"");
-            try writer.writeAll(iss);
-            try writer.writeByte('"');
-        }
-
-        try writer.writeByte('}');
-
-        const payload_b64 = try base64UrlEncode(self.allocator, payload_buf.items);
+        const payload_b64 = try base64UrlEncode(self.allocator, payload);
         defer self.allocator.free(payload_b64);
 
         // Create signature
@@ -182,19 +172,19 @@ pub const JwtManager = struct {
 
 /// Base64 URL-safe encoding (no padding)
 fn base64UrlEncode(allocator: Allocator, data: []const u8) ![]const u8 {
-    const encoder = std.base64.url_safe_no_pad;
-    const size = encoder.calcSize(data.len);
+    const codecs = std.base64.url_safe_no_pad;
+    const size = codecs.Encoder.calcSize(data.len);
     const result = try allocator.alloc(u8, size);
-    _ = encoder.encode(result, data);
+    _ = codecs.Encoder.encode(result, data);
     return result;
 }
 
 /// Base64 URL-safe decoding
 fn base64UrlDecode(allocator: Allocator, encoded: []const u8) ![]const u8 {
-    const decoder = std.base64.url_safe_no_pad;
-    const size = try decoder.calcSizeForSlice(encoded);
+    const codecs = std.base64.url_safe_no_pad;
+    const size = try codecs.Decoder.calcSizeForSlice(encoded);
     const result = try allocator.alloc(u8, size);
-    try decoder.decode(result, encoded);
+    try codecs.Decoder.decode(result, encoded);
     return result;
 }
 

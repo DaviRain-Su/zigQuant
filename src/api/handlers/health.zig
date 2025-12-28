@@ -1,64 +1,43 @@
 //! Health Check Handlers
 //!
-//! Provides health and readiness endpoints for the API server.
-//! These endpoints do not require authentication.
+//! Helper types and utilities for health check endpoints.
+//!
+//! Note: The actual route handlers are implemented in server.zig
+//! because they require access to ServerContext.
 
 const std = @import("std");
-const httpz = @import("httpz");
 
-const Request = httpz.Request;
-const Response = httpz.Response;
+/// Health check response structure
+pub const HealthResponse = struct {
+    status: []const u8,
+    version: []const u8,
+    uptime_seconds: i64,
+    timestamp: i64,
+};
 
-/// GET /health - Service health check
-/// Returns basic health status of the service.
-pub fn health(_: *Request, res: *Response) !void {
-    const timestamp = std.time.timestamp();
+/// Readiness check response structure
+pub const ReadyResponse = struct {
+    ready: bool,
+    checks: struct {
+        jwt_configured: bool,
+        server_running: bool,
+    },
+};
 
-    try res.json(.{
+/// Version response structure
+pub const VersionResponse = struct {
+    name: []const u8,
+    version: []const u8,
+    api_version: []const u8,
+    zig_version: []const u8,
+};
+
+test "health types compile" {
+    const health = HealthResponse{
         .status = "healthy",
         .version = "1.0.0",
-        .timestamp = timestamp,
-    }, .{});
-}
-
-/// GET /ready - Readiness check
-/// Verifies that all dependencies are ready to serve traffic.
-pub fn ready(_: *Request, res: *Response) !void {
-    // TODO: Check actual dependencies (database, exchange connections, etc.)
-    // For now, always return ready
-
-    const checks = .{
-        .database = true,
-        .exchange = true,
-        .cache = true,
+        .uptime_seconds = 100,
+        .timestamp = 1234567890,
     };
-
-    const all_ready = checks.database and checks.exchange and checks.cache;
-
-    if (all_ready) {
-        try res.json(.{
-            .ready = true,
-            .checks = checks,
-        }, .{});
-    } else {
-        res.status = .service_unavailable;
-        try res.json(.{
-            .ready = false,
-            .checks = checks,
-        }, .{});
-    }
-}
-
-/// GET /version - Version information
-pub fn version(_: *Request, res: *Response) !void {
-    try res.json(.{
-        .name = "zigQuant",
-        .version = "1.0.0",
-        .zig_version = @import("builtin").zig_version_string,
-    }, .{});
-}
-
-test "health handler returns healthy status" {
-    // This would require httpz test utilities
-    // For now, just ensure the module compiles
+    _ = health;
 }
