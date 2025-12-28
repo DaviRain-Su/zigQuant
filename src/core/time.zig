@@ -311,54 +311,87 @@ fn dateToEpochSeconds(year: i32, month: u8, day: u8, hour: u8, minute: u8, secon
 }
 
 /// K-line interval (candlestick interval)
+/// 支持所有币安时间周期
 pub const KlineInterval = enum {
-    @"1m",
-    @"5m",
-    @"15m",
-    @"30m",
-    @"1h",
-    @"4h",
-    @"1d",
-    @"1w",
+    @"1s", // 1秒
+    @"1m", // 1分钟
+    @"3m", // 3分钟
+    @"5m", // 5分钟
+    @"15m", // 15分钟
+    @"30m", // 30分钟
+    @"1h", // 1小时
+    @"2h", // 2小时
+    @"4h", // 4小时
+    @"6h", // 6小时
+    @"8h", // 8小时
+    @"12h", // 12小时
+    @"1d", // 1天
+    @"3d", // 3天
+    @"1w", // 1周
+    @"1M", // 1月
 
     /// Convert to milliseconds using std.time constants
     pub fn toMillis(self: KlineInterval) i64 {
         return switch (self) {
+            .@"1s" => std.time.ms_per_s,
             .@"1m" => std.time.s_per_min * std.time.ms_per_s,
+            .@"3m" => 3 * std.time.s_per_min * std.time.ms_per_s,
             .@"5m" => 5 * std.time.s_per_min * std.time.ms_per_s,
             .@"15m" => 15 * std.time.s_per_min * std.time.ms_per_s,
             .@"30m" => 30 * std.time.s_per_min * std.time.ms_per_s,
             .@"1h" => std.time.s_per_hour * std.time.ms_per_s,
+            .@"2h" => 2 * std.time.s_per_hour * std.time.ms_per_s,
             .@"4h" => 4 * std.time.s_per_hour * std.time.ms_per_s,
+            .@"6h" => 6 * std.time.s_per_hour * std.time.ms_per_s,
+            .@"8h" => 8 * std.time.s_per_hour * std.time.ms_per_s,
+            .@"12h" => 12 * std.time.s_per_hour * std.time.ms_per_s,
             .@"1d" => std.time.s_per_day * std.time.ms_per_s,
+            .@"3d" => 3 * std.time.s_per_day * std.time.ms_per_s,
             .@"1w" => std.time.s_per_week * std.time.ms_per_s,
+            .@"1M" => 30 * std.time.s_per_day * std.time.ms_per_s, // 约30天
         };
     }
 
     /// Parse from string
     pub fn fromString(str: []const u8) !KlineInterval {
+        if (std.mem.eql(u8, str, "1s")) return .@"1s";
         if (std.mem.eql(u8, str, "1m")) return .@"1m";
+        if (std.mem.eql(u8, str, "3m")) return .@"3m";
         if (std.mem.eql(u8, str, "5m")) return .@"5m";
         if (std.mem.eql(u8, str, "15m")) return .@"15m";
         if (std.mem.eql(u8, str, "30m")) return .@"30m";
         if (std.mem.eql(u8, str, "1h")) return .@"1h";
+        if (std.mem.eql(u8, str, "2h")) return .@"2h";
         if (std.mem.eql(u8, str, "4h")) return .@"4h";
+        if (std.mem.eql(u8, str, "6h")) return .@"6h";
+        if (std.mem.eql(u8, str, "8h")) return .@"8h";
+        if (std.mem.eql(u8, str, "12h")) return .@"12h";
         if (std.mem.eql(u8, str, "1d")) return .@"1d";
+        if (std.mem.eql(u8, str, "3d")) return .@"3d";
         if (std.mem.eql(u8, str, "1w")) return .@"1w";
+        if (std.mem.eql(u8, str, "1M") or std.mem.eql(u8, str, "1mo")) return .@"1M";
         return error.InvalidKlineInterval;
     }
 
     /// Convert to string
     pub fn toString(self: KlineInterval) []const u8 {
         return switch (self) {
+            .@"1s" => "1s",
             .@"1m" => "1m",
+            .@"3m" => "3m",
             .@"5m" => "5m",
             .@"15m" => "15m",
             .@"30m" => "30m",
             .@"1h" => "1h",
+            .@"2h" => "2h",
             .@"4h" => "4h",
+            .@"6h" => "6h",
+            .@"8h" => "8h",
+            .@"12h" => "12h",
             .@"1d" => "1d",
+            .@"3d" => "3d",
             .@"1w" => "1w",
+            .@"1M" => "1M",
         };
     }
 };

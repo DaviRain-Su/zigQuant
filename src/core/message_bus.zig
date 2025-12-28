@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Timeframe = @import("../exchange/types.zig").Timeframe;
 
 // ============================================================================
 // Event Types
@@ -61,14 +62,12 @@ pub const TradeEvent = struct {
 pub const CandleEvent = struct {
     instrument_id: []const u8,
     timestamp: i64,
-    timeframe: Timeframe,
+    timeframe: Timeframe, // 使用统一的 Timeframe 类型
     open: f64,
     high: f64,
     low: f64,
     close: f64,
     volume: f64,
-
-    pub const Timeframe = enum { s1, m1, m3, m5, m15, m30, h1, h2, h4, h6, h8, h12, d1, d3, w1, M1 };
 };
 
 /// 订单事件

@@ -189,8 +189,11 @@ pub const StorageError = error{
 // 时间周期
 // ============================================================================
 
-/// 时间周期字符串
-pub const Timeframe = struct {
+// 统一使用 exchange/types.zig 中的 Timeframe
+pub const Timeframe = @import("../exchange/types.zig").Timeframe;
+
+/// 时间周期字符串常量 (用于存储路径)
+pub const TimeframeStrings = struct {
     pub const @"1s" = "1s";
     pub const @"1m" = "1m";
     pub const @"3m" = "3m";
@@ -210,15 +213,8 @@ pub const Timeframe = struct {
 
     /// 验证时间周期字符串
     pub fn isValid(tf: []const u8) bool {
-        const valid = [_][]const u8{
-            "1s", "1m", "3m", "5m", "15m", "30m",
-            "1h", "2h", "4h", "6h", "8h", "12h",
-            "1d", "3d", "1w", "1M",
-        };
-        for (valid) |v| {
-            if (std.mem.eql(u8, tf, v)) return true;
-        }
-        return false;
+        _ = Timeframe.fromString(tf) catch return false;
+        return true;
     }
 };
 
@@ -242,11 +238,11 @@ test "StoredCandle: conversion" {
 }
 
 test "Timeframe: validation" {
-    try std.testing.expect(Timeframe.isValid("1m"));
-    try std.testing.expect(Timeframe.isValid("1h"));
-    try std.testing.expect(Timeframe.isValid("1d"));
-    try std.testing.expect(!Timeframe.isValid("2m"));
-    try std.testing.expect(!Timeframe.isValid(""));
+    try std.testing.expect(TimeframeStrings.isValid("1m"));
+    try std.testing.expect(TimeframeStrings.isValid("1h"));
+    try std.testing.expect(TimeframeStrings.isValid("1d"));
+    try std.testing.expect(!TimeframeStrings.isValid("2m"));
+    try std.testing.expect(!TimeframeStrings.isValid(""));
 }
 
 test "BacktestRecord: basic" {

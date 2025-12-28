@@ -26,7 +26,9 @@ const Position = @import("../trading/position.zig").Position;
 const message_bus = @import("message_bus.zig");
 const MessageBus = message_bus.MessageBus;
 const Event = message_bus.Event;
-const Order = @import("../exchange/types.zig").Order;
+const exchange_types = @import("../exchange/types.zig");
+const Order = exchange_types.Order;
+pub const Timeframe = exchange_types.Timeframe;
 
 // ============================================================================
 // 类型定义
@@ -97,67 +99,7 @@ pub const Bar = struct {
     }
 };
 
-/// 时间周期 (支持 Binance 全部时间周期)
-pub const Timeframe = enum {
-    s1, // 1秒
-    m1, // 1分钟
-    m3, // 3分钟
-    m5, // 5分钟
-    m15, // 15分钟
-    m30, // 30分钟
-    h1, // 1小时
-    h2, // 2小时
-    h4, // 4小时
-    h6, // 6小时
-    h8, // 8小时
-    h12, // 12小时
-    d1, // 1天
-    d3, // 3天
-    w1, // 1周
-    M1, // 1月
-
-    pub fn toSeconds(self: Timeframe) u64 {
-        return switch (self) {
-            .s1 => 1,
-            .m1 => 60,
-            .m3 => 180,
-            .m5 => 300,
-            .m15 => 900,
-            .m30 => 1800,
-            .h1 => 3600,
-            .h2 => 7200,
-            .h4 => 14400,
-            .h6 => 21600,
-            .h8 => 28800,
-            .h12 => 43200,
-            .d1 => 86400,
-            .d3 => 259200,
-            .w1 => 604800,
-            .M1 => 2592000,
-        };
-    }
-
-    pub fn toString(self: Timeframe) []const u8 {
-        return switch (self) {
-            .s1 => "1s",
-            .m1 => "1m",
-            .m3 => "3m",
-            .m5 => "5m",
-            .m15 => "15m",
-            .m30 => "30m",
-            .h1 => "1h",
-            .h2 => "2h",
-            .h4 => "4h",
-            .h6 => "6h",
-            .h8 => "8h",
-            .h12 => "12h",
-            .d1 => "1d",
-            .d3 => "3d",
-            .w1 => "1w",
-            .M1 => "1M",
-        };
-    }
-};
+// Timeframe 从 exchange/types.zig 导入 (统一定义)
 
 /// 缓存错误
 pub const CacheError = error{
@@ -601,28 +543,11 @@ pub const Cache = struct {
         // 发布更新事件
         if (self.config.enable_notifications and bar.is_closed) {
             if (self.bus) |bus| {
-                const tf: message_bus.CandleEvent.Timeframe = switch (bar.timeframe) {
-                    .s1 => .s1,
-                    .m1 => .m1,
-                    .m3 => .m3,
-                    .m5 => .m5,
-                    .m15 => .m15,
-                    .m30 => .m30,
-                    .h1 => .h1,
-                    .h2 => .h2,
-                    .h4 => .h4,
-                    .h6 => .h6,
-                    .h8 => .h8,
-                    .h12 => .h12,
-                    .d1 => .d1,
-                    .d3 => .d3,
-                    .w1 => .w1,
-                    .M1 => .M1,
-                };
+                // 现在使用统一的 Timeframe 类型，无需转换
                 bus.publish("bar.closed", .{
                     .candle = .{
                         .instrument_id = bar.symbol,
-                        .timeframe = tf,
+                        .timeframe = bar.timeframe,
                         .open = bar.open.toFloat(),
                         .high = bar.high.toFloat(),
                         .low = bar.low.toFloat(),

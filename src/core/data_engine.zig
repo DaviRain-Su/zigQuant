@@ -487,30 +487,12 @@ pub const DataEngine = struct {
 
         // 发布事件 (仅闭合的 K线)
         if (msg.is_closed) {
-            const tf: @import("message_bus.zig").CandleEvent.Timeframe = switch (msg.timeframe) {
-                .s1 => .s1,
-                .m1 => .m1,
-                .m3 => .m3,
-                .m5 => .m5,
-                .m15 => .m15,
-                .m30 => .m30,
-                .h1 => .h1,
-                .h2 => .h2,
-                .h4 => .h4,
-                .h6 => .h6,
-                .h8 => .h8,
-                .h12 => .h12,
-                .d1 => .d1,
-                .d3 => .d3,
-                .w1 => .w1,
-                .M1 => .M1,
-            };
-
+            // 现在使用统一的 Timeframe 类型，无需转换
             self.bus.publish("market_data.candle", .{
                 .candle = .{
                     .instrument_id = msg.symbol,
                     .timestamp = msg.timestamp.millis * 1_000_000,
-                    .timeframe = tf,
+                    .timeframe = msg.timeframe,
                     .open = msg.open.toFloat(),
                     .high = msg.high.toFloat(),
                     .low = msg.low.toFloat(),
@@ -624,30 +606,12 @@ pub const DataEngine = struct {
 
             // 发布事件
             if (config.publish_events and candle.is_closed) {
-                const tf: @import("message_bus.zig").CandleEvent.Timeframe = switch (candle.timeframe) {
-                    .s1 => .s1,
-                    .m1 => .m1,
-                    .m3 => .m3,
-                    .m5 => .m5,
-                    .m15 => .m15,
-                    .m30 => .m30,
-                    .h1 => .h1,
-                    .h2 => .h2,
-                    .h4 => .h4,
-                    .h6 => .h6,
-                    .h8 => .h8,
-                    .h12 => .h12,
-                    .d1 => .d1,
-                    .d3 => .d3,
-                    .w1 => .w1,
-                    .M1 => .M1,
-                };
-
+                // 现在使用统一的 Timeframe 类型，无需转换
                 self.bus.publish("market_data.candle", .{
                     .candle = .{
                         .instrument_id = candle.symbol,
                         .timestamp = candle.timestamp.millis * 1_000_000,
-                        .timeframe = tf,
+                        .timeframe = candle.timeframe,
                         .open = candle.open.toFloat(),
                         .high = candle.high.toFloat(),
                         .low = candle.low.toFloat(),
