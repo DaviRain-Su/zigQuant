@@ -4,8 +4,8 @@
 
 本目录包含 ZigQuant 所有核心功能的详细文档。
 
-**当前版本**: v0.6.0
-**更新时间**: 2025-12-27
+**当前版本**: v0.8.0
+**更新时间**: 2025-12-28
 
 ---
 
@@ -18,7 +18,9 @@
 | v0.4.0 | 增强更新 | ✅ 完成 |
 | v0.5.0 | 5 个模块 | ✅ 完成 |
 | v0.6.0 | 5 个模块 | ✅ 完成 |
-| v0.7.0 | 7 个模块 | 📋 规划中 |
+| v0.7.0 | 7 个模块 | ✅ 完成 |
+| v0.8.0 | 6 个模块 | ✅ 完成 |
+| v1.0.0 | Web 管理 | 📋 规划中 |
 
 ---
 
@@ -316,7 +318,7 @@ Hyperliquid DEX 集成模块，提供 HTTP API 和 WebSocket 支持。
 
 ---
 
-## v0.6.0 功能模块 📋
+## v0.6.0 功能模块 ✅
 
 ### 17. Vectorized Backtest (向量化回测)
 
@@ -399,6 +401,193 @@ Hyperliquid DEX 的数据源和执行客户端适配器。
 - 备份和回滚
 
 **Story**: [Story 032](../../stories/v0.6.0/STORY_032_HOT_RELOAD.md)
+
+---
+
+## v0.7.0 功能模块 ✅
+
+### 21. Clock-Driven Mode (时钟驱动模式)
+
+按固定时间间隔触发策略执行，适合做市场景。
+
+**核心特性**:
+- Clock 定时器 (可配置 tick interval)
+- IClockStrategy 接口 (VTable 模式)
+- 策略注册和生命周期管理
+- ClockStats 统计信息
+
+**Story**: [Story 033](../../stories/v0.7.0/STORY_033_CLOCK_DRIVEN.md)
+
+---
+
+### 22. Pure Market Making (做市策略)
+
+双边报价做市策略，支持多级订单。
+
+**核心特性**:
+- PureMarketMaking 策略
+- 双边报价 (bid/ask)
+- 可配置价差和订单量
+- Clock 集成
+
+**Story**: [Story 034](../../stories/v0.7.0/STORY_034_PURE_MM.md)
+
+---
+
+### 23. Inventory Management (库存管理)
+
+库存风险控制和动态报价调整。
+
+**核心特性**:
+- InventoryManager 库存管理器
+- 多种 Skew 模式 (Linear/Exponential/StepFunction)
+- 动态报价调整
+- 再平衡建议
+
+**Story**: [Story 035](../../stories/v0.7.0/STORY_035_INVENTORY.md)
+
+---
+
+### 24. Data Persistence (数据持久化)
+
+数据存储和缓存系统。
+
+**核心特性**:
+- DataStore 数据存储
+- CandleCache LRU 缓存
+- 二进制和文件存储
+- 数据验证
+
+**Story**: [Story 036](../../stories/v0.7.0/STORY_036_SQLITE.md)
+
+---
+
+### 25. Cross-Exchange Arbitrage (跨交易所套利)
+
+跨交易所套利策略和机会检测。
+
+**核心特性**:
+- CrossExchangeArbitrage 套利策略
+- 机会检测算法
+- 利润计算 (含手续费)
+- 统计跟踪
+
+**Story**: [Story 037](../../stories/v0.7.0/STORY_037_ARBITRAGE.md)
+
+---
+
+### 26. Queue Position Modeling (队列位置建模)
+
+HFTBacktest 风格的队列位置追踪和成交概率估算。
+
+**核心特性**:
+- Level-3 订单簿 (Market-By-Order)
+- QueuePosition 队列位置追踪
+- 4 种成交概率模型
+- 队列推进逻辑
+
+**Story**: [Story 038](../../stories/v0.7.0/STORY_038_QUEUE_POSITION.md)
+
+---
+
+### 27. Dual Latency Simulation (双向延迟模拟)
+
+HFTBacktest 风格的行情和订单延迟模拟。
+
+**核心特性**:
+- FeedLatencyModel 行情延迟
+- OrderLatencyModel 订单延迟
+- 3 种延迟模型 (Constant/Normal/Interpolated)
+- LatencyStats 统计
+
+**Story**: [Story 039](../../stories/v0.7.0/STORY_039_DUAL_LATENCY.md)
+
+---
+
+## v0.8.0 功能模块 ✅
+
+### 28. RiskEngine (风险引擎)
+
+生产级风险管理引擎，提供 Kill Switch 紧急停止。
+
+**核心特性**:
+- RiskEngine 核心 (VTable 模式)
+- 仓位大小限制
+- 杠杆限制
+- 日损失限制
+- Kill Switch 紧急停止 (< 100ms 响应)
+
+**Story**: [Story 040](../../stories/v0.8.0/STORY_040_RISK_ENGINE.md)
+
+---
+
+### 29. StopLoss Manager (止损管理)
+
+自动止损止盈管理系统。
+
+**核心特性**:
+- StopLossManager 止损管理器
+- 固定止损/止盈
+- 跟踪止损
+- 自动执行
+
+**Story**: [Story 041](../../stories/v0.8.0/STORY_041_STOP_LOSS.md)
+
+---
+
+### 30. Money Management (资金管理)
+
+资金分配和仓位大小计算。
+
+**核心特性**:
+- MoneyManager 资金管理器
+- Kelly 公式计算
+- 固定分数法
+- 风险平价
+
+**Story**: [Story 042](../../stories/v0.8.0/STORY_042_MONEY_MANAGEMENT.md)
+
+---
+
+### 31. Risk Metrics (风险指标)
+
+实时风险指标计算和监控。
+
+**核心特性**:
+- RiskMetrics 风险指标
+- VaR 计算 (历史模拟法)
+- 最大回撤监控
+- 实时夏普比率
+
+**Story**: [Story 043](../../stories/v0.8.0/STORY_043_RISK_METRICS.md)
+
+---
+
+### 32. Alert System (告警系统)
+
+多级告警和通知系统。
+
+**核心特性**:
+- AlertSystem 告警系统
+- Webhook 集成
+- 多级告警 (INFO/WARNING/CRITICAL)
+- 可扩展通知接口
+
+**Story**: [Story 044](../../stories/v0.8.0/STORY_044_ALERT_SYSTEM.md)
+
+---
+
+### 33. Crash Recovery (崩溃恢复)
+
+状态持久化和自动恢复机制。
+
+**核心特性**:
+- CrashRecovery 崩溃恢复
+- 状态持久化
+- 自动恢复
+- 未完成订单恢复
+
+**Story**: [Story 045](../../stories/v0.8.0/STORY_045_CRASH_RECOVERY.md)
 
 ---
 
@@ -513,11 +702,27 @@ docs/features/
 - [ExecutionEngine](./execution-engine/README.md) - 执行引擎
 - [LiveTrading](./live-trading/README.md) - 实时交易
 
-**混合计算模式** (v0.6.0 规划中):
+**混合计算模式** (v0.6.0):
 - [VectorizedBacktest](./vectorized-backtest/README.md) - 向量化回测 (SIMD 加速)
 - [HyperliquidAdapter](./hyperliquid-adapter/README.md) - Hyperliquid 交易所适配器
 - [PaperTrading](./paper-trading/README.md) - 模拟交易
 - [HotReload](./hot-reload/README.md) - 策略热重载
+
+**做市与套利** (v0.7.0):
+- Clock-Driven Mode - 时钟驱动模式
+- Pure Market Making - 做市策略
+- Inventory Management - 库存管理
+- Cross-Exchange Arbitrage - 跨交易所套利
+- Queue Position Modeling - 队列位置建模
+- Dual Latency Simulation - 延迟模拟
+
+**风险管理** (v0.8.0):
+- RiskEngine - 风险引擎 (Kill Switch)
+- StopLoss Manager - 止损管理
+- Money Management - 资金管理
+- Risk Metrics - 风险指标
+- Alert System - 告警系统
+- Crash Recovery - 崩溃恢复
 
 **市场数据**:
 - [订单簿维护](./orderbook/README.md)
@@ -586,8 +791,10 @@ docs/features/
 - **Stories v0.4**: [v0.4 技术设计](../../stories/v0.4.0/) - 优化增强设计
 - **Stories v0.5**: [v0.5 技术设计](../../stories/v0.5.0/) - 事件驱动架构设计
 - **Stories v0.6**: [v0.6 技术设计](../../stories/v0.6.0/) - 混合计算模式设计
+- **Stories v0.7**: [v0.7 技术设计](../../stories/v0.7.0/) - 做市策略设计
+- **Stories v0.8**: [v0.8 技术设计](../../stories/v0.8.0/) - 风险管理设计
 - **使用指南**: [回测指南](../guides/BACKTEST_GUIDE.md) | [优化指南](../guides/OPTIMIZATION_GUIDE.md)
-- **示例代码**: [Examples](../../examples/README.md) - 12 个完整示例
+- **示例代码**: [Examples](../../examples/README.md) - 31 个完整示例
 
 ---
 
@@ -595,7 +802,9 @@ docs/features/
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
-| v0.6.0 | 规划中 | 添加混合计算模式：VectorizedBacktest、HyperliquidAdapter、PaperTrading、HotReload |
+| v0.8.0 | 2025-12-28 | 添加风险管理：RiskEngine、StopLoss、MoneyManagement、RiskMetrics、AlertSystem、CrashRecovery |
+| v0.7.0 | 2025-12-27 | 添加做市策略：Clock-Driven、PureMarketMaking、Inventory、Arbitrage、QueuePosition、LatencySimulation |
+| v0.6.0 | 2025-12-27 | 添加混合计算模式：VectorizedBacktest、HyperliquidAdapter、PaperTrading、HotReload |
 | v0.5.0 | 2025-12-27 | 添加事件驱动架构：MessageBus、Cache、DataEngine、ExecutionEngine、LiveTrading |
 | v0.4.0 | 2025-12-27 | 添加优化器增强、8个新指标、使用指南 |
 | v0.3.0 | 2025-12-26 | 添加策略框架、回测引擎、指标库、优化器 |
@@ -604,3 +813,4 @@ docs/features/
 ---
 
 *所有功能文档遵循统一的模板结构，确保一致性和可维护性*
+*最后更新: 2025-12-28*

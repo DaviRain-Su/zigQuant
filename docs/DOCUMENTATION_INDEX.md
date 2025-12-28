@@ -1,18 +1,19 @@
 # ZigQuant 完整文档索引
 
-> **最后更新**: 2025-12-27
-> **当前版本**: v0.6.0
-> **整体进度**: 67% (6/9 版本完成)
+> **最后更新**: 2025-12-28
+> **当前版本**: v0.8.0
+> **整体进度**: 89% (8/9 版本完成)
 
 ---
 
 ## 📊 文档统计
 
-- **总文档数**: 100 个文档
-- **功能模块**: 12 个核心模块
-- **核心项目文档**: 11 个
+- **总文档数**: 347+ 个文档
+- **功能模块**: 40+ 个核心模块
+- **核心项目文档**: 15+ 个
 - **故障排查文档**: 4 个
 - **设计决策文档**: 3 个
+- **发布说明**: 5 个 (v0.3.0 - v0.8.0)
 
 ---
 
@@ -26,7 +27,7 @@
 ### 项目规划和进度
 - **[PROJECT_OUTLINE.md](PROJECT_OUTLINE.md)** - 项目愿景和 Phase 0-7 路线图
 - **[roadmap.md](../roadmap.md)** - 产品路线图和架构演进战略
-- **[NEXT_STEPS.md](NEXT_STEPS.md)** - v0.7.0 开发计划
+- **[NEXT_STEPS.md](NEXT_STEPS.md)** - v1.0.0 开发计划
 
 ### 架构和设计
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - 系统架构设计和模块说明
@@ -143,10 +144,104 @@
 #### 12. CLI - 命令行界面
 - **[README](features/cli/README.md)** - 11个命令 + REPL
 - [API Reference](features/cli/api.md) - CLI 命令参考
+- [Usage Guide](features/cli/usage-guide.md) - CLI 使用指南 ⭐
 - [Implementation](features/cli/implementation.md) - REPL 实现
 - [Testing](features/cli/testing.md) - CLI 测试
 - [Bugs](features/cli/bugs.md) - Bug 追踪
 - [Changelog](features/cli/changelog.md) - 版本历史
+
+### V0.3-V0.4 策略与回测 (6个模块)
+
+#### 13. Strategy - 策略框架
+- **[README](features/strategy/README.md)** - IStrategy 接口、VTable 模式
+- [API Reference](features/strategy/api.md) - 策略 API
+
+#### 14. Indicators - 技术指标库
+- **[README](features/indicators/README.md)** - 14 个技术指标
+- [API Reference](features/indicators/api.md) - 指标 API
+
+#### 15. Backtest - 回测引擎
+- **[README](features/backtest/README.md)** - 事件驱动回测
+- [API Reference](features/backtest/api.md) - 回测 API
+- [Export](features/backtest/export.md) - 结果导出
+
+#### 16. Optimizer - 参数优化器
+- **[README](features/optimizer/README.md)** - 网格搜索、Walk-Forward
+- [Usage Guide](features/optimizer/usage-guide.md) - 优化器使用指南 ⭐
+
+### V0.5 事件驱动架构 (5个模块)
+
+#### 17. MessageBus - 消息总线
+- **[README](features/message-bus/README.md)** - Pub/Sub、Request/Response
+
+#### 18. Cache - 数据缓存
+- **[README](features/cache/README.md)** - OrderBook/Position/Quote 缓存
+
+#### 19. DataEngine - 数据引擎
+- **[README](features/data-engine/README.md)** - IDataProvider 接口
+
+#### 20. ExecutionEngine - 执行引擎
+- **[README](features/execution-engine/README.md)** - IExecutionClient 接口
+
+#### 21. LiveTrading - 实时交易
+- **[README](features/live-trading/README.md)** - 同步/异步交易引擎
+
+### V0.6 混合计算模式 (4个模块)
+
+#### 22. VectorizedBacktest - 向量化回测
+- **[README](features/vectorized-backtest/README.md)** - SIMD 优化，12.6M bars/s
+
+#### 23. HyperliquidAdapter - Hyperliquid 适配器
+- **[README](features/hyperliquid-adapter/README.md)** - IDataProvider/IExecutionClient 实现
+
+#### 24. PaperTrading - 模拟交易
+- **[README](features/paper-trading/README.md)** - 模拟订单执行
+
+#### 25. HotReload - 策略热重载
+- **[README](features/hot-reload/README.md)** - 运行时参数更新
+
+### V0.7 做市优化 (7个模块)
+
+#### 26. ClockDriven - 时钟驱动模式
+- **[README](features/clock-driven/README.md)** - Tick 驱动策略执行
+
+#### 27. PureMarketMaking - 做市策略
+- **[README](features/pure-market-making/README.md)** - 双边报价做市
+
+#### 28. InventoryManagement - 库存管理
+- **[README](features/inventory-management/README.md)** - 库存偏斜控制
+
+#### 29. SQLiteStorage - 数据持久化
+- **[README](features/sqlite-storage/README.md)** - DataStore/CandleCache
+
+#### 30. CrossExchangeArbitrage - 跨交易所套利
+- **[README](features/cross-exchange-arbitrage/README.md)** - 套利检测
+
+#### 31. QueuePosition - 队列位置建模
+- **[README](features/queue-position/README.md)** - HFTBacktest 风格
+
+#### 32. DualLatency - 双向延迟模拟
+- **[README](features/dual-latency/README.md)** - Feed/Order 延迟
+
+### V0.8 风险管理 (6个模块)
+
+#### 33. RiskEngine - 风险引擎
+- **[README](features/risk-engine/README.md)** - Kill Switch、实时监控
+
+#### 34. StopLoss - 止损管理
+- **[README](features/stop-loss/README.md)** - 止损/追踪止损
+
+#### 35. MoneyManagement - 资金管理
+- **[README](features/money-management/README.md)** - Kelly 公式、风险预算
+
+#### 36. RiskMetrics - 风险指标
+- **[README](features/risk-metrics/README.md)** - VaR、Sharpe、Sortino
+
+#### 37. AlertSystem - 警报系统
+- **[README](features/alert-system/README.md)** - 多级警报
+
+#### 38. CrashRecovery - 崩溃恢复
+- **[README](features/crash-recovery/README.md)** - 状态快照/恢复
 
 ### 功能总索引
 - **[features/README.md](features/README.md)** - 所有功能模块导航
@@ -176,45 +271,49 @@
 docs/
 ├── DOCUMENTATION_INDEX.md (本文件) ⭐
 │
-├── 核心项目文档 (11个)
+├── 核心项目文档 (15+个)
 │   ├── ARCHITECTURE.md
 │   ├── DEPLOYMENT.md
 │   ├── FEATURES_SUPPLEMENT.md
-│   ├── MVP_V0.2.0_PROGRESS.md
 │   ├── NEXT_STEPS.md
 │   ├── PERFORMANCE.md
 │   ├── PROJECT_OUTLINE.md
 │   ├── SECURITY.md
 │   ├── TESTING.md
-│   ├── api-quick-reference.md
-│   └── architecture-diagram.jsx
+│   └── api-quick-reference.md
 │
-├── features/ (12个模块 × 6-9个文件 = 78个文件)
+├── features/ (38个模块)
 │   ├── README.md (功能总索引)
-│   ├── decimal/ (6个文件)
-│   ├── time/ (6个文件)
-│   ├── error-system/ (6个文件)
-│   ├── logger/ (9个文件)
-│   ├── config/ (6个文件)
-│   ├── exchange-router/ (6个文件)
-│   ├── hyperliquid-connector/ (6个文件)
-│   ├── orderbook/ (6个文件)
-│   ├── order-system/ (6个文件)
-│   ├── order-manager/ (6个文件)
-│   ├── position-tracker/ (6个文件)
-│   ├── cli/ (6个文件)
-│   └── templates/ (6个模板文件)
+│   ├── V0.1: decimal/, time/, error-system/, logger/, config/, exchange-router/
+│   ├── V0.2: hyperliquid-connector/, orderbook/, order-system/, order-manager/, position-tracker/, cli/
+│   ├── V0.3-V0.4: strategy/, indicators/, backtest/, optimizer/
+│   ├── V0.5: message-bus/, cache/, data-engine/, execution-engine/, live-trading/
+│   ├── V0.6: vectorized-backtest/, hyperliquid-adapter/, paper-trading/, hot-reload/
+│   ├── V0.7: clock-driven/, pure-market-making/, inventory-management/, sqlite-storage/,
+│   │         cross-exchange-arbitrage/, queue-position/, dual-latency/
+│   └── V0.8: risk-engine/, stop-loss/, money-management/, risk-metrics/, alert-system/, crash-recovery/
+│
+├── stories/ (60+个故事文档)
+│   ├── v0.1-foundation/
+│   ├── v0.2-mvp/
+│   ├── v0.3.0/, v0.4.0/, v0.5.0/, v0.6.0/, v0.7.0/, v0.8.0/
+│   └── templates/
+│
+├── releases/ (5个发布说明)
+│   ├── RELEASE_v0.3.0.md
+│   ├── RELEASE_v0.5.0.md
+│   ├── RELEASE_v0.6.0.md
+│   ├── RELEASE_v0.7.0.md
+│   └── RELEASE_v0.8.0.md
+│
+├── architecture/ (5个架构文档)
+│   ├── ARCHITECTURE_PATTERNS.md
+│   ├── COMPETITIVE_ANALYSIS.md
+│   └── ...
 │
 ├── troubleshooting/ (4个文件)
-│   ├── README.md
-│   ├── zig-0.15.2-logger-compatibility.md
-│   ├── quick-reference-zig-0.15.2.md
-│   └── bufferedwriter-trap.md
 │
 └── decisions/ (3个文件)
-    ├── 001-why-zig.md
-    ├── 002-hyperliquid-first-exchange.md
-    └── template.md
 ```
 
 ---
@@ -278,13 +377,16 @@ docs/
 | v0.4.0 | 优化器增强 | 453 | ✅ 完成 |
 | v0.5.0 | 事件驱动架构 | 502 | ✅ 完成 |
 | v0.6.0 | 混合计算模式 | 558 | ✅ 完成 |
-| v0.7.0 | 做市优化 | - | 📋 规划中 |
-| **总计** | **67% (6/9)** | **558** | **进行中** |
+| v0.7.0 | 做市优化 | 558+ | ✅ 完成 |
+| v0.8.0 | 风险管理 | 558+ | ✅ 完成 |
+| v1.0.0 | 生产就绪 | - | 📋 下一步 |
+| **总计** | **89% (8/9)** | **558+** | **进行中** |
 
 **性能指标**:
 - ✅ 向量化回测: 12.6M bars/s
 - ✅ WebSocket 延迟: 0.23ms
 - ✅ 零内存泄漏
+- ✅ ~39,000 行代码
 
 ---
 
@@ -312,35 +414,32 @@ docs/
 
 ## 🔮 后续计划
 
-### v0.3.0 - 策略框架
-- 策略接口定义
-- 技术指标库
-- 内置策略实现
-- 策略回测引擎
+### v1.0.0 - 生产就绪 (下一步)
+- REST API 服务
+- Web Dashboard
+- 多策略组合
+- 分布式回测
+- Binance 适配器
 
-### v0.7.0 - 做市优化 (下一步)
-- Clock-Driven 模式
-- Pure Market Making 策略
-- Queue Position Modeling
-- Dual Latency Simulation
-
-### v0.8.0 - 风险管理
-- RiskEngine 风险引擎
-- Crash Recovery 崩溃恢复
-- 实时监控告警
-
-### v1.0.0 - 生产就绪
-- 完整的量化交易系统
-- REST API 和 Web Dashboard
-- Prometheus Metrics
+### 低优先级
+- OKX 适配器
+- 更多警报通道 (Telegram, Email, Webhook)
 
 查看 [roadmap.md](../roadmap.md) 了解完整路线图。
 
 ---
 
-**文档总数**: 190+ 个文档
-**最后更新**: 2025-12-27
-**当前版本**: v0.6.0
-**整体进度**: 67% (6/9 版本完成)
+## 📁 发布说明
 
-🎉 Generated with [Claude Code](https://claude.com/claude-code)
+- **[RELEASE_v0.8.0.md](releases/RELEASE_v0.8.0.md)** - 风险管理发布说明 ⭐
+- **[RELEASE_v0.7.0.md](releases/RELEASE_v0.7.0.md)** - 做市优化发布说明
+- **[RELEASE_v0.6.0.md](releases/RELEASE_v0.6.0.md)** - 混合计算模式发布说明
+- **[RELEASE_v0.5.0.md](releases/RELEASE_v0.5.0.md)** - 事件驱动架构发布说明
+- **[RELEASE_v0.3.0.md](releases/RELEASE_v0.3.0.md)** - 策略回测框架发布说明
+
+---
+
+**文档总数**: 347+ 个文档
+**最后更新**: 2025-12-28
+**当前版本**: v0.8.0
+**整体进度**: 89% (8/9 版本完成)
