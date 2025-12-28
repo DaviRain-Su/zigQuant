@@ -130,11 +130,15 @@ pub const AIAdvisor = struct {
     }
 
     /// Parse AI response JSON into AIAdvice
+    /// Handles responses that may be wrapped in markdown code blocks
     fn parseAdviceResponse(self: *AIAdvisor, response: []const u8) !AIAdvice {
+        // Extract JSON from markdown code blocks if present
+        const json_content = extractJsonContent(response);
+
         const parsed = std.json.parseFromSlice(
             AdviceJson,
             self.allocator,
-            response,
+            json_content,
             .{},
         ) catch {
             return error.ParseError;
@@ -187,6 +191,44 @@ pub const AIAdvisor = struct {
         self.allocator.free(advice.reasoning);
     }
 };
+
+/// Extract JSON content from response that may be wrapped in markdown code blocks
+/// Handles formats like:
+/// - Pure JSON: {"action": "buy", ...}
+/// - Markdown: ```json\n{"action": "buy", ...}\n```
+/// - Markdown without language: ```\n{"action": "buy", ...}\n```
+fn extractJsonContent(response: []const u8) []const u8 {
+    var content = std.mem.trim(u8, response, " \t\n\r");
+
+    // Check for markdown code block start
+    if (std.mem.startsWith(u8, content, "```")) {
+        // Skip the opening ```[language]
+        if (std.mem.indexOf(u8, content, "\n")) |first_newline| {
+            content = content[first_newline + 1 ..];
+        } else {
+            // No newline after ```, return as-is
+            return response;
+        }
+
+        // Find and remove closing ```
+        if (std.mem.lastIndexOf(u8, content, "```")) |closing| {
+            content = content[0..closing];
+        }
+
+        // Trim any remaining whitespace
+        content = std.mem.trim(u8, content, " \t\n\r");
+    }
+
+    // Find the first { and last } to extract just the JSON object
+    const start = std.mem.indexOf(u8, content, "{") orelse return content;
+    const end = std.mem.lastIndexOf(u8, content, "}") orelse return content;
+
+    if (end >= start) {
+        return content[start .. end + 1];
+    }
+
+    return content;
+}
 
 /// JSON structure for parsing AI response
 const AdviceJson = struct {
@@ -459,4 +501,95 @@ test "AIAdvisor: no memory leaks" {
     }
 
     advisor.deinit();
+}
+
+test "extractJsonContent: pure JSON" {
+    const input =
+        \\{"action": "buy", "confidence": 0.8, "reasoning": "test"}
+    ;
+    const result = extractJsonContent(input);
+    try std.testing.expectEqualStrings(input, result);
+}
+
+test "extractJsonContent: markdown code block with json tag" {
+    const input =
+        \\```json
+        \\{"action": "buy", "confidence": 0.8, "reasoning": "test"}
+        \\```
+    ;
+    const expected =
+        \\{"action": "buy", "confidence": 0.8, "reasoning": "test"}
+    ;
+    const result = extractJsonContent(input);
+    try std.testing.expectEqualStrings(expected, result);
+}
+
+test "extractJsonContent: markdown code block without tag" {
+    const input =
+        \\```
+        \\{"action": "sell", "confidence": 0.7, "reasoning": "bearish"}
+        \\```
+    ;
+    const expected =
+        \\{"action": "sell", "confidence": 0.7, "reasoning": "bearish"}
+    ;
+    const result = extractJsonContent(input);
+    try std.testing.expectEqualStrings(expected, result);
+}
+
+test "extractJsonContent: with surrounding whitespace" {
+    const input =
+        \\
+        \\{"action": "hold", "confidence": 0.5, "reasoning": "neutral"}
+        \\
+    ;
+    const expected =
+        \\{"action": "hold", "confidence": 0.5, "reasoning": "neutral"}
+    ;
+    const result = extractJsonContent(input);
+    try std.testing.expectEqualStrings(expected, result);
+}
+
+test "extractJsonContent: JSON with extra text before" {
+    const input =
+        \\Here is the analysis:
+        \\{"action": "buy", "confidence": 0.9, "reasoning": "bullish"}
+    ;
+    const expected =
+        \\{"action": "buy", "confidence": 0.9, "reasoning": "bullish"}
+    ;
+    const result = extractJsonContent(input);
+    try std.testing.expectEqualStrings(expected, result);
+}
+
+test "AIAdvisor: getAdvice with markdown wrapped response" {
+    const response =
+        \\```json
+        \\{"action": "buy", "confidence": 0.75, "reasoning": "RSI oversold with volume confirmation"}
+        \\```
+    ;
+
+    var mock = interfaces.MockLLMClient.init(response);
+    var advisor = AIAdvisor.init(
+        std.testing.allocator,
+        mock.toInterface(),
+        .{ .max_retries = 0 },
+    );
+    defer advisor.deinit();
+
+    const ctx = MarketContext{
+        .pair = .{ .base = "BTC", .quote = "USDT" },
+        .current_price = @import("../root.zig").Decimal.fromFloat(45000.0),
+        .price_change_24h = 0.025,
+        .indicators = &.{},
+        .recent_candles = &.{},
+        .position = null,
+    };
+
+    const advice = try advisor.getAdvice(ctx);
+    defer advisor.freeAdvice(advice);
+
+    try std.testing.expectEqual(Action.buy, advice.action);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), advice.confidence, 0.001);
+    try std.testing.expect(std.mem.indexOf(u8, advice.reasoning, "RSI") != null);
 }

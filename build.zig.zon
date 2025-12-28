@@ -73,9 +73,9 @@
             .url = "https://github.com/mitchellh/libxev/archive/refs/heads/master.tar.gz",
             .hash = "libxev-0.0.0-86vtc0IbEwDsp-ljrhdEWhf2TYBvSrqqgNAPQwtfX8Eg",
         },
-        .@"zig-ai-sdk" = .{
-            .url = "https://github.com/evmts/ai-zig/archive/refs/heads/master.tar.gz",
-            .hash = "zig_ai_sdk-0.1.0-ULWwFOjsNQDpPPJBPUBUJKikJkiIAASwHYLwqyzEmcim",
+        .openai_zig = .{
+            .url = "https://github.com/DaviRain-Su/openai-zig/archive/refs/heads/master.tar.gz",
+            .hash = "openai_zig-0.0.0-xCfcQBnxBQDkrxZmwJkZsZgZP6KOpZU7qqlOqjfpseHO",
         },
     },
     // Specifies the set of files and directories that are included in this package.

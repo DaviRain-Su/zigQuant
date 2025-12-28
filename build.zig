@@ -45,8 +45,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Add zig-ai-sdk dependency for AI/LLM integration
-    const ai_sdk = b.dependency("zig-ai-sdk", .{
+    // Add openai-zig dependency for OpenAI API integration
+    const openai_zig = b.dependency("openai_zig", .{
         .target = target,
         .optimize = optimize,
     });
@@ -73,10 +73,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "zigeth", .module = zigeth.module("zigeth") },
             .{ .name = "websocket", .module = websocket.module("websocket") },
             .{ .name = "xev", .module = libxev.module("xev") },
-            .{ .name = "ai", .module = ai_sdk.module("ai") },
-            .{ .name = "openai", .module = ai_sdk.module("openai") },
-            .{ .name = "anthropic", .module = ai_sdk.module("anthropic") },
-            .{ .name = "provider", .module = ai_sdk.module("provider") },
+            .{ .name = "openai_zig", .module = openai_zig.module("openai_zig") },
         },
     });
 
@@ -760,6 +757,23 @@ pub fn build(b: *std.Build) void {
     const run_example_ai = b.addRunArtifact(example_ai);
     const example_ai_step = b.step("run-example-ai", "Run AI strategy example (v0.9.0)");
     example_ai_step.dependOn(&run_example_ai.step);
+
+    // Example 33: OpenAI Chat - Simple chat with OpenAI-compatible API
+    const example_openai_chat = b.addExecutable(.{
+        .name = "example-openai-chat",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/33_openai_chat.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigQuant", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(example_openai_chat);
+    const run_example_openai_chat = b.addRunArtifact(example_openai_chat);
+    const example_openai_chat_step = b.step("run-example-openai-chat", "Run OpenAI chat example");
+    example_openai_chat_step.dependOn(&run_example_openai_chat.step);
 
     // Run all examples
     const examples_step = b.step("run-examples", "Run all examples");
