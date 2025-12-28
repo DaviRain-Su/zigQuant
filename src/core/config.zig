@@ -191,11 +191,12 @@ pub const AppConfig = struct {
 
 pub const ConfigLoader = struct {
     /// Load configuration from file with environment variable override
+    /// Returns a Parsed(T) object that must be deinited by the caller
     pub fn load(
         allocator: Allocator,
         path: []const u8,
         comptime T: type,
-    ) !T {
+    ) !std.json.Parsed(T) {
         // Read file content
         const file_content = try std.fs.cwd().readFileAlloc(
             allocator,

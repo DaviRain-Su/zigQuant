@@ -14,6 +14,11 @@ const ApiDependencies = api.Dependencies;
 const HyperliquidConnector = zigQuant.HyperliquidConnector;
 const ExchangeConfig = zigQuant.ExchangeConfig;
 
+// Core config module for file-based configuration
+const CoreConfig = zigQuant.config;
+const AppConfig = CoreConfig.AppConfig;
+const ConfigLoader = CoreConfig.ConfigLoader;
+
 const Logger = zigQuant.Logger;
 const ConsoleWriter = zigQuant.ConsoleWriter;
 
@@ -162,11 +167,25 @@ fn printGeneralHelp() !void {
     );
 }
 
+/// Exchange connector holder for lifecycle management
+const ExchangeConnectors = struct {
+    hyperliquid: ?*HyperliquidConnector = null,
+    // Future: Add more exchange connectors here
+    // binance: ?*BinanceConnector = null,
+    // okx: ?*OkxConnector = null,
+
+    pub fn deinit(self: *ExchangeConnectors) void {
+        if (self.hyperliquid) |c| c.destroy();
+        // Future: Destroy other connectors
+    }
+};
+
 /// Run the API server command
 fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Parse serve command arguments
     var port: u16 = 8080;
     var host: []const u8 = "0.0.0.0";
+    var config_path: ?[]const u8 = null;
     var show_help = false;
 
     var i: usize = 1; // Skip "serve" command
@@ -180,12 +199,17 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
                     return error.InvalidArgument;
                 };
             }
-        } else if (std.mem.eql(u8, arg, "--host") or std.mem.eql(u8, arg, "-h")) {
+        } else if (std.mem.eql(u8, arg, "--host")) {
             i += 1;
             if (i < args.len) {
                 host = args[i];
             }
-        } else if (std.mem.eql(u8, arg, "--help")) {
+        } else if (std.mem.eql(u8, arg, "--config") or std.mem.eql(u8, arg, "-c")) {
+            i += 1;
+            if (i < args.len) {
+                config_path = args[i];
+            }
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             show_help = true;
         }
     }
@@ -202,67 +226,133 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         break :blk DEV_JWT_SECRET;
     };
 
-    // Get exchange configuration from environment
-    const hl_user = std.posix.getenv("ZIGQUANT_HL_USER");
-    const hl_secret = std.posix.getenv("ZIGQUANT_HL_SECRET");
-    const testnet_str = std.posix.getenv("ZIGQUANT_TESTNET");
-    const testnet = if (testnet_str) |s| !std.mem.eql(u8, s, "false") else true;
-
-    // Create API config
-    const config = ApiConfig{
-        .host = host,
-        .port = port,
-        .jwt_secret = jwt_secret,
-    };
-
-    std.log.info("zigQuant API Server v{s}", .{api.version});
-    std.log.info("Starting server on {s}:{d}...", .{host, port});
-
-    // Create logger for exchange connector
+    // Create logger for exchange connectors
     const ConsoleWriterType = ConsoleWriter(std.fs.File);
     var console = ConsoleWriterType.initWithColors(allocator, std.fs.File.stdout(), true);
     defer console.deinit();
     var logger = Logger.init(allocator, console.writer(), .info);
     defer logger.deinit();
 
-    // Create dependencies
-    var deps = ApiDependencies{};
+    // Create dependencies with multi-exchange support
+    var deps = ApiDependencies.init(allocator);
+    defer deps.deinit();
 
-    // Initialize exchange connector if credentials are provided
-    var connector: ?*HyperliquidConnector = null;
-    defer if (connector) |c| c.destroy();
+    // Exchange connectors holder for lifecycle management
+    var connectors = ExchangeConnectors{};
+    defer connectors.deinit();
 
-    if (hl_user) |user| {
-        std.log.info("Hyperliquid user configured: {s}", .{user});
-        std.log.info("Network: {s}", .{if (testnet) "testnet" else "mainnet"});
+    var exchange_count: usize = 0;
 
-        const exchange_config = ExchangeConfig{
-            .name = "hyperliquid",
-            .api_key = user,
-            .api_secret = hl_secret orelse "",
-            .testnet = testnet,
+    // ========================================================================
+    // Load configuration from file or environment variables
+    // ========================================================================
+
+    // Hold parsed config at function level to extend its lifetime
+    var parsed_config_holder: ?std.json.Parsed(AppConfig) = null;
+    defer if (parsed_config_holder) |*pc| pc.deinit();
+
+    if (config_path) |path| {
+        // Load from config file
+        std.log.info("Loading configuration from: {s}", .{path});
+
+        parsed_config_holder = ConfigLoader.load(allocator, path, AppConfig) catch |err| {
+            std.log.err("Failed to load config file: {s}", .{@errorName(err)});
+            return err;
         };
 
-        // Create Hyperliquid connector
-        connector = try HyperliquidConnector.create(allocator, exchange_config, logger);
+        const app_config = parsed_config_holder.?.value;
 
-        // Connect to exchange
-        try connector.?.interface().connect();
-        std.log.info("Connected to Hyperliquid exchange", .{});
+        // Override host/port from command line if not default
+        if (port != 8080) {
+            // Command line port takes precedence
+        } else {
+            port = app_config.server.port;
+        }
+        if (std.mem.eql(u8, host, "0.0.0.0")) {
+            host = app_config.server.host;
+        }
 
-        // Set up dependencies with the exchange interface
-        deps.exchange = connector.?.interface();
-        deps.exchange_config = exchange_config;
+        std.log.info("zigQuant API Server v{s}", .{api.version});
+        std.log.info("Config loaded: {d} exchange(s) configured", .{app_config.exchanges.len});
+
+        // Initialize exchanges from config file
+        for (app_config.exchanges) |exchange_cfg| {
+            std.log.info("Initializing {s} exchange...", .{exchange_cfg.name});
+            std.log.info("  Network: {s}", .{if (exchange_cfg.testnet) "testnet" else "mainnet"});
+
+            if (std.mem.eql(u8, exchange_cfg.name, "hyperliquid")) {
+                const hl_config = ExchangeConfig{
+                    .name = "hyperliquid",
+                    .api_key = exchange_cfg.api_key,
+                    .api_secret = exchange_cfg.api_secret,
+                    .testnet = exchange_cfg.testnet,
+                };
+
+                connectors.hyperliquid = try HyperliquidConnector.create(allocator, hl_config, logger);
+                try connectors.hyperliquid.?.interface().connect();
+
+                try deps.addExchange("hyperliquid", connectors.hyperliquid.?.interface(), hl_config);
+                exchange_count += 1;
+                std.log.info("  ✓ Connected to Hyperliquid", .{});
+            }
+            // Future: Add more exchanges here (binance, okx, etc.)
+        }
     } else {
-        std.log.info("No exchange configured, using mock data", .{});
+        // Load from environment variables (legacy mode)
+        std.log.info("zigQuant API Server v{s}", .{api.version});
+        std.log.info("No config file specified, using environment variables", .{});
+
+        // Get global testnet setting
+        const testnet_str = std.posix.getenv("ZIGQUANT_TESTNET");
+        const testnet = if (testnet_str) |s| !std.mem.eql(u8, s, "false") else true;
+
+        // Hyperliquid from env
+        if (std.posix.getenv("ZIGQUANT_HL_USER")) |hl_user| {
+            const hl_secret = std.posix.getenv("ZIGQUANT_HL_SECRET");
+
+            std.log.info("Initializing Hyperliquid exchange...", .{});
+            std.log.info("  User: {s}", .{hl_user});
+            std.log.info("  Network: {s}", .{if (testnet) "testnet" else "mainnet"});
+
+            const hl_config = ExchangeConfig{
+                .name = "hyperliquid",
+                .api_key = hl_user,
+                .api_secret = hl_secret orelse "",
+                .testnet = testnet,
+            };
+
+            connectors.hyperliquid = try HyperliquidConnector.create(allocator, hl_config, logger);
+            try connectors.hyperliquid.?.interface().connect();
+
+            try deps.addExchange("hyperliquid", connectors.hyperliquid.?.interface(), hl_config);
+            exchange_count += 1;
+            std.log.info("  ✓ Connected to Hyperliquid", .{});
+        }
     }
 
+    // Log summary
+    if (exchange_count == 0) {
+        std.log.info("No exchanges configured, using mock data", .{});
+    } else {
+        std.log.info("Initialized {d} exchange(s)", .{exchange_count});
+    }
+
+    // Create API config
+    const api_config = ApiConfig{
+        .host = host,
+        .port = port,
+        .jwt_secret = jwt_secret,
+    };
+
+    std.log.info("Starting server on {s}:{d}...", .{host, port});
+
     // Initialize and start the server
-    const server = try ApiServer.init(allocator, config, deps);
+    const server = try ApiServer.init(allocator, api_config, deps);
     defer server.deinit();
 
     std.log.info("Server listening on http://{s}:{d}", .{host, port});
     std.log.info("Health check: http://{s}:{d}/health", .{host, port});
+    std.log.info("API docs: http://{s}:{d}/api/v1/exchanges", .{host, port});
     std.log.info("Press Ctrl+C to stop", .{});
 
     try server.start();
@@ -272,26 +362,54 @@ fn printServeHelp() !void {
     const stdout = std.fs.File.stdout();
     try stdout.writeAll(
         \\
-        \\zigQuant serve - Start REST API Server
+        \\zigQuant serve - Start REST API Server (Multi-Exchange)
         \\
         \\USAGE:
         \\    zigquant serve [OPTIONS]
         \\
         \\OPTIONS:
-        \\    -p, --port <PORT>    Server port (default: 8080)
-        \\    -h, --host <HOST>    Server host (default: 0.0.0.0)
-        \\        --help           Show this help message
+        \\    -c, --config <FILE>  Configuration file path (JSON format)
+        \\    -p, --port <PORT>    Server port (default: 8080, overrides config)
+        \\        --host <HOST>    Server host (default: 0.0.0.0, overrides config)
+        \\    -h, --help           Show this help message
         \\
-        \\ENVIRONMENT VARIABLES:
+        \\CONFIGURATION FILE (recommended):
+        \\    Use a JSON config file to configure multiple exchanges:
+        \\
+        \\    {
+        \\      "server": { "host": "0.0.0.0", "port": 8080 },
+        \\      "exchanges": [
+        \\        {
+        \\          "name": "hyperliquid",
+        \\          "api_key": "0x...",
+        \\          "api_secret": "...",
+        \\          "testnet": true
+        \\        }
+        \\      ],
+        \\      "trading": { "max_position_size": 1000, "leverage": 1 },
+        \\      "logging": { "level": "info" }
+        \\    }
+        \\
+        \\ENVIRONMENT VARIABLES (legacy mode):
+        \\    When no config file is specified, use environment variables:
+        \\
         \\    ZIGQUANT_JWT_SECRET      JWT signing secret (required for production)
-        \\    ZIGQUANT_HL_USER         Hyperliquid wallet address (main account)
-        \\    ZIGQUANT_HL_SECRET       Hyperliquid API wallet private key (optional)
-        \\    ZIGQUANT_TESTNET         Use testnet (default: true, set to "false" for mainnet)
+        \\    ZIGQUANT_TESTNET         Use testnet (default: true)
+        \\    ZIGQUANT_HL_USER         Hyperliquid wallet address
+        \\    ZIGQUANT_HL_SECRET       Hyperliquid API private key
+        \\
+        \\    Environment variables can also override config file values.
+        \\
+        \\API ENDPOINTS:
+        \\    GET /api/v1/exchanges           List all connected exchanges
+        \\    GET /api/v1/positions           Get positions from all exchanges
+        \\    GET /api/v1/positions?exchange=hyperliquid  Filter by exchange
         \\
         \\EXAMPLES:
-        \\    zigquant serve                          # Start on default port 8080
-        \\    zigquant serve --port 3000              # Start on port 3000
-        \\    ZIGQUANT_HL_USER=0x... zigquant serve   # With Hyperliquid account
+        \\    zigquant serve -c config.json           # Use config file
+        \\    zigquant serve -c config.json -p 3000   # Config + custom port
+        \\    zigquant serve                          # Env vars or mock data
+        \\    ZIGQUANT_HL_USER=0x... zigquant serve   # Env var mode
         \\
         \\
     );

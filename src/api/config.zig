@@ -106,20 +106,81 @@ pub const ApiConfig = struct {
     }
 };
 
-/// Dependencies for the API server
-pub const ApiDependencies = struct {
-    /// Exchange interface (polymorphic - can be any exchange implementation)
-    exchange: ?IExchange = null,
+/// Exchange entry with interface and configuration
+pub const ExchangeEntry = struct {
+    interface: IExchange,
+    config: ExchangeConfig,
+};
 
-    /// Exchange configuration
-    exchange_config: ?ExchangeConfig = null,
+/// Dependencies for the API server - supports multiple exchanges
+pub const ApiDependencies = struct {
+    /// Multiple exchanges indexed by name (e.g., "hyperliquid", "binance")
+    exchanges: std.StringHashMap(ExchangeEntry),
+
+    /// Allocator for managing exchange map
+    allocator: std.mem.Allocator,
 
     /// Backtest results directory
     backtest_results_dir: []const u8 = "backtest_results",
 
-    /// Check if exchange is configured
-    pub fn isExchangeConfigured(self: ApiDependencies) bool {
-        return self.exchange != null;
+    /// Initialize dependencies
+    pub fn init(allocator: std.mem.Allocator) ApiDependencies {
+        return .{
+            .exchanges = std.StringHashMap(ExchangeEntry).init(allocator),
+            .allocator = allocator,
+            .backtest_results_dir = "backtest_results",
+        };
+    }
+
+    /// Deinitialize dependencies
+    pub fn deinit(self: *ApiDependencies) void {
+        self.exchanges.deinit();
+    }
+
+    /// Add an exchange
+    pub fn addExchange(self: *ApiDependencies, name: []const u8, interface: IExchange, config: ExchangeConfig) !void {
+        try self.exchanges.put(name, .{
+            .interface = interface,
+            .config = config,
+        });
+    }
+
+    /// Get an exchange by name
+    pub fn getExchange(self: *const ApiDependencies, name: []const u8) ?ExchangeEntry {
+        return self.exchanges.get(name);
+    }
+
+    /// Check if any exchange is configured
+    pub fn hasExchanges(self: *const ApiDependencies) bool {
+        return self.exchanges.count() > 0;
+    }
+
+    /// Get number of configured exchanges
+    pub fn exchangeCount(self: *const ApiDependencies) usize {
+        return self.exchanges.count();
+    }
+
+    /// Get all exchange names
+    pub fn getExchangeNames(self: *const ApiDependencies, allocator: std.mem.Allocator) ![]const []const u8 {
+        var names = std.ArrayList([]const u8).init(allocator);
+        errdefer names.deinit();
+
+        var iter = self.exchanges.keyIterator();
+        while (iter.next()) |key| {
+            try names.append(key.*);
+        }
+
+        return names.toOwnedSlice();
+    }
+
+    /// Iterate over all exchanges
+    pub fn iterator(self: *const ApiDependencies) std.StringHashMap(ExchangeEntry).Iterator {
+        return self.exchanges.iterator();
+    }
+
+    // Legacy compatibility - get first exchange (deprecated)
+    pub fn isExchangeConfigured(self: *const ApiDependencies) bool {
+        return self.hasExchanges();
     }
 };
 

@@ -21,6 +21,51 @@ const handlers = @import("handlers/mod.zig");
 const jwt_mod = @import("jwt.zig");
 const cors = @import("middleware/cors.zig");
 
+// ============================================================================
+// Response Types for Multi-Exchange API
+// ============================================================================
+
+/// Exchange info for listing exchanges
+pub const ExchangeInfo = struct {
+    name: []const u8,
+    status: []const u8,
+    network: []const u8,
+};
+
+/// Position summary per exchange
+pub const PositionSummary = struct {
+    exchange: []const u8,
+    position_count: usize,
+    total_pnl: f64,
+    total_margin: f64,
+    status: []const u8,
+};
+
+/// Order summary per exchange
+pub const OrderSummary = struct {
+    exchange: []const u8,
+    order_count: usize,
+    status: []const u8,
+};
+
+/// Account info per exchange
+pub const AccountInfo = struct {
+    exchange: []const u8,
+    account_id: []const u8,
+    account_type: []const u8,
+    network: []const u8,
+    status: []const u8,
+};
+
+/// Balance summary per exchange
+pub const BalanceSummary = struct {
+    exchange: []const u8,
+    total: f64,
+    available: f64,
+    locked: f64,
+    status: []const u8,
+};
+
 /// API Server State
 /// This is passed to all request handlers as context.
 pub const ServerContext = struct {
@@ -145,6 +190,10 @@ pub const ApiServer = struct {
         router.get("/api/v1/auth/me", handleMe, .{});
 
         // API v1 routes (public for now, auth can be added per-handler)
+        // Exchanges - Multi-exchange support
+        router.get("/api/v1/exchanges", handleExchangesList, .{});
+        router.get("/api/v1/exchanges/:name", handleExchangeGet, .{});
+
         // Strategies
         router.get("/api/v1/strategies", handleStrategiesList, .{});
         router.get("/api/v1/strategies/:id", handleStrategyGet, .{});
@@ -253,6 +302,69 @@ pub const ApiServer = struct {
             .api_version = "v1",
             .zig_version = @import("builtin").zig_version_string,
         }, .{});
+    }
+
+    // ========================================================================
+    // Route Handlers - Exchanges (Multi-Exchange Support)
+    // ========================================================================
+
+    fn handleExchangesList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        // Build list of connected exchanges
+        var exchanges_list: std.ArrayListUnmanaged(ExchangeInfo) = .empty;
+        defer exchanges_list.deinit(ctx.allocator);
+
+        var iter = ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            const exchange_entry = entry.value_ptr.*;
+            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
+            const status = if (exchange_entry.interface.isConnected()) "connected" else "disconnected";
+
+            try exchanges_list.append(ctx.allocator, .{
+                .name = entry.key_ptr.*,
+                .status = status,
+                .network = network,
+            });
+        }
+
+        try res.json(.{
+            .exchanges = exchanges_list.items,
+            .total = ctx.deps.exchangeCount(),
+            .note = "Use ?exchange=<name> parameter to filter by exchange",
+        }, .{});
+    }
+
+    fn handleExchangeGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
+        ctx.addCorsHeaders(req, res);
+        ctx.incrementRequestCount();
+
+        const name = req.param("name") orelse {
+            res.setStatus(.bad_request);
+            try res.json(.{ .@"error" = "Missing exchange name" }, .{});
+            return;
+        };
+
+        if (ctx.deps.getExchange(name)) |exchange_entry| {
+            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
+            const status = if (exchange_entry.interface.isConnected()) "connected" else "disconnected";
+
+            try res.json(.{
+                .name = name,
+                .status = status,
+                .network = network,
+                .api_key = exchange_entry.config.api_key,
+                .features = .{
+                    .spot = false,
+                    .futures = true,
+                    .margin = false,
+                },
+            }, .{});
+        } else {
+            res.setStatus(.not_found);
+            try res.json(.{ .@"error" = "Exchange not found", .name = name }, .{});
+        }
     }
 
     // ========================================================================
@@ -614,24 +726,54 @@ pub const ApiServer = struct {
     }
 
     // ========================================================================
-    // Route Handlers - Positions
+    // Route Handlers - Positions (Multi-Exchange)
     // ========================================================================
 
     fn handlePositionsList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
         ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
-        // Try to fetch real data from exchange
-        if (ctx.deps.isExchangeConfigured()) {
-            const exchange = ctx.deps.exchange.?;
-            const positions = exchange.getPositions() catch |err| {
-                std.log.warn("Failed to fetch positions from exchange: {}", .{err});
-                try returnMockPositions(res);
-                return;
+        // Check for exchange filter via query string
+        const query_map = req.query() catch null;
+        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
+
+        if (!ctx.deps.hasExchanges()) {
+            try returnMockPositions(res);
+            return;
+        }
+
+        // Build response with positions from all or specific exchange(s)
+        var all_positions: std.ArrayListUnmanaged(PositionSummary) = .empty;
+        defer all_positions.deinit(ctx.allocator);
+
+        var grand_total_pnl: f64 = 0;
+        var grand_total_margin: f64 = 0;
+        var grand_total_positions: usize = 0;
+
+        var iter = ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+
+            // Skip if filtering by specific exchange
+            if (exchange_filter) |filter| {
+                if (!std.mem.eql(u8, filter, "all") and !std.mem.eql(u8, name, filter)) {
+                    continue;
+                }
+            }
+
+            const exchange_entry = entry.value_ptr.*;
+            const positions = exchange_entry.interface.getPositions() catch |err| {
+                try all_positions.append(ctx.allocator, .{
+                    .exchange = name,
+                    .position_count = 0,
+                    .total_pnl = 0,
+                    .total_margin = 0,
+                    .status = @errorName(err),
+                });
+                continue;
             };
             defer ctx.allocator.free(positions);
 
-            // Calculate totals
             var total_pnl: f64 = 0;
             var total_margin: f64 = 0;
             for (positions) |pos| {
@@ -639,19 +781,29 @@ pub const ApiServer = struct {
                 total_margin += pos.margin_used.toFloat();
             }
 
-            // Return summary with position count
-            try res.json(.{
+            try all_positions.append(ctx.allocator, .{
+                .exchange = name,
                 .position_count = positions.len,
-                .total_unrealized_pnl = total_pnl,
-                .total_margin_used = total_margin,
-                .source = exchange.getName(),
-                .note = "Use /api/v1/positions/:coin for individual position details",
-            }, .{});
-            return;
+                .total_pnl = total_pnl,
+                .total_margin = total_margin,
+                .status = "ok",
+            });
+
+            grand_total_pnl += total_pnl;
+            grand_total_margin += total_margin;
+            grand_total_positions += positions.len;
         }
 
-        // No exchange configured, return mock data
-        try returnMockPositions(res);
+        try res.json(.{
+            .positions_by_exchange = all_positions.items,
+            .summary = .{
+                .total_positions = grand_total_positions,
+                .total_unrealized_pnl = grand_total_pnl,
+                .total_margin_used = grand_total_margin,
+                .exchanges_queried = all_positions.items.len,
+            },
+            .filter = exchange_filter orelse "all",
+        }, .{});
     }
 
     fn returnMockPositions(res: *httpz.Response) !void {
@@ -687,33 +839,67 @@ pub const ApiServer = struct {
     }
 
     // ========================================================================
-    // Route Handlers - Orders
+    // Route Handlers - Orders (Multi-Exchange)
     // ========================================================================
 
     fn handleOrdersList(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
         ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
-        // Try to fetch real data from exchange
-        if (ctx.deps.isExchangeConfigured()) {
-            const exchange = ctx.deps.exchange.?;
-            const orders = exchange.getOpenOrders(null) catch |err| {
-                std.log.warn("Failed to fetch orders from exchange: {}", .{err});
-                try returnMockOrders(res);
-                return;
-            };
-            defer ctx.allocator.free(orders);
+        // Check for exchange filter via query string
+        const query_map = req.query() catch null;
+        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
 
-            // Return summary with order count
-            try res.json(.{
-                .order_count = orders.len,
-                .source = exchange.getName(),
-                .note = "Use /api/v1/orders/:id for individual order details",
-            }, .{});
+        if (!ctx.deps.hasExchanges()) {
+            try returnMockOrders(res);
             return;
         }
 
-        try returnMockOrders(res);
+        // Build response with orders from all or specific exchange(s)
+        var all_orders: std.ArrayListUnmanaged(OrderSummary) = .empty;
+        defer all_orders.deinit(ctx.allocator);
+
+        var grand_total_orders: usize = 0;
+
+        var iter = ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+
+            // Skip if filtering by specific exchange
+            if (exchange_filter) |filter| {
+                if (!std.mem.eql(u8, filter, "all") and !std.mem.eql(u8, name, filter)) {
+                    continue;
+                }
+            }
+
+            const exchange_entry = entry.value_ptr.*;
+            const orders = exchange_entry.interface.getOpenOrders(null) catch |err| {
+                try all_orders.append(ctx.allocator, .{
+                    .exchange = name,
+                    .order_count = 0,
+                    .status = @errorName(err),
+                });
+                continue;
+            };
+            defer ctx.allocator.free(orders);
+
+            try all_orders.append(ctx.allocator, .{
+                .exchange = name,
+                .order_count = orders.len,
+                .status = "ok",
+            });
+
+            grand_total_orders += orders.len;
+        }
+
+        try res.json(.{
+            .orders_by_exchange = all_orders.items,
+            .summary = .{
+                .total_orders = grand_total_orders,
+                .exchanges_queried = all_orders.items.len,
+            },
+            .filter = exchange_filter orelse "all",
+        }, .{});
     }
 
     fn returnMockOrders(res: *httpz.Response) !void {
@@ -845,82 +1031,126 @@ pub const ApiServer = struct {
     }
 
     // ========================================================================
-    // Route Handlers - Account
+    // Route Handlers - Account (Multi-Exchange)
     // ========================================================================
 
     fn handleAccountGet(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
         ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
-        // Return account info based on configuration
-        if (ctx.deps.isExchangeConfigured()) {
-            const exchange = ctx.deps.exchange.?;
-            const exchange_config = ctx.deps.exchange_config.?;
-            const network = if (exchange_config.testnet) "testnet" else "mainnet";
-
+        if (!ctx.deps.hasExchanges()) {
             try res.json(.{
-                .account_id = exchange_config.api_key,
-                .account_type = "futures",
-                .exchange = exchange.getName(),
-                .network = network,
-                .status = "active",
-                .margin_mode = "cross",
-                .source = exchange.getName(),
+                .accounts = &[_]AccountInfo{},
+                .total = 0,
+                .note = "No exchanges configured",
             }, .{});
-        } else {
-            try res.json(.{
-                .account_id = "not_configured",
-                .account_type = "futures",
-                .exchange = "none",
-                .network = "unknown",
-                .status = "not_configured",
-                .margin_mode = "cross",
-                .source = "mock",
-            }, .{});
+            return;
         }
+
+        // Build list of all accounts
+        var accounts: std.ArrayListUnmanaged(AccountInfo) = .empty;
+        defer accounts.deinit(ctx.allocator);
+
+        var iter = ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const exchange_entry = entry.value_ptr.*;
+            const network = if (exchange_entry.config.testnet) "testnet" else "mainnet";
+            const status = if (exchange_entry.interface.isConnected()) "connected" else "disconnected";
+
+            try accounts.append(ctx.allocator, .{
+                .exchange = name,
+                .account_id = exchange_entry.config.api_key,
+                .account_type = "futures",
+                .network = network,
+                .status = status,
+            });
+        }
+
+        try res.json(.{
+            .accounts = accounts.items,
+            .total = accounts.items.len,
+        }, .{});
     }
 
     fn handleAccountBalance(ctx: *ServerContext, req: *httpz.Request, res: *httpz.Response) !void {
         ctx.addCorsHeaders(req, res);
         ctx.incrementRequestCount();
 
-        // Try to fetch real data from exchange
-        if (ctx.deps.isExchangeConfigured()) {
-            const exchange = ctx.deps.exchange.?;
-            const balances = exchange.getBalance() catch |err| {
-                std.log.warn("Failed to fetch balance from exchange: {}", .{err});
-                try returnMockBalance(res);
-                return;
+        // Check for exchange filter via query string
+        const query_map = req.query() catch null;
+        const exchange_filter: ?[]const u8 = if (query_map) |qm| qm.get("exchange") else null;
+
+        if (!ctx.deps.hasExchanges()) {
+            try returnMockBalance(res);
+            return;
+        }
+
+        // Build response with balances from all or specific exchange(s)
+        var all_balances: std.ArrayListUnmanaged(BalanceSummary) = .empty;
+        defer all_balances.deinit(ctx.allocator);
+
+        var grand_total: f64 = 0;
+        var grand_available: f64 = 0;
+        var grand_locked: f64 = 0;
+
+        var iter = ctx.deps.iterator();
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+
+            // Skip if filtering by specific exchange
+            if (exchange_filter) |filter| {
+                if (!std.mem.eql(u8, filter, "all") and !std.mem.eql(u8, name, filter)) {
+                    continue;
+                }
+            }
+
+            const exchange_entry = entry.value_ptr.*;
+            const balances = exchange_entry.interface.getBalance() catch |err| {
+                try all_balances.append(ctx.allocator, .{
+                    .exchange = name,
+                    .total = 0,
+                    .available = 0,
+                    .locked = 0,
+                    .status = @errorName(err),
+                });
+                continue;
             };
             defer ctx.allocator.free(balances);
 
-            // Get first balance (typically USDC for Hyperliquid)
-            if (balances.len > 0) {
-                const bal = balances[0];
-                try res.json(.{
-                    .balances = &[_]struct {
-                        asset: []const u8,
-                        free: f64,
-                        locked: f64,
-                        total: f64,
-                    }{
-                        .{
-                            .asset = bal.asset,
-                            .free = bal.available.toFloat(),
-                            .locked = bal.locked.toFloat(),
-                            .total = bal.total.toFloat(),
-                        },
-                    },
-                    .account_value = bal.total.toFloat(),
-                    .withdrawable = bal.available.toFloat(),
-                    .margin_used = bal.locked.toFloat(),
-                    .source = exchange.getName(),
-                }, .{});
-                return;
+            // Sum up all balances for this exchange
+            var exchange_total: f64 = 0;
+            var exchange_available: f64 = 0;
+            var exchange_locked: f64 = 0;
+            for (balances) |bal| {
+                exchange_total += bal.total.toFloat();
+                exchange_available += bal.available.toFloat();
+                exchange_locked += bal.locked.toFloat();
             }
+
+            try all_balances.append(ctx.allocator, .{
+                .exchange = name,
+                .total = exchange_total,
+                .available = exchange_available,
+                .locked = exchange_locked,
+                .status = "ok",
+            });
+
+            grand_total += exchange_total;
+            grand_available += exchange_available;
+            grand_locked += exchange_locked;
         }
 
-        try returnMockBalance(res);
+        try res.json(.{
+            .balances_by_exchange = all_balances.items,
+            .summary = .{
+                .total_value = grand_total,
+                .total_available = grand_available,
+                .total_locked = grand_locked,
+                .exchanges_queried = all_balances.items.len,
+            },
+            .filter = exchange_filter orelse "all",
+        }, .{});
     }
 
     fn returnMockBalance(res: *httpz.Response) !void {
