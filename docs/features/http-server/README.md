@@ -16,7 +16,6 @@ zigQuant HTTP Server 模块提供完整的 REST API 服务，基于 [http.zig](h
 ### 为什么需要 HTTP Server？
 
 - **外部集成**: 允许外部系统通过标准 HTTP API 与 zigQuant 交互
-- **Web Dashboard**: 为前端提供数据接口
 - **监控集成**: 提供 Prometheus 格式指标导出
 - **自动化**: 支持程序化策略管理和回测
 
@@ -255,7 +254,6 @@ const config = ApiConfig{
 ### 适用
 
 - REST API 服务
-- Web Dashboard 后端
 - 自动化交易系统集成
 - 监控系统集成 (Prometheus)
 

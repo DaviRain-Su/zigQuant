@@ -32,20 +32,18 @@ v0.9.0 "AI 策略集成" 已于 2025-12-28 完成，包含：
 
 ### 核心目标
 
-1. **REST API 服务**: 提供 HTTP API 供外部集成
-2. **Web Dashboard**: 策略管理和监控界面
-3. **Prometheus Metrics**: 监控指标导出
-4. **Docker 部署**: 容器化部署支持
-5. **通知系统**: Telegram/Email 告警通知
-6. **完整运维文档**: 生产环境指南
+1. **REST API 服务**: 提供 HTTP API 供外部集成 ✅
+2. **Prometheus Metrics**: 监控指标导出 ✅
+3. **Docker 部署**: 容器化部署支持
+4. **通知系统**: Telegram/Email 告警通知
+5. **完整运维文档**: 生产环境指南
 
 ### Story 列表
 
 | Story ID | 名称 | 优先级 | 预计工时 | 状态 |
 |----------|------|--------|----------|------|
-| STORY-047 | http.zig REST API | P0 | 4-5 天 | 📋 待开始 |
-| STORY-048 | Web Dashboard UI | P1 | 5-6 天 | 📋 待开始 |
-| STORY-049 | Prometheus Metrics | P1 | 2-3 天 | 📋 待开始 |
+| STORY-047 | http.zig REST API | P0 | 4-5 天 | ✅ 已完成 |
+| STORY-049 | Prometheus Metrics | P1 | 2-3 天 | ✅ 已完成 |
 | STORY-050 | Docker 部署 | P2 | 2-3 天 | 📋 待开始 |
 | STORY-051 | 运维文档 | P2 | 2-3 天 | 📋 待开始 |
 | STORY-052 | Telegram/Email 通知 | P1 | 2-3 天 | 📋 待开始 |
@@ -53,16 +51,16 @@ v0.9.0 "AI 策略集成" 已于 2025-12-28 完成，包含：
 ### 依赖关系
 
 ```
-Story 047 (REST API)
+Story 047 (REST API) ✅
     ↓
-Story 048 (Web Dashboard) ──→ Story 049 (Prometheus)
-    ↓                              ↓
-Story 050 (Docker)           Story 051 (运维文档)
+Story 049 (Prometheus) ✅ ──→ Story 050 (Docker)
+                                   ↓
+                            Story 051 (运维文档)
                                    ↑
                             Story 052 (通知系统)
 ```
 
-**关键路径**: Story 047 → Story 048 → Story 050
+**关键路径**: Story 047 ✅ → Story 050 → Story 052
 
 ---
 
@@ -91,17 +89,6 @@ pub const ApiServer = struct {
 // POST /api/v1/orders              - 创建订单
 // GET  /api/v1/metrics             - 获取性能指标
 ```
-
-### Story 048: Web Dashboard UI
-
-**目标**: 实现策略管理和监控界面
-
-**核心功能**:
-- 策略配置界面
-- 回测结果可视化 (图表)
-- 实时 PnL 监控
-- 仓位和订单管理
-- 告警通知面板
 
 ### Story 049: Prometheus Metrics
 
@@ -199,9 +186,8 @@ pub const EmailNotifier = struct {
 ### v1.0.0 验收清单
 
 #### 功能验收
-- [ ] REST API 完整实现并通过测试
-- [ ] Web Dashboard 可用
-- [ ] Prometheus 指标导出正常
+- [x] REST API 完整实现并通过测试 ✅
+- [x] Prometheus 指标导出正常 ✅
 - [ ] Docker 部署成功
 - [ ] Telegram/Email 通知可用
 - [ ] 运维文档完整
@@ -296,13 +282,13 @@ v1.0 ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下
 
 建议直接承担核心任务：
 
-1. **REST API** (Story 047)
+1. **REST API** (Story 047) ✅ 已完成
    - 核心 HTTP 服务
    - 需要理解整体架构
 
-2. **Web Dashboard** (Story 048)
-   - 前端界面开发
-   - 需要 Web 开发经验
+2. **Docker 部署** (Story 050)
+   - 容器化配置
+   - 需要 DevOps 经验
 
 ---
 
@@ -377,7 +363,6 @@ v1.0 ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下
 
 - [v1.0.0 Overview](./docs/stories/v1.0.0/OVERVIEW.md)
 - [Story 047: REST API](./docs/stories/v1.0.0/STORY_047_REST_API.md)
-- [Story 048: Web Dashboard](./docs/stories/v1.0.0/STORY_048_WEB_DASHBOARD.md)
 - [Story 049: Prometheus](./docs/stories/v1.0.0/STORY_049_PROMETHEUS.md)
 - [Story 050: Docker](./docs/stories/v1.0.0/STORY_050_DOCKER.md)
 - [Story 051: Operations](./docs/stories/v1.0.0/STORY_051_OPERATIONS.md)
@@ -391,5 +376,5 @@ v1.0 ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下
 ---
 
 **创建时间**: 2025-12-27
-**最后更新**: 2025-12-28
+**最后更新**: 2025-12-29
 **维护者**: zigQuant Team

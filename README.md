@@ -121,7 +121,6 @@
 #### 🚧 V1.0 生产就绪 (开发中)
 - [v1.0.0 概览](./docs/stories/v1.0.0/OVERVIEW.md) - 生产就绪目标 ⭐
 - [REST API](./docs/stories/v1.0.0/STORY_047_REST_API.md) - 40 个端点, JWT 认证, 动态数据 ✅
-- [Web Dashboard](./docs/stories/v1.0.0/STORY_048_WEB_DASHBOARD.md) - Vue 3 监控面板 (待开始)
 - [Prometheus 监控](./docs/stories/v1.0.0/STORY_049_PROMETHEUS.md) - 指标导出 ✅
 - [Docker 部署](./docs/stories/v1.0.0/STORY_050_DOCKER.md) - 容器化 (待开始)
 - [Telegram/Email 通知](./docs/stories/v1.0.0/STORY_052_NOTIFICATIONS.md) - 多渠道告警 (待开始)
@@ -680,11 +679,10 @@ v1.0 生产就绪            ████████░░░░░░░░░
 
 ### 🚧 V1.0 - 生产就绪 (开发中)
 
-**核心目标**: Web 管理界面和完整运维支持
+**核心目标**: CLI 工具和完整运维支持
 
 - [x] **REST API 服务** - 40 端点, JWT 认证, 动态数据 ✅
 - [x] **Prometheus Metrics** - /metrics 端点导出 ✅
-- [ ] Web Dashboard - Vue 3 监控面板
 - [ ] Docker 部署 - 容器化部署
 - [ ] Telegram/Email 通知 - 多渠道告警
 - [ ] 完整运维文档
@@ -854,6 +852,6 @@ zig build test -freference-trace=10
 
 ---
 
-**状态**: 🚧 V1.0.0 生产就绪开发中 (REST API ✅) | **版本**: 1.0.0-dev | **更新时间**: 2025-12-28
+**状态**: 🚧 V1.0.0 生产就绪开发中 (REST API ✅) | **版本**: 1.0.0-dev | **更新时间**: 2025-12-29
 **测试**: 558+ 全部通过 ✅ | **示例**: 26 个完整示例 | **文档**: 10,000+ 行 | **性能**: 全部达标 ✅
-**下一步**: Web Dashboard + Docker 部署 + 通知系统
+**下一步**: Docker 部署 + 通知系统 + 多交易所支持

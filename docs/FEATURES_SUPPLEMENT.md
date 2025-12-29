@@ -33,7 +33,6 @@
 - [ ] DEX 连接器
 - [ ] 更多 CEX 连接器
 - [ ] Telegram Bot
-- [ ] Web UI
 - [ ] 保护机制 (Protections)
 - [ ] 冷却期管理
 - [ ] 脚本策略系统

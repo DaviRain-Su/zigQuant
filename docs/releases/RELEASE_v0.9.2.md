@@ -25,12 +25,6 @@ December 2024
 - Graceful shutdown with `stopAllLive()` and `stopAllStrategies()`
 - Improved error logging with HTTP response bodies
 
-### Web Dashboard (Experimental)
-- Unified Trading page (merged Strategies page)
-- Session cards with leverage display
-- New session dialog with all parameters
-- Log viewer integration
-
 ---
 
 ## Known Issues
@@ -101,9 +95,8 @@ The Web interface (React + Zap HTTP server) has fundamental architectural issues
 - `src/main.zig` - Graceful shutdown sequence
 
 ### Files Added
-- `src/core/log_buffer.zig` - Log buffer for UI
+- `src/core/log_buffer.zig` - Log buffer for API
 - `src/exchange/hyperliquid/live_adapter.zig` - Live trading adapter
-- `web/` - React frontend (experimental)
 
 ---
 

@@ -9,7 +9,7 @@
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   User Interface                     │
-│            (CLI, Web UI, REST API)                   │
+│                  (CLI, REST API)                     │
 └──────────────────────┬──────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────┐
@@ -78,7 +78,7 @@
 30. ✅ AlertSystem 警报系统
 31. ✅ RecoveryManager 崩溃恢复
 
-### Web Control Platform (v0.9 - v1.0)
+### REST API (v0.9)
 36. ✅ Zap HTTP Server (facil.io based)
 37. ✅ JWT Authentication (embedded implementation)
 38. ✅ Backtest REST API (run, progress, result, cancel)
@@ -105,32 +105,9 @@
 | 优先级 | Story | 内容 | 状态 |
 |--------|-------|------|------|
 | P0 | 046 | REST API 服务 (Zap-based) | ✅ 完成 |
-| P0 | - | WebSocket 实时通信 | ✅ 完成 |
-| P0 | 047 | Web Dashboard (Bun + React) | 🔜 待开始 |
 | P1 | - | Strategy API (start/stop/params) | ✅ 完成 |
 | P1 | 048 | 多策略组合 | 🔜 待开始 |
 | P2 | 050 | Binance 适配器 | 🔜 待开始 |
-
-### API V2 端点完成状态
-
-| 模块 | 端点 | 状态 |
-|------|------|------|
-| Auth | `/api/v2/auth/login` | ✅ |
-| Auth | `/api/v2/auth/me` | ✅ |
-| Auth | `/api/v2/auth/refresh` | ✅ |
-| Strategy | `/api/v2/strategy` (GET/POST) | ✅ 支持所有策略类型(含Grid) |
-| Strategy | `/api/v2/strategy/:id` (GET/DELETE) | ✅ |
-| Strategy | `/api/v2/strategy/:id/pause` | ✅ |
-| Strategy | `/api/v2/strategy/:id/resume` | ✅ |
-| Backtest | `/api/v2/backtest/run` | ✅ |
-| Backtest | `/api/v2/backtest/:id/progress` | ✅ |
-| Backtest | `/api/v2/backtest/:id/result` | ✅ |
-| Backtest | `/api/v2/backtest/:id/cancel` | ✅ |
-| System | `/api/v2/system/kill-switch` | ✅ |
-| System | `/api/v2/system/health` | ✅ |
-| System | `/api/v2/system/logs` | ✅ |
-
-**注意**: Grid 端点已废弃，请使用 Strategy API 并设置 `strategy: "grid"`
 
 ### 低优先级 (未来规划)
 
@@ -144,7 +121,7 @@
 ## 统计
 
 - ✅ 已完成: 45 项
-- ⏳ v1.0.0 待完成: 3 项
+- ⏳ v1.0.0 待完成: 2 项
 - 🔹 低优先级待完成: 2 项
 - **总代码行数**: ~40,000 行
 - **单元测试**: 768+
@@ -164,8 +141,8 @@
 | v0.6 | 混合计算模式 | ✅ 完成 | 2025-12-27 |
 | v0.7 | 做市优化 | ✅ 完成 | 2025-12-27 |
 | v0.8 | 风险管理 | ✅ 完成 | 2025-12-28 |
-| v0.9 | Web API (REST) | ✅ 完成 | 2025-12-29 |
-| v1.0 | Web Dashboard | 🔜 进行中 | - |
+| v0.9 | REST API | ✅ 完成 | 2025-12-29 |
+| v1.0 | 生产就绪 | 🔜 进行中 | - |
 
 ---
 
@@ -175,6 +152,6 @@
 
 ### 立即可做的任务
 
-1. **Frontend** - 初始化 Bun + React 项目 (Web Dashboard)
-2. **Step 2: Live Runner Migration** - 将 LiveTradingEngine 迁移到 src/engine/runners/live_runner.zig
-3. **Step 3: Paper Trading Cleanup** - 合并 PaperTradingEngine 到 StrategyRunner 的 paper 模式
+1. **Step 1: Live Runner Migration** - 将 LiveTradingEngine 迁移到 src/engine/runners/live_runner.zig
+2. **Step 2: Paper Trading Cleanup** - 合并 PaperTradingEngine 到 StrategyRunner 的 paper 模式
+3. **Step 3: Multi-Exchange** - 添加 Binance 适配器

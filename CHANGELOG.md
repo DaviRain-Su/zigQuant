@@ -794,9 +794,8 @@
 ## 下一版本计划
 
 ### v1.0.0 - 生产就绪 (规划中)
-- [ ] REST API 服务 (http.zig)
-- [ ] Web Dashboard UI
-- [ ] Prometheus Metrics 导出
+- [x] REST API 服务 (Zap/facil.io) ✅
+- [x] Prometheus Metrics 导出 ✅
 - [ ] Docker 容器化部署
 - [ ] Telegram/Email 通知系统
 - [ ] 完整运维文档

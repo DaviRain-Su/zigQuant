@@ -8,7 +8,7 @@
 
 ## Overview
 
-v1.0.0 marks the first production-ready release of zigQuant. This version introduces REST API services, Web Dashboard, containerized deployment, and multi-channel notifications, making zigQuant suitable for production trading environments.
+v1.0.0 marks the first production-ready release of zigQuant. This version introduces REST API services, containerized deployment, and multi-channel notifications, making zigQuant suitable for production trading environments. zigQuant is designed as a pure CLI tool.
 
 ---
 
@@ -23,16 +23,6 @@ Complete HTTP REST API with JWT authentication:
 - **CORS Support**: Configurable cross-origin access
 - **Request Logging**: Full request/response logging
 - **Rate Limiting**: Per-endpoint rate limits
-
-### Web Dashboard
-
-Vue 3 + Vite based monitoring dashboard:
-
-- **Strategy Management**: Configure and monitor strategies
-- **Backtest Visualization**: Equity curves, performance charts
-- **Real-time PnL**: Live profit/loss tracking
-- **Order Management**: View and cancel orders
-- **Alert Panel**: Notification history and configuration
 
 ### Prometheus Metrics
 
@@ -390,7 +380,6 @@ deploy/
 ### Story Documents
 
 - [Story 047: REST API](../stories/v1.0.0/STORY_047_REST_API.md)
-- [Story 048: Web Dashboard](../stories/v1.0.0/STORY_048_WEB_DASHBOARD.md)
 - [Story 049: Prometheus](../stories/v1.0.0/STORY_049_PROMETHEUS.md)
 - [Story 050: Docker](../stories/v1.0.0/STORY_050_DOCKER.md)
 - [Story 051: Operations](../stories/v1.0.0/STORY_051_OPERATIONS.md)

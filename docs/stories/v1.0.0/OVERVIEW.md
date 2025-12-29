@@ -9,15 +9,14 @@
 
 ## 版本概述
 
-v1.0.0 将 zigQuant 从开发版本推进到生产就绪状态，提供完整的 REST API 服务、Web 监控面板、容器化部署和多渠道告警通知系统。
+v1.0.0 将 zigQuant 从开发版本推进到生产就绪状态，提供完整的 REST API 服务、容器化部署和多渠道告警通知系统。本项目定位为纯 CLI 工具。
 
 ### 核心价值
 
 1. **REST API 服务** - 标准化 HTTP API 接口，支持外部系统集成 ✅
-2. **Web Dashboard** - 实时监控面板，可视化策略运行状态和交易数据
-3. **容器化部署** - Docker 一键部署，生产环境开箱即用
-4. **多渠道通知** - Telegram/Email 告警通知，及时响应市场变化
-5. **监控集成** - Prometheus 指标导出，与现有监控体系无缝对接 ✅
+2. **容器化部署** - Docker 一键部署，生产环境开箱即用
+3. **多渠道通知** - Telegram/Email 告警通知，及时响应市场变化
+4. **监控集成** - Prometheus 指标导出，与现有监控体系无缝对接 ✅
 
 ---
 
@@ -47,16 +46,9 @@ v1.0.0 将 zigQuant 从开发版本推进到生产就绪状态，提供完整的
 - 24 小时过期时间 (可配置)
 - 支持 Token 刷新机制
 
-### Web Dashboard: Vue 3 + Vite
-
-**选择理由**:
-- **现代框架**: 组件化开发，状态管理完善
-- **构建工具**: Vite 快速热更新
-- **生态丰富**: Element Plus, ECharts 等成熟组件
-
 **构建流程**:
 ```bash
-cd dashboard && npm run build
+zig build -Doptimize=ReleaseSafe
 # 构建产物嵌入 Zig 服务
 ```
 
@@ -76,8 +68,7 @@ cd dashboard && npm run build
 | Story ID | 名称 | 优先级 | 状态 | 文档 |
 |----------|------|--------|------|------|
 | STORY-047 | REST API | P0 | ✅ 已完成 | [STORY_047](./STORY_047_REST_API.md) |
-| STORY-048 | Web Dashboard | P1 | 📋 待开始 | [STORY_048](./STORY_048_WEB_DASHBOARD.md) |
-| STORY-049 | Prometheus Metrics | P1 | 📋 待开始 | [STORY_049](./STORY_049_PROMETHEUS.md) |
+| STORY-049 | Prometheus Metrics | P1 | ✅ 已完成 | [STORY_049](./STORY_049_PROMETHEUS.md) |
 | STORY-050 | Docker 部署 | P2 | 📋 待开始 | [STORY_050](./STORY_050_DOCKER.md) |
 | STORY-051 | 运维文档 | P2 | 📋 待开始 | [STORY_051](./STORY_051_OPERATIONS.md) |
 | STORY-052 | Telegram/Email 通知 | P1 | 📋 待开始 | [STORY_052](./STORY_052_NOTIFICATIONS.md) |
@@ -85,20 +76,18 @@ cd dashboard && npm run build
 ### 依赖关系
 
 ```
-Story 047 (REST API) ←─── 核心依赖
+Story 047 (REST API) ✅ ←─── 核心依赖
     │
-    ├──→ Story 048 (Web Dashboard)
+    ├──→ Story 049 (Prometheus) ✅
     │         │
     │         └──→ Story 050 (Docker)
-    │
-    ├──→ Story 049 (Prometheus)
-    │         │
-    │         └──→ Story 051 (运维文档)
+    │                   │
+    │                   └──→ Story 051 (运维文档)
     │
     └──→ Story 052 (通知系统) ←─── 可并行开发
 ```
 
-**关键路径**: Story 047 → Story 048 → Story 050
+**关键路径**: Story 047 ✅ → Story 050 → Story 052
 
 ---
 
@@ -230,7 +219,6 @@ deploy/
 - [x] JWT 认证可用 ✅
 - [x] 多交易所支持 ✅
 - [x] 配置文件加载 ✅
-- [ ] Web Dashboard 可访问
 - [x] Prometheus 指标导出正常 ✅
 - [ ] Docker 部署成功
 - [ ] Telegram 通知可用
@@ -293,7 +281,6 @@ v1.0.0 建立在 v0.9.0 AI 策略集成基础之上：
 ## 相关文档
 
 - [Story 047: REST API](./STORY_047_REST_API.md)
-- [Story 048: Web Dashboard](./STORY_048_WEB_DASHBOARD.md)
 - [Story 049: Prometheus](./STORY_049_PROMETHEUS.md)
 - [Story 050: Docker](./STORY_050_DOCKER.md)
 - [Story 051: Operations](./STORY_051_OPERATIONS.md)
@@ -303,4 +290,4 @@ v1.0.0 建立在 v0.9.0 AI 策略集成基础之上：
 
 ---
 
-*最后更新: 2025-12-28*
+*最后更新: 2025-12-29*

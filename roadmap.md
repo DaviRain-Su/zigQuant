@@ -103,8 +103,8 @@ v0.8: 风险管理               ███████████████�
 v0.9: AI 策略集成            ████████████████████ (100%) ✅ 完成 (NEW!)
   └─ ILLMClient + LLMClient (OpenAI 兼容) + AIAdvisor + HybridAIStrategy
 
-v1.0: 生产就绪               ░░░░░░░░░░░░░░░░░░░░ (0%)   ← 下一步
-  └─ REST API + Web Dashboard + Docker + Telegram/Email 通知
+v1.0: 生产就绪               ██████████░░░░░░░░░░ (50%)  ← 下一步
+  └─ REST API ✅ + Docker + Telegram/Email 通知
 
 v1.1: 多交易所与套利         ░░░░░░░░░░░░░░░░░░░░ (0%)   📋 规划中
   └─ Binance/OKX/Bybit + 智能路由 + 资金费率套利
@@ -627,26 +627,21 @@ v1.3: 另类市场               ░░░░░░░░░░░░░░░�
 **前置条件**: ✅ v0.9 完成
 
 #### 核心目标
-添加 Web 管理界面、通知系统和完整的生产环境支持。
+纯 CLI 工具、通知系统和完整的生产环境支持。
 
 #### Stories (待规划)
-- [ ] Story 047: http.zig REST API
-- [ ] Story 048: Web Dashboard UI
-- [ ] Story 049: Prometheus Metrics
+- [x] Story 047: http.zig REST API ✅
+- [x] Story 049: Prometheus Metrics ✅
 - [ ] Story 050: Docker 部署
 - [ ] Story 051: 运维文档
 - [ ] Story 052: Telegram/Email 通知
 
 #### 功能清单
-- [ ] **REST API**
+- [x] **REST API** ✅
   - 策略管理 API
   - 回测查询 API
   - 实时监控 API
-- [ ] **Web Dashboard**
-  - 策略配置界面
-  - 回测结果可视化
-  - 实时监控仪表盘
-- [ ] **Metrics 导出**
+- [x] **Metrics 导出** ✅
   - Prometheus metrics
   - Grafana 仪表板
 - [ ] **通知系统**

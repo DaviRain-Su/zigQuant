@@ -8,8 +8,8 @@ const ZigQuantArchitecture = () => {
     ui: {
       name: 'User Interface Layer',
       color: '#3B82F6',
-      description: 'CLI, Web UI, Telegram Bot, REST API',
-      details: ['命令行界面 (CLI)', 'Web 仪表板', 'Telegram 机器人', 'REST API 服务'],
+      description: 'CLI, Telegram Bot, REST API',
+      details: ['命令行界面 (CLI)', 'Telegram 机器人', 'REST API 服务'],
     },
     core: {
       name: 'Core Engine',
@@ -59,7 +59,7 @@ const ZigQuantArchitecture = () => {
           <div className="flex items-center justify-between">
             <span className="font-semibold text-blue-400">🖥️ {modules.ui.name}</span>
             <div className="flex gap-2">
-              {['CLI', 'Web', 'Telegram', 'API'].map(item => (
+              {['CLI', 'Telegram', 'API'].map(item => (
                 <span key={item} className="px-2 py-1 bg-blue-500/30 rounded text-xs text-blue-300">{item}</span>
               ))}
             </div>

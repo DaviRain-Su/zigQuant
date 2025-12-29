@@ -446,10 +446,10 @@ docs/
 ## 🔮 后续计划
 
 ### v1.0.0 - 生产就绪 (下一步)
-- REST API 服务
-- Web Dashboard
+- REST API 服务 ✅
+- Docker 部署
+- Telegram 通知
 - 多策略组合
-- 分布式回测
 - Binance 适配器
 
 ### 低优先级

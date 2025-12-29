@@ -16,7 +16,7 @@
 - **v0.7**: 做市优化 ✅ 已完成 (Clock-Driven + 库存管理 + 数据持久化)
 - **v0.8**: 风险管理 ✅ 已完成 (RiskEngine + Stop Loss + Money Management + Alert)
 - **v0.9**: Web API ✅ 已完成 (REST API + WebSocket + 统一策略架构)
-- **v1.0**: 生产就绪 ← 当前焦点 (Web Dashboard + 架构清理)
+- **v1.0**: 生产就绪 ← 当前焦点 (Docker + Telegram + 多交易所)
 
 详见 [roadmap.md](../roadmap.md) 架构演进战略部分。
 
@@ -141,19 +141,7 @@ EngineManager
 
 ### 优先级 P0 (必须完成)
 
-#### 1. Web Dashboard (Story 047)
-**预计时间**: 5-7 天
-**技术栈**: Bun + React + TailwindCSS
-
-**功能清单**:
-- [ ] 实时仓位/盈亏展示
-- [ ] 策略性能图表
-- [ ] 策略启动/停止控制
-- [ ] Live Trading 监控面板
-- [ ] 风险指标面板
-- [ ] WebSocket 实时更新
-
-#### ~~2. 完成引擎架构统一 (Step 2 & 3)~~ ✅ 已完成
+#### ~~1. 完成引擎架构统一 (Step 2 & 3)~~ ✅ 已完成
 - [x] Live Runner 迁移
 - [x] Paper Trading 评估
 - [x] 统一的运行器接口
@@ -326,20 +314,19 @@ POST /api/v2/live
 - [x] 776+ 单元测试通过 ✅
 
 ### v1.0.0 完成标准
-- [ ] Web Dashboard
 - [x] 引擎架构统一完成 (Step 2 & 3) ✅
 - [ ] API 文档
 - [ ] 生产环境部署文档
-- [ ] 性能优化
+- [ ] Docker 容器化
+- [ ] Telegram 通知
 
 ---
 
 ## 📅 推荐执行顺序
 
-1. **立即可做**: Web Dashboard (Bun + React) - 用户可视化需求最高
-2. ~~**同时可做**: 引擎架构统一 Step 2 & 3~~ ✅ 已完成
-3. **之后**: 多策略组合 + API 文档
-4. **最后**: Binance 适配器 + 分布式回测
+1. **立即可做**: Docker 容器化 - 简化部署
+2. **之后**: 多策略组合 + API 文档
+3. **最后**: Binance 适配器 + Telegram 通知
 
 ---
 
