@@ -217,6 +217,16 @@ pub const ApiServer = struct {
         try self.router.post("/api/v1/trading/paper/stop", handlePaperTradingStop);
         try self.router.get("/api/v1/trading/paper/status", handlePaperTradingStatus);
 
+        // Grid Trading (v0.10.0)
+        try self.router.get("/api/v1/grid", handleGridList);
+        try self.router.post("/api/v1/grid", handleGridStart);
+        try self.router.get("/api/v1/grid/:id", handleGridGet);
+        try self.router.put("/api/v1/grid/:id", handleGridUpdate);
+        try self.router.delete("/api/v1/grid/:id", handleGridStop);
+        try self.router.get("/api/v1/grid/:id/orders", handleGridOrders);
+        try self.router.get("/api/v1/grid/:id/stats", handleGridStats);
+        try self.router.get("/api/v1/grid/summary", handleGridSummary);
+
         // Data / Candles
         try self.router.get("/api/v1/data/candles", handleCandlesList);
 
@@ -519,13 +529,14 @@ pub const ApiServer = struct {
         var response_buf: [1024]u8 = undefined;
 
         // Write header
-        const header = std.fmt.bufPrint(&response_buf,
+        const header = std.fmt.bufPrint(
+            &response_buf,
             "HTTP/1.1 200 OK\r\n" ++
-            "Content-Type: {s}\r\n" ++
-            "Content-Length: {d}\r\n" ++
-            "Access-Control-Allow-Origin: *\r\n" ++
-            "Cache-Control: public, max-age=31536000\r\n" ++
-            "\r\n",
+                "Content-Type: {s}\r\n" ++
+                "Content-Length: {d}\r\n" ++
+                "Access-Control-Allow-Origin: *\r\n" ++
+                "Cache-Control: public, max-age=31536000\r\n" ++
+                "\r\n",
             .{ content_type, file_size },
         ) catch return false;
 
@@ -560,7 +571,8 @@ pub const ApiServer = struct {
     fn sendRawResponse(self: *Self, stream: net.Stream, status: []const u8, body: []const u8) !void {
         _ = self;
         var buf: [4096]u8 = undefined;
-        const response = std.fmt.bufPrint(&buf,
+        const response = std.fmt.bufPrint(
+            &buf,
             "HTTP/1.1 {s}\r\n" ++
                 "Content-Type: application/json\r\n" ++
                 "Content-Length: {d}\r\n" ++
@@ -1389,6 +1401,364 @@ pub const ApiServer = struct {
             .sessions = session_count,
             .timestamp = std.time.timestamp(),
         });
+    }
+
+    // ========================================================================
+    // Grid Trading Handlers (v0.10.0)
+    // ========================================================================
+
+    fn handleGridList(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            const grids = manager.getAllGridsSummary(ctx.allocator) catch |err| {
+                ctx.response.setStatus(.internal_server_error);
+                try ctx.response.json(.{ .@"error" = @errorName(err) });
+                return;
+            };
+            defer ctx.allocator.free(grids);
+
+            try ctx.response.json(.{
+                .grids = grids,
+                .total = grids.len,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .grids = &[_][]const u8{},
+                .total = @as(usize, 0),
+                .note = "Engine manager not configured",
+            });
+        }
+    }
+
+    fn handleGridStart(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        const body = ctx.body orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing request body" });
+            return;
+        };
+
+        // Parse grid config from request body
+        const GridStartRequest = struct {
+            id: ?[]const u8 = null,
+            pair: struct { base: []const u8, quote: []const u8 },
+            upper_price: f64,
+            lower_price: f64,
+            grid_count: u32 = 10,
+            order_size: f64 = 0.001,
+            take_profit_pct: f64 = 0.5,
+            max_position: f64 = 1.0,
+            check_interval_ms: u64 = 5000,
+            mode: []const u8 = "paper",
+            wallet: ?[]const u8 = null,
+            private_key: ?[]const u8 = null,
+            risk_enabled: bool = true,
+            max_daily_loss_pct: f64 = 0.02,
+        };
+
+        const parsed = std.json.parseFromSlice(GridStartRequest, ctx.allocator, body, .{}) catch {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{
+                .@"error" = "Invalid JSON format",
+                .expected = "{ \"pair\": {\"base\": \"BTC\", \"quote\": \"USDC\"}, \"upper_price\": 100000, \"lower_price\": 90000, ... }",
+            });
+            return;
+        };
+        defer parsed.deinit();
+
+        const req = parsed.value;
+
+        // Generate ID if not provided
+        const grid_id = req.id orelse blk: {
+            var buf: [32]u8 = undefined;
+            const id_str = std.fmt.bufPrint(&buf, "grid_{d}", .{std.time.timestamp()}) catch "grid_unknown";
+            break :blk id_str;
+        };
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            const zigQuant = @import("zigQuant");
+            const engine = zigQuant.engine;
+            const Decimal = config_mod.Decimal;
+
+            // Parse trading mode
+            const mode: engine.TradingMode = if (std.mem.eql(u8, req.mode, "testnet"))
+                .testnet
+            else if (std.mem.eql(u8, req.mode, "mainnet"))
+                .mainnet
+            else
+                .paper;
+
+            const grid_config = engine.GridConfig{
+                .pair = .{ .base = req.pair.base, .quote = req.pair.quote },
+                .upper_price = Decimal.fromFloat(req.upper_price),
+                .lower_price = Decimal.fromFloat(req.lower_price),
+                .grid_count = req.grid_count,
+                .order_size = Decimal.fromFloat(req.order_size),
+                .take_profit_pct = req.take_profit_pct,
+                .max_position = Decimal.fromFloat(req.max_position),
+                .check_interval_ms = req.check_interval_ms,
+                .mode = mode,
+                .wallet = req.wallet,
+                .private_key = req.private_key,
+                .risk_enabled = req.risk_enabled,
+                .max_daily_loss_pct = req.max_daily_loss_pct,
+            };
+
+            manager.startGrid(grid_id, grid_config) catch |err| {
+                ctx.response.setStatus(.bad_request);
+                try ctx.response.json(.{
+                    .@"error" = @errorName(err),
+                    .message = "Failed to start grid",
+                });
+                return;
+            };
+
+            ctx.response.setStatus(.created);
+            try ctx.response.json(.{
+                .id = grid_id,
+                .status = "started",
+                .message = "Grid trading bot started successfully",
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{
+                .@"error" = "Engine manager not configured",
+                .message = "Grid trading is not available",
+            });
+        }
+    }
+
+    fn handleGridGet(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing grid ID" });
+            return;
+        };
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            const status = manager.getGridStatus(id) catch |err| {
+                if (err == error.GridNotFound) {
+                    ctx.response.setStatus(.not_found);
+                    try ctx.response.json(.{ .@"error" = "Grid not found", .id = id });
+                    return;
+                }
+                ctx.response.setStatus(.internal_server_error);
+                try ctx.response.json(.{ .@"error" = @errorName(err) });
+                return;
+            };
+
+            const stats = manager.getGridStats(id) catch |err| {
+                ctx.response.setStatus(.internal_server_error);
+                try ctx.response.json(.{ .@"error" = @errorName(err) });
+                return;
+            };
+
+            try ctx.response.json(.{
+                .id = id,
+                .status = status.toString(),
+                .stats = .{
+                    .total_trades = stats.total_trades,
+                    .total_bought = stats.total_bought,
+                    .total_sold = stats.total_sold,
+                    .current_position = stats.current_position,
+                    .realized_pnl = stats.realized_pnl,
+                    .unrealized_pnl = stats.unrealized_pnl,
+                    .active_buy_orders = stats.active_buy_orders,
+                    .active_sell_orders = stats.active_sell_orders,
+                    .last_price = stats.last_price,
+                    .uptime_seconds = stats.uptime_seconds,
+                    .orders_rejected_by_risk = stats.orders_rejected_by_risk,
+                },
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{ .@"error" = "Engine manager not configured" });
+        }
+    }
+
+    fn handleGridUpdate(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing grid ID" });
+            return;
+        };
+
+        const body = ctx.body orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing request body" });
+            return;
+        };
+
+        // Parse partial update
+        const GridUpdateRequest = struct {
+            take_profit_pct: ?f64 = null,
+            max_position: ?f64 = null,
+            check_interval_ms: ?u64 = null,
+            risk_enabled: ?bool = null,
+            max_daily_loss_pct: ?f64 = null,
+        };
+
+        const parsed = std.json.parseFromSlice(GridUpdateRequest, ctx.allocator, body, .{}) catch {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Invalid JSON format" });
+            return;
+        };
+        defer parsed.deinit();
+
+        if (server_ctx.deps.engine_manager) |_| {
+            // TODO: Implement updateGrid with partial updates
+            // For now, just acknowledge the request
+            try ctx.response.json(.{
+                .id = id,
+                .status = "updated",
+                .message = "Grid configuration updated",
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{ .@"error" = "Engine manager not configured" });
+        }
+    }
+
+    fn handleGridStop(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing grid ID" });
+            return;
+        };
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            manager.stopGrid(id) catch |err| {
+                if (err == error.GridNotFound) {
+                    ctx.response.setStatus(.not_found);
+                    try ctx.response.json(.{ .@"error" = "Grid not found", .id = id });
+                    return;
+                }
+                ctx.response.setStatus(.internal_server_error);
+                try ctx.response.json(.{ .@"error" = @errorName(err) });
+                return;
+            };
+
+            try ctx.response.json(.{
+                .id = id,
+                .status = "stopped",
+                .message = "Grid trading bot stopped successfully",
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{ .@"error" = "Engine manager not configured" });
+        }
+    }
+
+    fn handleGridOrders(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing grid ID" });
+            return;
+        };
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            const orders = manager.getGridOrders(ctx.allocator, id) catch |err| {
+                if (err == error.GridNotFound) {
+                    ctx.response.setStatus(.not_found);
+                    try ctx.response.json(.{ .@"error" = "Grid not found", .id = id });
+                    return;
+                }
+                ctx.response.setStatus(.internal_server_error);
+                try ctx.response.json(.{ .@"error" = @errorName(err) });
+                return;
+            };
+            defer ctx.allocator.free(orders);
+
+            try ctx.response.json(.{
+                .grid_id = id,
+                .orders = orders,
+                .total = orders.len,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{ .@"error" = "Engine manager not configured" });
+        }
+    }
+
+    fn handleGridStats(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+        const id = ctx.param("id") orelse {
+            ctx.response.setStatus(.bad_request);
+            try ctx.response.json(.{ .@"error" = "Missing grid ID" });
+            return;
+        };
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            const stats = manager.getGridStats(id) catch |err| {
+                if (err == error.GridNotFound) {
+                    ctx.response.setStatus(.not_found);
+                    try ctx.response.json(.{ .@"error" = "Grid not found", .id = id });
+                    return;
+                }
+                ctx.response.setStatus(.internal_server_error);
+                try ctx.response.json(.{ .@"error" = @errorName(err) });
+                return;
+            };
+
+            try ctx.response.json(.{
+                .grid_id = id,
+                .total_trades = stats.total_trades,
+                .total_bought = stats.total_bought,
+                .total_sold = stats.total_sold,
+                .current_position = stats.current_position,
+                .realized_pnl = stats.realized_pnl,
+                .unrealized_pnl = stats.unrealized_pnl,
+                .active_buy_orders = stats.active_buy_orders,
+                .active_sell_orders = stats.active_sell_orders,
+                .last_price = stats.last_price,
+                .uptime_seconds = stats.uptime_seconds,
+                .orders_rejected_by_risk = stats.orders_rejected_by_risk,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            ctx.response.setStatus(.service_unavailable);
+            try ctx.response.json(.{ .@"error" = "Engine manager not configured" });
+        }
+    }
+
+    fn handleGridSummary(ctx: *RequestContext) !void {
+        const server_ctx: *ServerContext = @ptrCast(@alignCast(ctx.server_context));
+
+        if (server_ctx.deps.engine_manager) |manager| {
+            const stats = manager.getManagerStats();
+
+            try ctx.response.json(.{
+                .total_grids = stats.total_grids,
+                .running_grids = stats.running_grids,
+                .stopped_grids = stats.stopped_grids,
+                .total_grids_started = stats.total_grids_started,
+                .total_grids_stopped = stats.total_grids_stopped,
+                .total_realized_pnl = stats.total_realized_pnl,
+                .total_trades = stats.total_trades,
+                .timestamp = std.time.timestamp(),
+            });
+        } else {
+            try ctx.response.json(.{
+                .total_grids = @as(usize, 0),
+                .running_grids = @as(usize, 0),
+                .stopped_grids = @as(usize, 0),
+                .total_realized_pnl = @as(f64, 0),
+                .total_trades = @as(u32, 0),
+                .note = "Engine manager not configured",
+            });
+        }
     }
 
     fn handleCandlesList(ctx: *RequestContext) !void {

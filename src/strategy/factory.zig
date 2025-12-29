@@ -403,10 +403,11 @@ test "StrategyFactory: list strategies" {
     var factory = StrategyFactory.init(testing.allocator);
 
     const strategies = factory.listStrategies();
-    try testing.expectEqual(@as(usize, 3), strategies.len);
+    try testing.expectEqual(@as(usize, 4), strategies.len);
     try testing.expectEqualStrings("dual_ma", strategies[0].name);
     try testing.expectEqualStrings("rsi_mean_reversion", strategies[1].name);
     try testing.expectEqualStrings("bollinger_breakout", strategies[2].name);
+    try testing.expectEqualStrings("grid", strategies[3].name);
 }
 
 test "StrategyFactory: create dual_ma" {

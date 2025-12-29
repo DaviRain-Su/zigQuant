@@ -275,11 +275,31 @@
 
 ---
 
+## 🌐 Web 控制平台设计 (v2.0.0)
+
+将 CLI 工具转变为全功能 Web 控制平台的架构设计：
+
+- **[架构总览](architecture/web-control-platform/README.md)** ⭐ - 系统架构、项目结构、实现计划
+- **[API V2 设计](architecture/web-control-platform/api-v2.md)** - REST + WebSocket API 规范
+- **[WebSocket 协议](architecture/web-control-platform/websocket.md)** - 实时通信协议设计
+- **[前端架构](architecture/web-control-platform/frontend.md)** - Bun + React 前端设计
+- **[迁移指南](architecture/web-control-platform/migration.md)** - 从 CLI 到 Web 的迁移步骤
+
+---
+
 ## 📁 完整文档结构
 
 ```
 docs/
 ├── DOCUMENTATION_INDEX.md (本文件) ⭐
+│
+├── architecture/
+│   └── web-control-platform/     # Web 控制平台设计 (v2.0.0)
+│       ├── README.md             # 架构总览
+│       ├── api-v2.md             # API V2 设计
+│       ├── websocket.md          # WebSocket 协议
+│       ├── frontend.md           # 前端架构
+│       └── migration.md          # 迁移指南
 │
 ├── 核心项目文档 (15+个)
 │   ├── ARCHITECTURE.md

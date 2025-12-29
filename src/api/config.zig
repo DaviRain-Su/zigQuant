@@ -36,6 +36,9 @@ pub const ResultLoader = zigQuant.ResultLoader;
 pub const Candle = zigQuant.Candle;
 pub const CandleCache = zigQuant.CandleCache;
 
+// Engine Management (v0.10.0)
+pub const EngineManager = zigQuant.EngineManager;
+
 /// API Server Configuration
 pub const ApiConfig = struct {
     /// Host to bind to
@@ -160,6 +163,9 @@ pub const ApiDependencies = struct {
     /// Candle cache for market data (optional)
     candle_cache: ?*CandleCache = null,
 
+    /// Engine manager for grid trading and other engines (v0.10.0)
+    engine_manager: ?*EngineManager = null,
+
     /// Initialize dependencies
     pub fn init(allocator: std.mem.Allocator) ApiDependencies {
         return .{
@@ -171,6 +177,7 @@ pub const ApiDependencies = struct {
             .paper_sessions = std.AutoHashMap(i64, *PaperTradingEngine).init(allocator),
             .backtest_loader = null,
             .candle_cache = null,
+            .engine_manager = null,
         };
     }
 
@@ -198,6 +205,11 @@ pub const ApiDependencies = struct {
     /// Set candle cache
     pub fn setCandleCache(self: *ApiDependencies, cache: *CandleCache) void {
         self.candle_cache = cache;
+    }
+
+    /// Set engine manager
+    pub fn setEngineManager(self: *ApiDependencies, manager: *EngineManager) void {
+        self.engine_manager = manager;
     }
 
     /// Add paper trading session

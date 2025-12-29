@@ -121,6 +121,9 @@ pub const recovery = @import("recovery/mod.zig");
 // v0.9.0 AI modules
 pub const ai = @import("ai/mod.zig");
 
+// v0.10.0 Engine Management modules
+pub const engine = @import("engine/mod.zig");
+
 // Backtest modules
 pub const backtest_types = @import("backtest/types.zig");
 pub const backtest_event = @import("backtest/event.zig");
@@ -441,6 +444,14 @@ pub const LLMClient = ai.LLMClient;
 pub const AIAdvisor = ai.AIAdvisor;
 pub const PromptBuilder = ai.PromptBuilder;
 
+// Re-export v0.10.0 Engine Management types
+pub const EngineManager = engine.EngineManager;
+pub const EngineGridRunner = engine.GridRunner;
+pub const EngineGridConfig = engine.GridConfig;
+pub const EngineGridStatus = engine.GridStatus;
+pub const EngineGridStats = engine.GridStats;
+pub const EngineGridOrder = engine.GridOrder;
+
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
 pub const OptimizerParameterValue = optimizer_types.ParameterValue;
@@ -726,6 +737,9 @@ test {
 
     // v0.9.0 AI modules
     _ = ai;
+
+    // v0.10.0 Engine Management modules
+    _ = engine;
 
     // Optimizer modules
     _ = optimizer_types;
