@@ -125,9 +125,7 @@ fn printGeneralHelp() !void {
         \\STRATEGY COMMANDS:
         \\    backtest         Run strategy backtests
         \\    optimize         Parameter optimization (coming soon)
-        \\    run-strategy     Live/paper trading (coming soon)
-        \\    grid             Grid trading bot (paper/testnet/live)
-        \\    live             Live trading with configurable strategy
+        \\    live             Live trading (strategy from config file)
         \\
         \\TRADING COMMANDS:
         \\    price            Query current price
@@ -144,6 +142,7 @@ fn printGeneralHelp() !void {
         \\
         \\EXAMPLES:
         \\    zigquant serve -p 8080                  # Start API server
+        \\    zigquant live --config config.json      # Live trading (strategy from config)
         \\    zigquant backtest --strategy dual_ma --config config.json --data btc.csv
         \\    zigquant price BTC-USDC
         \\    zigquant balance

@@ -5,7 +5,7 @@
 //!
 //! Supported strategies:
 //! - grid: Grid trading strategy
-//! - (more to come: momentum, mean_reversion, etc.)
+//! - ai: Hybrid AI strategy (technical indicators + AI analysis)
 //!
 //! Usage:
 //! ```bash
@@ -22,6 +22,7 @@ const zigQuant = @import("zigQuant");
 const Decimal = zigQuant.Decimal;
 const TradingPair = zigQuant.TradingPair;
 const Timestamp = zigQuant.Timestamp;
+const Timeframe = zigQuant.Timeframe;
 const Logger = zigQuant.Logger;
 const Side = zigQuant.Side;
 const OrderType = zigQuant.OrderType;
@@ -35,6 +36,12 @@ const Ticker = zigQuant.Ticker;
 const GridStrategy = zigQuant.GridStrategy;
 const GridConfig = zigQuant.GridStrategyConfig;
 const GridLevel = zigQuant.GridLevel;
+
+// Candle and Indicator types for AI strategy
+const Candle = zigQuant.Candle;
+const Candles = zigQuant.Candles;
+const IndicatorManager = zigQuant.IndicatorManager;
+const indicator_helpers = zigQuant.indicator_helpers;
 
 // Config and Risk Management
 const ConfigLoader = zigQuant.ConfigLoader;
@@ -57,20 +64,21 @@ const Account = zigQuant.Account;
 
 const StrategyType = enum {
     grid,
+    ai,
     // Future strategies can be added here
     // momentum,
     // mean_reversion,
-    // breakout,
 
     pub fn fromString(s: []const u8) ?StrategyType {
         if (std.mem.eql(u8, s, "grid")) return .grid;
-        // if (std.mem.eql(u8, s, "momentum")) return .momentum;
+        if (std.mem.eql(u8, s, "ai")) return .ai;
         return null;
     }
 
     pub fn toString(self: StrategyType) []const u8 {
         return switch (self) {
             .grid => "grid",
+            .ai => "ai (hybrid)",
         };
     }
 };
@@ -115,12 +123,22 @@ const LiveStrategyRunner = struct {
     buy_orders: std.ArrayList(GridOrderState),
     sell_orders: std.ArrayList(GridOrderState),
 
+    // AI Strategy state (used when strategy = ai)
+    indicator_manager: ?*IndicatorManager = null,
+    candle_history: ?*Candles = null,
+    ai_last_signal_time: i64 = 0,
+    ai_signal_cooldown_ms: i64 = 60000, // 1 minute cooldown between signals
+    ai_total_signals: u64 = 0,
+    ai_entry_signals: u64 = 0,
+    ai_exit_signals: u64 = 0,
+
     // Position tracking
     current_position: Decimal = Decimal.ZERO,
     total_bought: Decimal = Decimal.ZERO,
     total_sold: Decimal = Decimal.ZERO,
     realized_pnl: Decimal = Decimal.ZERO,
     trades_count: u32 = 0,
+    entry_price: Decimal = Decimal.ZERO, // For AI strategy PnL calculation
 
     // Last known price
     last_price: Decimal = Decimal.ZERO,
@@ -165,6 +183,15 @@ const LiveStrategyRunner = struct {
         if (self.grid_levels) |levels| {
             self.allocator.free(levels);
         }
+        // Clean up AI strategy resources
+        if (self.indicator_manager) |im| {
+            im.deinit();
+            self.allocator.destroy(im);
+        }
+        if (self.candle_history) |ch| {
+            ch.deinit();
+            self.allocator.destroy(ch);
+        }
         if (self.connector) |conn| {
             conn.destroy();
         }
@@ -208,6 +235,425 @@ const LiveStrategyRunner = struct {
             };
         }
         self.grid_levels = grid_levels;
+    }
+
+    /// Initialize AI strategy specific state
+    pub fn initAIStrategy(self: *LiveStrategyRunner) !void {
+        const ai_strategy = self.live_config.ai_strategy;
+
+        // Validate weights sum to 1.0
+        const weight_sum = ai_strategy.ai_weight + ai_strategy.technical_weight;
+        if (@abs(weight_sum - 1.0) > 0.01) {
+            try self.logger.err("[AI] Invalid weights: ai_weight + technical_weight must equal 1.0", .{});
+            return error.InvalidWeights;
+        }
+
+        // Initialize indicator manager
+        const im = try self.allocator.create(IndicatorManager);
+        im.* = IndicatorManager.init(self.allocator);
+        self.indicator_manager = im;
+
+        // Set signal cooldown based on interval
+        self.ai_signal_cooldown_ms = @intCast(self.live_config.interval_ms * 5); // 5x check interval
+
+        try self.logger.info("[AI] AI Strategy initialized", .{});
+        try self.logger.info("[AI] RSI Period: {}, SMA Period: {}", .{
+            ai_strategy.rsi_period,
+            ai_strategy.sma_period,
+        });
+        try self.logger.info("[AI] Weights: AI={d:.0}%, Technical={d:.0}%", .{
+            ai_strategy.ai_weight * 100,
+            ai_strategy.technical_weight * 100,
+        });
+        try self.logger.info("[AI] Long threshold: {d:.2}, Short threshold: {d:.2}", .{
+            ai_strategy.min_long_score,
+            ai_strategy.max_short_score,
+        });
+    }
+
+    /// Fetch candle data from exchange and create Candles container
+    fn fetchCandleData(self: *LiveStrategyRunner, count: u32) !void {
+        if (self.connector == null) return error.NotConnected;
+
+        const conn = self.connector.?;
+        const now_ms: u64 = @intCast(std.time.milliTimestamp());
+        // Fetch 1-hour candles for the past N periods
+        const interval_ms: u64 = 60 * 60 * 1000; // 1 hour
+        const start_time = now_ms - (interval_ms * count);
+
+        try self.logger.debug("[AI] Fetching {} candles from exchange...", .{count});
+
+        // Fetch candle snapshot from Hyperliquid
+        const candle_response = try conn.info_api.getCandleSnapshot(
+            self.pair.base,
+            "1h",
+            start_time,
+            now_ms,
+        );
+        defer candle_response.deinit();
+
+        const candle_data = candle_response.value;
+        if (candle_data.len == 0) {
+            try self.logger.warn("[AI] No candle data returned from exchange", .{});
+            return error.NoCandleData;
+        }
+
+        try self.logger.debug("[AI] Received {} candles from exchange", .{candle_data.len});
+
+        // Convert to Candle format
+        var candles_array = try self.allocator.alloc(Candle, candle_data.len);
+        errdefer self.allocator.free(candles_array);
+
+        for (candle_data, 0..) |cd, i| {
+            // Parse price strings to Decimal
+            const open = try Decimal.fromString(cd.o);
+            const high = try Decimal.fromString(cd.h);
+            const low = try Decimal.fromString(cd.l);
+            const close = try Decimal.fromString(cd.c);
+            const volume = try Decimal.fromString(cd.v);
+
+            candles_array[i] = Candle{
+                .timestamp = Timestamp.fromMillis(@intCast(cd.t)),
+                .open = open,
+                .high = high,
+                .low = low,
+                .close = close,
+                .volume = volume,
+            };
+        }
+
+        // Create or update Candles container
+        if (self.candle_history) |ch| {
+            ch.deinit();
+            self.allocator.destroy(ch);
+        }
+
+        const ch = try self.allocator.create(Candles);
+        ch.* = Candles.initWithCandles(
+            self.allocator,
+            self.pair,
+            .h1,
+            candles_array,
+        );
+        self.candle_history = ch;
+
+        try self.logger.debug("[AI] Candle history updated: {} candles", .{candle_data.len});
+    }
+
+    /// Calculate technical indicators (RSI and SMA)
+    fn calculateIndicators(self: *LiveStrategyRunner) !void {
+        if (self.candle_history == null) return error.NoCandleData;
+        if (self.indicator_manager == null) return error.NotInitialized;
+
+        const candles = self.candle_history.?;
+        const im = self.indicator_manager.?;
+        const ai_config = self.live_config.ai_strategy;
+
+        // Calculate RSI
+        const rsi_values = try indicator_helpers.getRSI(im, candles, ai_config.rsi_period);
+        try candles.addIndicatorValues("rsi", rsi_values);
+
+        // Calculate SMA
+        const sma_values = try indicator_helpers.getSMA(im, candles, ai_config.sma_period);
+        try candles.addIndicatorValues("sma", sma_values);
+
+        try self.logger.debug("[AI] Indicators calculated: RSI({}) and SMA({})", .{
+            ai_config.rsi_period,
+            ai_config.sma_period,
+        });
+    }
+
+    /// Calculate technical score based on RSI and SMA
+    fn calculateTechnicalScore(self: *LiveStrategyRunner) ?f64 {
+        if (self.candle_history == null) return null;
+
+        const candles = self.candle_history.?;
+        const ai_config = self.live_config.ai_strategy;
+        const index = candles.len() - 1;
+
+        // Get current candle
+        const current_candle = candles.get(index) orelse return null;
+        const current_price = current_candle.close.toFloat();
+
+        // Get RSI indicator
+        const rsi_indicator = candles.getIndicator("rsi") orelse return null;
+        const rsi = rsi_indicator.values[index].toFloat();
+
+        // Get SMA indicator
+        const sma_indicator = candles.getIndicator("sma") orelse return null;
+        const sma = sma_indicator.values[index].toFloat();
+
+        // Calculate technical score [0, 1] (0.5 is neutral)
+        var score: f64 = 0.5;
+
+        // RSI contribution
+        if (rsi < ai_config.rsi_oversold) {
+            // Oversold - bullish
+            const oversold_strength = (ai_config.rsi_oversold - rsi) / ai_config.rsi_oversold;
+            score += oversold_strength * 0.25;
+        } else if (rsi > ai_config.rsi_overbought) {
+            // Overbought - bearish
+            const overbought_strength = (rsi - ai_config.rsi_overbought) / (100.0 - ai_config.rsi_overbought);
+            score -= overbought_strength * 0.25;
+        }
+
+        // Price vs SMA contribution
+        if (current_price > sma) {
+            const above_pct = (current_price - sma) / sma;
+            score += @min(above_pct * 10.0, 0.25);
+        } else {
+            const below_pct = (sma - current_price) / sma;
+            score -= @min(below_pct * 10.0, 0.25);
+        }
+
+        // Clamp score to [0, 1]
+        score = @max(0.0, @min(1.0, score));
+
+        return score;
+    }
+
+    /// AI Strategy signal generation result
+    const AISignal = struct {
+        signal_type: enum { none, entry_long, entry_short, exit_long, exit_short },
+        score: f64,
+        rsi: f64,
+        sma: f64,
+        price: f64,
+    };
+
+    /// Generate AI trading signal based on indicators
+    fn generateAISignal(self: *LiveStrategyRunner) !?AISignal {
+        // Check cooldown
+        const now = std.time.milliTimestamp();
+        if (now - self.ai_last_signal_time < self.ai_signal_cooldown_ms) {
+            return null;
+        }
+
+        if (self.candle_history == null) return null;
+
+        const candles = self.candle_history.?;
+        const ai_config = self.live_config.ai_strategy;
+        const index = candles.len() - 1;
+
+        // Need enough data for indicators
+        const min_period = @max(ai_config.rsi_period, ai_config.sma_period);
+        if (index < min_period) return null;
+
+        // Get current candle and indicators
+        const current_candle = candles.get(index) orelse return null;
+        const current_price = current_candle.close.toFloat();
+
+        const rsi_indicator = candles.getIndicator("rsi") orelse return null;
+        const rsi = rsi_indicator.values[index].toFloat();
+
+        const sma_indicator = candles.getIndicator("sma") orelse return null;
+        const sma = sma_indicator.values[index].toFloat();
+
+        // Calculate technical score
+        const score = self.calculateTechnicalScore() orelse return null;
+
+        self.ai_total_signals += 1;
+
+        // Check if we have a position
+        const has_long_position = self.current_position.isPositive();
+        const has_short_position = self.current_position.isNegative();
+
+        // Generate signal based on score and position
+        if (has_long_position) {
+            // Check for exit signal (bearish)
+            if (score < 0.4 or rsi > ai_config.rsi_overbought) {
+                self.ai_exit_signals += 1;
+                return AISignal{
+                    .signal_type = .exit_long,
+                    .score = score,
+                    .rsi = rsi,
+                    .sma = sma,
+                    .price = current_price,
+                };
+            }
+        } else if (has_short_position) {
+            // Check for exit signal (bullish)
+            if (score > 0.6 or rsi < ai_config.rsi_oversold) {
+                self.ai_exit_signals += 1;
+                return AISignal{
+                    .signal_type = .exit_short,
+                    .score = score,
+                    .rsi = rsi,
+                    .sma = sma,
+                    .price = current_price,
+                };
+            }
+        } else {
+            // No position - check for entry signals
+            if (score >= ai_config.min_long_score) {
+                self.ai_entry_signals += 1;
+                return AISignal{
+                    .signal_type = .entry_long,
+                    .score = score,
+                    .rsi = rsi,
+                    .sma = sma,
+                    .price = current_price,
+                };
+            } else if (score <= ai_config.max_short_score) {
+                self.ai_entry_signals += 1;
+                return AISignal{
+                    .signal_type = .entry_short,
+                    .score = score,
+                    .rsi = rsi,
+                    .sma = sma,
+                    .price = current_price,
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /// Execute AI signal - place order based on signal
+    fn executeAISignal(self: *LiveStrategyRunner, signal: AISignal) !void {
+        if (self.connector == null) return error.NotConnected;
+
+        const exchange = self.connector.?.interface();
+        const order_size = Decimal.fromFloat(self.live_config.order_size);
+
+        try self.logger.info("[AI] Signal: {s} | Score: {d:.3} | RSI: {d:.1} | Price: {d:.2}", .{
+            @tagName(signal.signal_type),
+            signal.score,
+            signal.rsi,
+            signal.price,
+        });
+
+        switch (signal.signal_type) {
+            .entry_long => {
+                // Place buy order
+                const order_request = OrderRequest{
+                    .pair = self.pair,
+                    .side = .buy,
+                    .order_type = .market,
+                    .amount = order_size,
+                    .price = null, // Market order
+                    .time_in_force = .ioc,
+                    .reduce_only = false,
+                };
+
+                if (!self.checkRisk(order_request)) {
+                    try self.logger.warn("[AI] Entry long order rejected by risk check", .{});
+                    return;
+                }
+
+                const order = try exchange.createOrder(order_request);
+                self.current_position = self.current_position.add(order.filled_amount);
+                self.total_bought = self.total_bought.add(order.filled_amount);
+                self.entry_price = order.avg_fill_price orelse Decimal.fromFloat(signal.price);
+                self.trades_count += 1;
+                self.ai_last_signal_time = std.time.milliTimestamp();
+
+                try self.logger.info("[AI] ENTRY LONG executed: {d:.6} @ {d:.2}", .{
+                    order.filled_amount.toFloat(),
+                    (order.avg_fill_price orelse Decimal.ZERO).toFloat(),
+                });
+
+                self.sendTradeAlert(.trade_executed, self.pair.base, order.avg_fill_price orelse Decimal.ZERO, order.filled_amount, null);
+            },
+            .entry_short => {
+                // Place sell order
+                const order_request = OrderRequest{
+                    .pair = self.pair,
+                    .side = .sell,
+                    .order_type = .market,
+                    .amount = order_size,
+                    .price = null, // Market order
+                    .time_in_force = .ioc,
+                    .reduce_only = false,
+                };
+
+                if (!self.checkRisk(order_request)) {
+                    try self.logger.warn("[AI] Entry short order rejected by risk check", .{});
+                    return;
+                }
+
+                const order = try exchange.createOrder(order_request);
+                self.current_position = self.current_position.sub(order.filled_amount);
+                self.total_sold = self.total_sold.add(order.filled_amount);
+                self.entry_price = order.avg_fill_price orelse Decimal.fromFloat(signal.price);
+                self.trades_count += 1;
+                self.ai_last_signal_time = std.time.milliTimestamp();
+
+                try self.logger.info("[AI] ENTRY SHORT executed: {d:.6} @ {d:.2}", .{
+                    order.filled_amount.toFloat(),
+                    (order.avg_fill_price orelse Decimal.ZERO).toFloat(),
+                });
+
+                self.sendTradeAlert(.trade_executed, self.pair.base, order.avg_fill_price orelse Decimal.ZERO, order.filled_amount, null);
+            },
+            .exit_long => {
+                // Close long position
+                const position_size = self.current_position;
+                if (position_size.isZero() or position_size.isNegative()) return;
+
+                const order_request = OrderRequest{
+                    .pair = self.pair,
+                    .side = .sell,
+                    .order_type = .market,
+                    .amount = position_size,
+                    .price = null,
+                    .time_in_force = .ioc,
+                    .reduce_only = true,
+                };
+
+                const order = try exchange.createOrder(order_request);
+                const exit_price = order.avg_fill_price orelse Decimal.fromFloat(signal.price);
+                const pnl = exit_price.sub(self.entry_price).mul(order.filled_amount);
+
+                self.current_position = self.current_position.sub(order.filled_amount);
+                self.total_sold = self.total_sold.add(order.filled_amount);
+                self.realized_pnl = self.realized_pnl.add(pnl);
+                self.trades_count += 1;
+                self.ai_last_signal_time = std.time.milliTimestamp();
+
+                try self.logger.info("[AI] EXIT LONG executed: {d:.6} @ {d:.2} | PnL: {d:.4}", .{
+                    order.filled_amount.toFloat(),
+                    exit_price.toFloat(),
+                    pnl.toFloat(),
+                });
+
+                self.sendTradeAlert(.trade_executed, self.pair.base, exit_price, order.filled_amount, pnl);
+            },
+            .exit_short => {
+                // Close short position
+                const position_size = self.current_position.negate();
+                if (position_size.isZero() or position_size.isNegative()) return;
+
+                const order_request = OrderRequest{
+                    .pair = self.pair,
+                    .side = .buy,
+                    .order_type = .market,
+                    .amount = position_size,
+                    .price = null,
+                    .time_in_force = .ioc,
+                    .reduce_only = true,
+                };
+
+                const order = try exchange.createOrder(order_request);
+                const exit_price = order.avg_fill_price orelse Decimal.fromFloat(signal.price);
+                const pnl = self.entry_price.sub(exit_price).mul(order.filled_amount);
+
+                self.current_position = self.current_position.add(order.filled_amount);
+                self.total_bought = self.total_bought.add(order.filled_amount);
+                self.realized_pnl = self.realized_pnl.add(pnl);
+                self.trades_count += 1;
+                self.ai_last_signal_time = std.time.milliTimestamp();
+
+                try self.logger.info("[AI] EXIT SHORT executed: {d:.6} @ {d:.2} | PnL: {d:.4}", .{
+                    order.filled_amount.toFloat(),
+                    exit_price.toFloat(),
+                    pnl.toFloat(),
+                });
+
+                self.sendTradeAlert(.trade_executed, self.pair.base, exit_price, order.filled_amount, pnl);
+            },
+            .none => {},
+        }
     }
 
     /// Initialize risk management
@@ -317,7 +763,58 @@ const LiveStrategyRunner = struct {
     pub fn placeInitialOrders(self: *LiveStrategyRunner) !void {
         switch (self.strategy_type) {
             .grid => try self.placeGridInitialOrders(),
+            .ai => try self.placeAIInitialOrders(),
         }
+    }
+
+    fn placeAIInitialOrders(self: *LiveStrategyRunner) !void {
+        _ = try self.getCurrentPrice();
+
+        // AI strategy needs historical data before generating signals
+        try self.logger.info("[AI] Fetching historical candle data for analysis...", .{});
+
+        const ai_config = self.live_config.ai_strategy;
+        const candle_count: u32 = @max(ai_config.rsi_period, ai_config.sma_period) + 50;
+
+        // Fetch initial candle data
+        self.fetchCandleData(candle_count) catch |err| {
+            try self.logger.warn("[AI] Failed to fetch initial candle data: {s}", .{@errorName(err)});
+            try self.logger.warn("[AI] Strategy will retry on next tick", .{});
+            return;
+        };
+
+        // Calculate initial indicators
+        self.calculateIndicators() catch |err| {
+            try self.logger.warn("[AI] Failed to calculate indicators: {s}", .{@errorName(err)});
+            return;
+        };
+
+        // Display initial market state
+        if (self.candle_history) |candles| {
+            const last_idx = candles.len() - 1;
+            if (candles.getIndicator("rsi")) |rsi| {
+                if (candles.getIndicator("sma")) |sma| {
+                    try self.logger.info("[AI] Initial RSI: {d:.2}, SMA: {d:.2}", .{
+                        rsi.values[last_idx].toFloat(),
+                        sma.values[last_idx].toFloat(),
+                    });
+                }
+            }
+        }
+
+        const score = self.calculateTechnicalScore();
+        if (score) |s| {
+            try self.logger.info("[AI] Initial Technical Score: {d:.3}", .{s});
+            if (s >= ai_config.min_long_score) {
+                try self.logger.info("[AI] Current bias: BULLISH (score >= {d:.2})", .{ai_config.min_long_score});
+            } else if (s <= ai_config.max_short_score) {
+                try self.logger.info("[AI] Current bias: BEARISH (score <= {d:.2})", .{ai_config.max_short_score});
+            } else {
+                try self.logger.info("[AI] Current bias: NEUTRAL", .{});
+            }
+        }
+
+        try self.logger.info("[AI] Strategy ready - monitoring for trading signals...", .{});
     }
 
     fn placeGridInitialOrders(self: *LiveStrategyRunner) !void {
@@ -429,7 +926,34 @@ const LiveStrategyRunner = struct {
     /// Main tick
     pub fn tick(self: *LiveStrategyRunner) !void {
         _ = try self.getCurrentPrice();
-        try self.checkRealFills();
+
+        switch (self.strategy_type) {
+            .grid => try self.checkRealFills(),
+            .ai => try self.aiStrategyTick(),
+        }
+    }
+
+    /// AI strategy tick - update data and check for signals
+    fn aiStrategyTick(self: *LiveStrategyRunner) !void {
+        const ai_config = self.live_config.ai_strategy;
+        const candle_count: u32 = @max(ai_config.rsi_period, ai_config.sma_period) + 50;
+
+        // Refresh candle data periodically (every tick since we're polling)
+        self.fetchCandleData(candle_count) catch |err| {
+            try self.logger.debug("[AI] Failed to refresh candle data: {s}", .{@errorName(err)});
+            return;
+        };
+
+        // Recalculate indicators
+        self.calculateIndicators() catch |err| {
+            try self.logger.debug("[AI] Failed to calculate indicators: {s}", .{@errorName(err)});
+            return;
+        };
+
+        // Generate and execute signals
+        if (try self.generateAISignal()) |signal| {
+            try self.executeAISignal(signal);
+        }
     }
 
     fn checkRealFills(self: *LiveStrategyRunner) !void {
@@ -446,8 +970,35 @@ const LiveStrategyRunner = struct {
         try self.logger.info("Strategy:         {s}", .{self.strategy_type.toString()});
         try self.logger.info("Current Price:    {d:.2}", .{self.last_price.toFloat()});
         try self.logger.info("Position:         {d:.6}", .{self.current_position.toFloat()});
-        try self.logger.info("Active Buy Orders:  {}", .{self.countActiveOrders(.buy)});
-        try self.logger.info("Active Sell Orders: {}", .{self.countActiveOrders(.sell)});
+
+        switch (self.strategy_type) {
+            .grid => {
+                try self.logger.info("Active Buy Orders:  {}", .{self.countActiveOrders(.buy)});
+                try self.logger.info("Active Sell Orders: {}", .{self.countActiveOrders(.sell)});
+            },
+            .ai => {
+                // Show AI-specific stats
+                if (self.candle_history) |candles| {
+                    const last_idx = candles.len() - 1;
+                    if (candles.getIndicator("rsi")) |rsi| {
+                        try self.logger.info("RSI:              {d:.2}", .{rsi.values[last_idx].toFloat()});
+                    }
+                    if (candles.getIndicator("sma")) |sma| {
+                        try self.logger.info("SMA:              {d:.2}", .{sma.values[last_idx].toFloat()});
+                    }
+                }
+                if (self.calculateTechnicalScore()) |score| {
+                    try self.logger.info("Technical Score:  {d:.3}", .{score});
+                }
+                try self.logger.info("Signals Generated:  {}", .{self.ai_total_signals});
+                try self.logger.info("Entry Signals:      {}", .{self.ai_entry_signals});
+                try self.logger.info("Exit Signals:       {}", .{self.ai_exit_signals});
+                if (!self.entry_price.isZero()) {
+                    try self.logger.info("Entry Price:      {d:.2}", .{self.entry_price.toFloat()});
+                }
+            },
+        }
+
         try self.logger.info("Total Trades:     {}", .{self.trades_count});
         try self.logger.info("Realized PnL:     {d:.4}", .{self.realized_pnl.toFloat()});
 
@@ -601,6 +1152,25 @@ pub fn cmdLive(
             try logger.info("  Enable Long:      {}", .{grid.enable_long});
             try logger.info("  Enable Short:     {}", .{grid.enable_short});
         },
+        .ai => {
+            const ai_provider = live_config.ai_provider;
+            const ai_strategy = live_config.ai_strategy;
+            try logger.info("", .{});
+            try logger.info("AI Provider Config:", .{});
+            try logger.info("  Provider:         {s}", .{ai_provider.provider});
+            try logger.info("  Model:            {s}", .{ai_provider.model_id});
+            try logger.info("  Max Tokens:       {}", .{ai_provider.max_tokens});
+            try logger.info("  Temperature:      {d:.2}", .{ai_provider.temperature});
+            try logger.info("", .{});
+            try logger.info("AI Strategy Config:", .{});
+            try logger.info("  RSI Period:       {}", .{ai_strategy.rsi_period});
+            try logger.info("  RSI Thresholds:   {d:.0} / {d:.0}", .{ ai_strategy.rsi_oversold, ai_strategy.rsi_overbought });
+            try logger.info("  SMA Period:       {}", .{ai_strategy.sma_period});
+            try logger.info("  AI Weight:        {d:.0}%", .{ai_strategy.ai_weight * 100});
+            try logger.info("  Tech Weight:      {d:.0}%", .{ai_strategy.technical_weight * 100});
+            try logger.info("  Min Long Score:   {d:.2}", .{ai_strategy.min_long_score});
+            try logger.info("  Max Short Score:  {d:.2}", .{ai_strategy.max_short_score});
+        },
     }
     try logger.info("", .{});
 
@@ -623,6 +1193,7 @@ pub fn cmdLive(
     // Initialize strategy-specific state
     switch (strategy_type) {
         .grid => try runner.initGridStrategy(),
+        .ai => try runner.initAIStrategy(),
     }
 
     // Initialize risk management
@@ -720,7 +1291,7 @@ fn printHelp() !void {
         \\
         \\SUPPORTED STRATEGIES:
         \\    grid       Grid trading strategy
-        \\    (more coming soon: momentum, mean_reversion, breakout)
+        \\    ai         Hybrid AI strategy (technical + AI analysis)
         \\
         \\CONFIG FILE FORMAT:
         \\    See below for required configuration sections.
@@ -757,7 +1328,7 @@ fn printConfigExample() !void {
         \\    "risk_limit": 0.02
         \\  },
         \\  "live": {
-        \\    "strategy": "grid",        // Strategy to run: grid, momentum, etc.
+        \\    "strategy": "grid",        // Strategy: "grid" or "ai"
         \\    "pair": "BTC-USDC",
         \\    "order_size": 0.001,
         \\    "max_position": 1.0,
@@ -765,13 +1336,26 @@ fn printConfigExample() !void {
         \\    "duration_minutes": 0,     // 0 = run forever
         \\    "risk_enabled": true,
         \\    "testnet": true,
-        \\    "grid": {                  // Grid strategy specific config
+        \\    "grid": {                  // Grid strategy config
         \\      "upper_price": 100000.0,
         \\      "lower_price": 90000.0,
         \\      "grid_count": 10,
         \\      "take_profit_pct": 0.5,
         \\      "enable_long": true,
         \\      "enable_short": false
+        \\    },
+        \\    "ai_provider": {           // AI provider config (for strategy="ai")
+        \\      "provider": "openai",
+        \\      "model_id": "gpt-4o",
+        \\      "api_key": "sk-...",
+        \\      "max_tokens": 1024,
+        \\      "temperature": 0.3
+        \\    },
+        \\    "ai_strategy": {           // AI strategy config
+        \\      "rsi_period": 14,
+        \\      "sma_period": 20,
+        \\      "ai_weight": 0.4,
+        \\      "technical_weight": 0.6
         \\    }
         \\  }
         \\}

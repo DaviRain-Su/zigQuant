@@ -120,11 +120,74 @@ pub const GridStrategyConfig = struct {
 };
 
 // ============================================================================
+// AI Provider Configuration
+// ============================================================================
+
+pub const AIProviderConfig = struct {
+    /// AI provider: "openai", "anthropic", "google", "custom"
+    provider: []const u8 = "openai",
+
+    /// Model identifier (e.g., "gpt-4o", "claude-sonnet-4-5")
+    model_id: []const u8 = "gpt-4o",
+
+    /// API key for authentication
+    api_key: []const u8 = "",
+
+    /// Maximum tokens to generate
+    max_tokens: u32 = 1024,
+
+    /// Generation temperature (0-1, lower = more deterministic)
+    temperature: f32 = 0.3,
+
+    /// Request timeout in milliseconds
+    timeout_ms: u32 = 30000,
+
+    /// Base URL override (optional, for custom endpoints)
+    base_url: ?[]const u8 = null,
+};
+
+// ============================================================================
+// AI Strategy Configuration (Hybrid AI Strategy)
+// ============================================================================
+
+pub const AIStrategyConfig = struct {
+    // Technical Indicator Parameters
+    /// RSI period
+    rsi_period: u32 = 14,
+    /// RSI oversold threshold
+    rsi_oversold: f64 = 30.0,
+    /// RSI overbought threshold
+    rsi_overbought: f64 = 70.0,
+    /// SMA period
+    sma_period: u32 = 20,
+
+    // Signal Weight Configuration
+    /// Weight for AI advice (0.0 - 1.0)
+    ai_weight: f64 = 0.4,
+    /// Weight for technical indicators (0.0 - 1.0)
+    technical_weight: f64 = 0.6,
+
+    // Signal Thresholds
+    /// Minimum combined score for long entry (> 0.5 for bullish)
+    min_long_score: f64 = 0.65,
+    /// Maximum combined score for short entry (< 0.5 for bearish)
+    max_short_score: f64 = 0.35,
+    /// Minimum confidence from AI to consider its advice
+    min_ai_confidence: f64 = 0.6,
+
+    // Position Sizing
+    /// Risk per trade as percentage of account (0.01 = 1%)
+    risk_per_trade: f64 = 0.02,
+    /// Maximum position size as percentage of account
+    max_position_pct: f64 = 0.1,
+};
+
+// ============================================================================
 // Live Trading Configuration
 // ============================================================================
 
 pub const LiveTradingConfig = struct {
-    /// Strategy to run: "grid", "momentum", "arbitrage", etc.
+    /// Strategy to run: "grid", "ai", "momentum", "arbitrage", etc.
     strategy: []const u8 = "grid",
 
     /// Trading pair (e.g., "BTC-USDC")
@@ -150,6 +213,12 @@ pub const LiveTradingConfig = struct {
 
     /// Grid strategy specific config (used when strategy = "grid")
     grid: GridStrategyConfig = .{},
+
+    /// AI provider configuration (used when strategy = "ai")
+    ai_provider: AIProviderConfig = .{},
+
+    /// AI strategy specific config (used when strategy = "ai")
+    ai_strategy: AIStrategyConfig = .{},
 };
 
 // ============================================================================
