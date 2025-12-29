@@ -773,7 +773,7 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 - [x] CORS 中间件
 - [x] 请求日志中间件
 
-### 已实现端点 (20个)
+### 已实现端点 (30个)
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
@@ -797,6 +797,168 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 | /api/v1/account | GET | 账户信息 |
 | /api/v1/account/balance | GET | 账户余额 (支持 ?exchange=) |
 | /metrics | GET | Prometheus 指标 |
+| **/api/v2/live** | **GET** | **实盘交易会话列表** |
+| **/api/v2/live** | **POST** | **启动实盘交易会话** |
+| **/api/v2/live/:id** | **GET** | **实盘会话详情** |
+| **/api/v2/live/:id** | **DELETE** | **停止实盘会话** |
+| **/api/v2/live/:id/pause** | **POST** | **暂停实盘会话** |
+| **/api/v2/live/:id/resume** | **POST** | **恢复实盘会话** |
+| **/api/v2/live/:id/subscribe** | **POST** | **订阅交易对** |
+| **/api/v2/ai/config** | **GET** | **获取 AI 配置状态** |
+| **/api/v2/ai/config** | **POST** | **更新 AI 配置** |
+| **/api/v2/ai/enable** | **POST** | **启用 AI 客户端** |
+| **/api/v2/ai/disable** | **POST** | **禁用 AI 客户端** |
+
+#### Live Trading API (v0.9.1 新增)
+
+实盘交易 API 使用 `/api/v2/live` 前缀，支持完整的会话生命周期管理：
+
+```bash
+# 列出所有实盘会话
+curl http://localhost:8080/api/v2/live
+
+# 启动新的实盘会话
+curl -X POST http://localhost:8080/api/v2/live \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "btc_dual_ma",
+    "strategy_type": "dual_ma",
+    "exchange": "hyperliquid",
+    "symbol": "BTC",
+    "mode": "paper",
+    "initial_capital": 10000.0,
+    "params": {
+      "fast_period": 10,
+      "slow_period": 30
+    }
+  }'
+
+# 查看会话详情
+curl http://localhost:8080/api/v2/live/btc_dual_ma
+
+# 暂停会话
+curl -X POST http://localhost:8080/api/v2/live/btc_dual_ma/pause
+
+# 恢复会话
+curl -X POST http://localhost:8080/api/v2/live/btc_dual_ma/resume
+
+# 停止会话
+curl -X DELETE http://localhost:8080/api/v2/live/btc_dual_ma
+```
+
+**LiveRequest 参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | string | 是 | 唯一会话标识符 |
+| strategy_type | string | 是 | 策略类型 (dual_ma, rsi_mean_reversion, bollinger_breakout, etc.) |
+| exchange | string | 是 | 交易所名称 (hyperliquid) |
+| symbol | string | 是 | 交易对 (BTC, ETH) |
+| mode | string | 否 | 交易模式: "paper" (默认) 或 "live" |
+| initial_capital | float | 否 | 初始资金 (默认 10000.0) |
+| params | object | 否 | 策略参数 |
+
+**LiveStatus 返回值**:
+
+```json
+{
+  "session_id": "btc_dual_ma",
+  "status": "running",
+  "strategy_type": "dual_ma",
+  "exchange": "hyperliquid",
+  "symbol": "BTC",
+  "mode": "paper",
+  "stats": {
+    "ticks_processed": 1234,
+    "orders_placed": 5,
+    "orders_filled": 3,
+    "current_pnl": 150.50,
+    "start_time": 1735344000000,
+    "uptime_seconds": 3600
+  }
+}
+
+#### AI Configuration API (v0.9.1 新增)
+
+AI 配置 API 使用 `/api/v2/ai` 前缀，支持运行时动态配置 AI 提供商和模型：
+
+```bash
+# 获取 AI 配置状态
+curl http://localhost:8080/api/v2/ai/config
+
+# Response:
+{
+  "success": true,
+  "data": {
+    "enabled": false,
+    "provider": "openai",
+    "model_id": "gpt-4o",
+    "api_endpoint": null,
+    "has_api_key": false,
+    "connected": false
+  }
+}
+
+# 更新 AI 配置
+curl -X POST http://localhost:8080/api/v2/ai/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "anthropic",
+    "model_id": "claude-sonnet-4-5",
+    "api_endpoint": "https://api.anthropic.com",
+    "api_key": "sk-ant-xxx..."
+  }'
+
+# 启用 AI (初始化 LLM 客户端)
+curl -X POST http://localhost:8080/api/v2/ai/enable
+
+# Response:
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "provider": "anthropic",
+    "model_id": "claude-sonnet-4-5",
+    "message": "AI enabled successfully"
+  }
+}
+
+# 禁用 AI
+curl -X POST http://localhost:8080/api/v2/ai/disable
+```
+
+**支持的 AI Provider**:
+
+| Provider | model_id 示例 | api_endpoint |
+|----------|--------------|--------------|
+| openai | gpt-4o, gpt-4o-mini | https://api.openai.com/v1 |
+| anthropic | claude-sonnet-4-5, claude-haiku | https://api.anthropic.com |
+| lmstudio | local-model | http://127.0.0.1:1234/v1 |
+| ollama | llama3, mistral | http://localhost:11434/v1 |
+| deepseek | deepseek-chat | https://api.deepseek.com/v1 |
+| custom | 自定义 | 自定义 URL |
+
+**使用 hybrid_ai 策略**:
+
+配置好 AI 后，可以启动使用 AI 的混合策略：
+
+```bash
+curl -X POST http://localhost:8080/api/v2/strategy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy": "hybrid_ai",
+    "symbol": "BTC-USDT",
+    "timeframe": "1h",
+    "mode": "paper",
+    "params": {
+      "rsi_period": 14,
+      "sma_period": 20,
+      "ai_weight": 0.4,
+      "technical_weight": 0.6,
+      "min_ai_confidence": 0.6
+    }
+  }'
+```
 
 ### 性能要求
 
@@ -829,6 +991,43 @@ curl -X POST http://localhost:8080/api/v1/backtest \
 ---
 
 ## 更新日志
+
+### 2025-12-29 (第六次更新) - AI Configuration API
+
+- **新增 AI Configuration API** (3 个端点):
+  - `GET /api/v2/ai/config` - 获取 AI 配置状态
+  - `POST /api/v2/ai/config` - 更新 AI 配置
+  - `POST /api/v2/ai/enable` - 启用 AI 客户端
+  - `POST /api/v2/ai/disable` - 禁用 AI 客户端
+
+- **StrategyFactory 扩展**:
+  - 添加 `hybrid_ai` 策略支持
+  - LLM 客户端注入机制
+
+- **EngineManager AI 管理**:
+  - `AIRuntimeConfig` 运行时配置
+  - `configureAI()` / `updateAIConfig()` 配置方法
+  - `initAIClient()` / `disableAI()` 生命周期管理
+
+- **端点总数**: 27 → 30
+
+### 2025-12-29 (第五次更新) - Live Trading API
+
+- **新增 Live Trading API** (7 个端点):
+  - `GET /api/v2/live` - 列出所有实盘会话
+  - `POST /api/v2/live` - 启动新会话
+  - `GET /api/v2/live/:id` - 会话详情
+  - `DELETE /api/v2/live/:id` - 停止会话
+  - `POST /api/v2/live/:id/pause` - 暂停会话
+  - `POST /api/v2/live/:id/resume` - 恢复会话
+  - `POST /api/v2/live/:id/subscribe` - 订阅交易对
+
+- **EngineManager 集成**:
+  - `live_runners: HashMap` 管理实盘会话
+  - 支持 Paper/Live 两种交易模式
+  - Kill Switch 联动停止所有实盘会话
+
+- **端点总数**: 20 → 27
 
 ### 2025-12-28 (第四次更新) - 动态数据集成
 

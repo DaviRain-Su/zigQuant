@@ -1,9 +1,9 @@
 # LiveTrading - 实时交易引擎
 
-**版本**: v0.5.0
-**状态**: 计划中
+**版本**: v0.9.1 (原 v0.5.0)
+**状态**: ✅ 已完成
 **层级**: Application Layer
-**依赖**: MessageBus, Cache, DataEngine, ExecutionEngine, libxev
+**依赖**: MessageBus, Cache, DataEngine, ExecutionEngine, EngineManager
 
 ---
 
@@ -259,27 +259,157 @@ fn onHeartbeat() {
 
 ```
 src/trading/
-├── live_engine.zig          # LiveTradingEngine 实现
+├── live_engine.zig          # LiveTradingEngine 核心实现
 ├── websocket.zig            # WebSocket 连接封装
 ├── timer.zig                # 定时器封装
 └── config.zig               # 配置
 
+src/engine/
+├── manager.zig              # EngineManager (管理所有 runners)
+├── mod.zig                  # 模块导出
+└── runners/
+    ├── live_runner.zig      # LiveRunner (v0.9.1 新增)
+    ├── strategy_runner.zig  # StrategyRunner
+    └── backtest_runner.zig  # BacktestRunner
+
 examples/
-└── 11_live_trading.zig      # 实时交易示例
+└── 17_paper_trading.zig     # Paper Trading 示例
 ```
+
+---
+
+## LiveRunner (v0.9.1 新增)
+
+### 概述
+
+`LiveRunner` 是 v0.9.1 新增的统一实盘交易封装，包装 `LiveTradingEngine` 并提供线程安全的生命周期管理。它由 `EngineManager` 统一管理，并通过 REST API (`/api/v2/live`) 暴露控制接口。
+
+### 核心类型
+
+```zig
+// src/engine/runners/live_runner.zig
+
+pub const LiveRequest = struct {
+    session_id: []const u8,       // 唯一会话标识
+    strategy_type: []const u8,    // 策略类型
+    exchange: []const u8,         // 交易所名称
+    symbol: []const u8,           // 交易对
+    mode: LiveTradingMode,        // paper 或 live
+    initial_capital: f64,         // 初始资金
+    params: ?std.json.ObjectMap,  // 策略参数
+};
+
+pub const LiveStatus = enum {
+    stopped,
+    starting,
+    running,
+    paused,
+    stopping,
+    @"error",
+};
+
+pub const LiveStats = struct {
+    ticks_processed: u64,
+    orders_placed: u32,
+    orders_filled: u32,
+    current_pnl: f64,
+    start_time: i64,
+    uptime_seconds: u64,
+};
+
+pub const LiveRunner = struct {
+    pub fn init(allocator: Allocator, request: LiveRequest, engine: *LiveTradingEngine) !*LiveRunner;
+    pub fn start(self: *LiveRunner) !void;
+    pub fn stop(self: *LiveRunner) void;
+    pub fn pause(self: *LiveRunner) !void;
+    pub fn resume(self: *LiveRunner) !void;
+    pub fn getStatus(self: *LiveRunner) LiveStatus;
+    pub fn getStats(self: *LiveRunner) LiveStats;
+    pub fn deinit(self: *LiveRunner) void;
+};
+```
+
+### 使用示例
+
+```zig
+// 通过 EngineManager 管理 LiveRunner
+var manager = try EngineManager.init(allocator);
+defer manager.deinit();
+
+// 启动实盘会话
+try manager.startLive(.{
+    .session_id = "btc_dual_ma",
+    .strategy_type = "dual_ma",
+    .exchange = "hyperliquid",
+    .symbol = "BTC",
+    .mode = .paper,
+    .initial_capital = 10000.0,
+    .params = null,
+});
+
+// 查询状态
+const status = manager.getLiveStatus("btc_dual_ma");
+const stats = manager.getLiveStats("btc_dual_ma");
+
+// 暂停/恢复
+try manager.pauseLive("btc_dual_ma");
+try manager.resumeLive("btc_dual_ma");
+
+// 停止
+try manager.stopLive("btc_dual_ma");
+```
+
+### REST API
+
+```bash
+# 列出所有会话
+GET /api/v2/live
+
+# 启动新会话
+POST /api/v2/live
+{
+  "session_id": "btc_dual_ma",
+  "strategy_type": "dual_ma",
+  "exchange": "hyperliquid",
+  "symbol": "BTC",
+  "mode": "paper",
+  "initial_capital": 10000.0
+}
+
+# 会话详情
+GET /api/v2/live/:id
+
+# 停止会话
+DELETE /api/v2/live/:id
+
+# 暂停/恢复
+POST /api/v2/live/:id/pause
+POST /api/v2/live/:id/resume
+```
+
+---
+
+## 架构对比
+
+### LiveTradingEngine vs LiveRunner vs PaperTradingEngine
+
+| 组件 | 文件位置 | 用途 | 管理方式 |
+|------|----------|------|----------|
+| **LiveTradingEngine** | `src/trading/live_engine.zig` | 核心实盘交易逻辑 | 底层引擎 |
+| **LiveRunner** | `src/engine/runners/live_runner.zig` | 统一封装，线程安全 | EngineManager |
+| **PaperTradingEngine** | `src/trading/paper_trading.zig` | 独立模拟交易 | 独立使用 |
 
 ---
 
 ## 相关文档
 
 - [Story 027: libxev Integration](../../stories/v0.5.0/STORY_027_LIBXEV_INTEGRATION.md)
-- [v0.5.0 Overview](../../stories/v0.5.0/OVERVIEW.md)
-- [libxev 集成方案](../../architecture/LIBXEV_INTEGRATION.md)
+- [Story 047: REST API](../../stories/v1.0.0/STORY_047_REST_API.md)
+- [Paper Trading](../paper-trading/README.md)
 - [DataEngine](../data-engine/README.md)
-- [ExecutionEngine](../execution-engine/README.md)
 
 ---
 
-**版本**: v0.5.0
-**状态**: 计划中
-**创建时间**: 2025-12-27
+**版本**: v0.9.1
+**状态**: ✅ 已完成
+**最后更新**: 2025-12-29

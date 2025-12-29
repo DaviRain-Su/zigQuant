@@ -1,7 +1,7 @@
 # 下一步行动计划
 
 **更新时间**: 2025-12-29
-**当前阶段**: v0.9.0 完成 → v1.0.0 进行中
+**当前阶段**: v0.9.1 完成 → v1.0.0 进行中
 **架构参考**: [竞争分析](./architecture/COMPETITIVE_ANALYSIS.md) - NautilusTrader/Hummingbot/Freqtrade 深度研究
 
 ---
@@ -69,14 +69,22 @@ EngineManager
 #### 代码统计
 | 文件 | 行数 | 描述 |
 |------|------|------|
-| `src/api/zap_server.zig` | ~900 | REST API 服务 |
+| `src/api/zap_server.zig` | ~1550 | REST API 服务 (含 Live API) |
 | `src/api/websocket.zig` | ~940 | WebSocket 服务 |
-| `src/engine/manager.zig` | ~610 | 引擎管理器 |
+| `src/engine/manager.zig` | ~870 | 引擎管理器 (含 Live) |
 | `src/engine/runners/strategy_runner.zig` | ~930 | 统一策略运行器 |
-| **总计** | **~3380** | **v0.9.0 核心代码** |
+| `src/engine/runners/live_runner.zig` | ~760 | 实时交易运行器 (新增) |
+| **总计** | **~5050** | **v0.9.0+ 核心代码** |
+
+#### v0.9.1 新增 (AI 集成)
+| 文件 | 变更 | 描述 |
+|------|------|------|
+| `src/strategy/factory.zig` | +70 行 | hybrid_ai 策略 + LLM 注入 |
+| `src/engine/manager.zig` | +120 行 | AI 配置管理 |
+| `src/api/zap_server.zig` | +120 行 | AI 配置 API |
 
 #### 测试结果
-- ✅ **768/768 单元测试通过**
+- ✅ **781/781 单元测试通过**
 - ✅ **零内存泄漏**
 
 ---
@@ -89,24 +97,43 @@ EngineManager
 - [x] 更新 REST API (`/api/v2/grid` → `/api/v2/strategy`)
 - [x] 更新 WebSocket 命令
 
-### ⏳ Step 2: Live Runner 迁移 (待开始)
-将 `LiveTradingEngine` 从 `src/trading/live_engine.zig` 迁移到 `src/engine/runners/live_runner.zig`
+### ✅ Step 2: Live Runner 迁移 (已完成)
+将 `LiveTradingEngine` 包装为 `LiveRunner` 并整合到 `EngineManager`
 
-**任务清单**:
-- [ ] 创建 `src/engine/runners/live_runner.zig`
-- [ ] 复用 `StrategyRunner` 的模式
-- [ ] 整合 `LiveTradingEngine` 的实时交易功能
-- [ ] 添加到 `EngineManager`
-- [ ] 更新 REST/WebSocket API
+**已完成任务**:
+- [x] 创建 `src/engine/runners/live_runner.zig` (750+ 行)
+- [x] 复用 `StrategyRunner` 的模式 (lifecycle, thread management)
+- [x] 整合 `LiveTradingEngine` 的实时交易功能
+- [x] 添加 `live_runners` HashMap 到 `EngineManager`
+- [x] 添加 REST API (`/api/v2/live`)
+- [x] 更新 `src/engine/mod.zig` 导出
+- [x] 776 单元测试通过
 
-### ⏳ Step 3: Paper Trading 清理 (待开始)
-合并 `PaperTradingEngine` 到 `StrategyRunner` 的 paper 模式
+### ✅ Step 3: Paper Trading 评估 (已完成)
+分析 `PaperTradingEngine` 与 `StrategyRunner` 的关系
 
-**任务清单**:
-- [ ] 分析 `PaperTradingEngine` 功能
-- [ ] 确保 `StrategyRunner.mode = .paper` 完整支持
-- [ ] 移除重复代码
-- [ ] 更新测试
+**结论**: 保持两个模块独立
+- `PaperTradingEngine` - 专注于 **订单执行模拟** (带滑点/手续费)
+- `StrategyRunner` (paper mode) - 专注于 **策略信号生成和执行**
+- 两者服务不同用途，可以独立或组合使用
+- 未来可考虑在 `StrategyRunner` 中可选集成 `SimulatedExecutor`
+
+### ✅ Step 4: AI 策略集成完善 (已完成)
+将 v0.9.0 的 AI 模块完全集成到统一架构
+
+**已完成任务**:
+- [x] `StrategyFactory` 添加 `hybrid_ai` 策略支持
+- [x] `StrategyFactory` 添加 LLM 客户端注入 (`setLLMClient()`)
+- [x] `EngineManager` 添加 AI 配置管理 (`AIRuntimeConfig`)
+- [x] `EngineManager` 添加 AI 生命周期方法 (`initAIClient()`, `disableAI()`)
+- [x] REST API 添加 AI 配置端点 (`/api/v2/ai/*`)
+- [x] 781 单元测试通过
+
+**新增 API 端点**:
+- `GET /api/v2/ai/config` - 获取 AI 配置状态
+- `POST /api/v2/ai/config` - 更新 AI 配置
+- `POST /api/v2/ai/enable` - 启用 AI
+- `POST /api/v2/ai/disable` - 禁用 AI
 
 ---
 
@@ -122,16 +149,14 @@ EngineManager
 - [ ] 实时仓位/盈亏展示
 - [ ] 策略性能图表
 - [ ] 策略启动/停止控制
+- [ ] Live Trading 监控面板
 - [ ] 风险指标面板
 - [ ] WebSocket 实时更新
 
-#### 2. 完成引擎架构统一 (Step 2 & 3)
-**预计时间**: 2-3 天
-
-**功能清单**:
-- [ ] Live Runner 迁移
-- [ ] Paper Trading 清理
-- [ ] 统一的运行器接口
+#### ~~2. 完成引擎架构统一 (Step 2 & 3)~~ ✅ 已完成
+- [x] Live Runner 迁移
+- [x] Paper Trading 评估
+- [x] 统一的运行器接口
 
 ### 优先级 P1 (高优先级)
 
@@ -188,7 +213,7 @@ EngineManager
 - ✅ 14 个技术指标
 - ✅ 6+ 个内置策略
 - ✅ 25 个示例程序
-- ✅ 768+ 个单元测试
+- ✅ 776+ 个单元测试
 - ✅ 零内存泄漏
 - ✅ ~45,000 行代码
 
@@ -198,13 +223,18 @@ src/
 ├── core/           核心基础设施 (Decimal, Time, Logger, Config, MessageBus, Cache)
 ├── exchange/       交易所适配 (Hyperliquid HTTP/WebSocket)
 ├── market/         市场数据 (OrderBook, Candles, Indicators)
-├── trading/        交易引擎 (OrderManager, PositionTracker, LiveEngine)
+├── trading/        交易原语 (OrderManager, PositionTracker, LiveEngine, PaperTrading)
 ├── strategy/       策略框架 (IStrategy, 6+ 内置策略含 GridStrategy)
 ├── backtest/       回测引擎 (向量化回测, 队列建模, 延迟模拟)
 ├── market_making/  做市模块 (Clock-Driven, 库存管理, 套利)
 ├── storage/        数据持久化 (DataStore, CandleCache)
 ├── risk/           风险管理 (RiskEngine, StopLoss, Alert)
-├── engine/         引擎管理 (EngineManager, StrategyRunner, BacktestRunner)
+├── engine/         引擎管理
+│   ├── manager.zig       EngineManager (统一管理所有运行器)
+│   └── runners/
+│       ├── strategy_runner.zig  所有策略 (含 Grid)
+│       ├── backtest_runner.zig  回测作业
+│       └── live_runner.zig      实时交易会话 (新增)
 ├── api/            API 层 (REST Server, WebSocket Server)
 ├── adapters/       适配器层 (HyperliquidDataProvider/ExecutionClient)
 └── cli/            命令行界面 (backtest, optimize, run-strategy)
@@ -224,6 +254,15 @@ Strategy (统一 - 支持所有策略类型含 Grid):
   DELETE /api/v2/strategy/:id # 停止策略
   POST /api/v2/strategy/:id/pause   # 暂停
   POST /api/v2/strategy/:id/resume  # 恢复
+
+Live Trading (新增):
+  GET  /api/v2/live           # 列出所有实时交易会话
+  POST /api/v2/live           # 启动实时交易会话
+  GET  /api/v2/live/:id       # 会话详情
+  DELETE /api/v2/live/:id     # 停止会话
+  POST /api/v2/live/:id/pause    # 暂停
+  POST /api/v2/live/:id/resume   # 恢复
+  POST /api/v2/live/:id/subscribe  # 订阅交易对
 
 Backtest:
   POST /api/v2/backtest/run           # 运行回测
@@ -255,6 +294,19 @@ POST /api/v2/strategy
 }
 ```
 
+### Live Trading 会话启动示例
+```json
+POST /api/v2/live
+{
+  "name": "btc_trading",
+  "exchange": "hyperliquid",
+  "testnet": true,
+  "mode": "event_driven",
+  "symbols": ["BTC-USDT", "ETH-USDT"],
+  "auto_reconnect": true
+}
+```
+
 ---
 
 ## 📈 成功指标
@@ -267,9 +319,15 @@ POST /api/v2/strategy
 - [x] 768+ 单元测试通过 ✅
 - [x] 零内存泄漏 ✅
 
+### v0.9.1 引擎架构统一 ✅
+- [x] Live Runner 迁移 (live_runner.zig) ✅
+- [x] Live Trading REST API (/api/v2/live) ✅
+- [x] Paper Trading 评估 ✅
+- [x] 776+ 单元测试通过 ✅
+
 ### v1.0.0 完成标准
 - [ ] Web Dashboard
-- [ ] 引擎架构统一完成 (Step 2 & 3)
+- [x] 引擎架构统一完成 (Step 2 & 3) ✅
 - [ ] API 文档
 - [ ] 生产环境部署文档
 - [ ] 性能优化
@@ -279,7 +337,7 @@ POST /api/v2/strategy
 ## 📅 推荐执行顺序
 
 1. **立即可做**: Web Dashboard (Bun + React) - 用户可视化需求最高
-2. **同时可做**: 引擎架构统一 Step 2 & 3 - 代码清理
+2. ~~**同时可做**: 引擎架构统一 Step 2 & 3~~ ✅ 已完成
 3. **之后**: 多策略组合 + API 文档
 4. **最后**: Binance 适配器 + 分布式回测
 

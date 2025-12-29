@@ -37,6 +37,14 @@ const BollingerBreakoutStrategy = @import("./builtin/breakout.zig").BollingerBre
 const BollingerConfig = @import("./builtin/breakout.zig").Config;
 const GridStrategy = @import("./builtin/grid.zig").GridStrategy;
 const GridConfig = @import("./builtin/grid.zig").Config;
+const HybridAIStrategy = @import("./builtin/hybrid_ai.zig").HybridAIStrategy;
+const HybridAIConfig = @import("./builtin/hybrid_ai.zig").Config;
+
+// AI module
+const ai = @import("../ai/mod.zig");
+const LLMClient = ai.LLMClient;
+const AIConfig = ai.AIConfig;
+const AIProvider = ai.AIProvider;
 
 // ============================================================================
 // Errors
@@ -80,6 +88,7 @@ const strategy_list = [_]StrategyInfo{
     .{ .name = "rsi_mean_reversion", .description = "RSI Mean Reversion Strategy" },
     .{ .name = "bollinger_breakout", .description = "Bollinger Bands Breakout Strategy" },
     .{ .name = "grid", .description = "Grid Trading Strategy" },
+    .{ .name = "hybrid_ai", .description = "Hybrid AI Strategy (Technical + AI Advisor)" },
 };
 
 // ============================================================================
@@ -88,9 +97,21 @@ const strategy_list = [_]StrategyInfo{
 
 pub const StrategyFactory = struct {
     allocator: std.mem.Allocator,
+    /// Optional LLM client for AI strategies (injected from EngineManager)
+    llm_client: ?*LLMClient = null,
 
     pub fn init(allocator: std.mem.Allocator) StrategyFactory {
-        return .{ .allocator = allocator };
+        return .{ .allocator = allocator, .llm_client = null };
+    }
+
+    /// Set the LLM client for AI-powered strategies
+    pub fn setLLMClient(self: *StrategyFactory, client: *LLMClient) void {
+        self.llm_client = client;
+    }
+
+    /// Clear the LLM client
+    pub fn clearLLMClient(self: *StrategyFactory) void {
+        self.llm_client = null;
     }
 
     /// Create strategy from name and JSON config
@@ -119,6 +140,8 @@ pub const StrategyFactory = struct {
             return try self.createBollingerBreakout(root);
         } else if (std.mem.eql(u8, strategy_name, "grid")) {
             return try self.createGrid(root);
+        } else if (std.mem.eql(u8, strategy_name, "hybrid_ai")) {
+            return try self.createHybridAI(root);
         } else {
             return StrategyFactoryError.UnknownStrategy;
         }
@@ -317,6 +340,75 @@ pub const StrategyFactory = struct {
     }
 
     // ------------------------------------------------------------------------
+    // Hybrid AI Strategy
+    // ------------------------------------------------------------------------
+
+    fn createHybridAI(self: *StrategyFactory, root: std.json.Value) !StrategyWrapper {
+        const pair = try self.parseTradingPair(root, "pair");
+
+        const params_obj = root.object.get("parameters") orelse
+            return StrategyFactoryError.MissingParameter;
+
+        // Technical indicator parameters
+        const rsi_period = try self.getU32(params_obj, "rsi_period", 14);
+        const rsi_oversold = try self.getF64(params_obj, "rsi_oversold", 30.0);
+        const rsi_overbought = try self.getF64(params_obj, "rsi_overbought", 70.0);
+        const sma_period = try self.getU32(params_obj, "sma_period", 20);
+
+        // AI weight configuration
+        const ai_weight = try self.getF64(params_obj, "ai_weight", 0.4);
+        const technical_weight = try self.getF64(params_obj, "technical_weight", 0.6);
+
+        // Signal thresholds
+        const min_long_score = try self.getF64(params_obj, "min_long_score", 0.65);
+        const max_short_score = try self.getF64(params_obj, "max_short_score", 0.35);
+        const min_ai_confidence = try self.getF64(params_obj, "min_ai_confidence", 0.6);
+
+        // Position sizing
+        const risk_per_trade = try self.getF64(params_obj, "risk_per_trade", 0.02);
+        const max_position_pct = try self.getF64(params_obj, "max_position_pct", 0.1);
+
+        // Parse timeframe
+        const timeframe_str = try self.getString(params_obj, "timeframe", "h1");
+        const timeframe = Timeframe.fromString(timeframe_str) catch .h1;
+
+        const config = HybridAIConfig{
+            .pair = pair,
+            .timeframe = timeframe,
+            .rsi_period = rsi_period,
+            .rsi_oversold = rsi_oversold,
+            .rsi_overbought = rsi_overbought,
+            .sma_period = sma_period,
+            .ai_weight = ai_weight,
+            .technical_weight = technical_weight,
+            .min_long_score = min_long_score,
+            .max_short_score = max_short_score,
+            .min_ai_confidence = min_ai_confidence,
+            .risk_per_trade = risk_per_trade,
+            .max_position_pct = max_position_pct,
+        };
+
+        try config.validate();
+
+        // Create strategy with or without AI client
+        const strategy = if (self.llm_client) |client|
+            try HybridAIStrategy.createWithAI(self.allocator, config, client)
+        else
+            try HybridAIStrategy.create(self.allocator, config);
+
+        return StrategyWrapper{
+            .strategy_ptr = strategy,
+            .interface = strategy.toStrategy(),
+            .destroy_fn = destroyHybridAI,
+        };
+    }
+
+    fn destroyHybridAI(ptr: *anyopaque) void {
+        const strategy: *HybridAIStrategy = @ptrCast(@alignCast(ptr));
+        strategy.destroy();
+    }
+
+    // ------------------------------------------------------------------------
     // JSON Parsing Helpers
     // ------------------------------------------------------------------------
 
@@ -403,11 +495,12 @@ test "StrategyFactory: list strategies" {
     var factory = StrategyFactory.init(testing.allocator);
 
     const strategies = factory.listStrategies();
-    try testing.expectEqual(@as(usize, 4), strategies.len);
+    try testing.expectEqual(@as(usize, 5), strategies.len);
     try testing.expectEqualStrings("dual_ma", strategies[0].name);
     try testing.expectEqualStrings("rsi_mean_reversion", strategies[1].name);
     try testing.expectEqualStrings("bollinger_breakout", strategies[2].name);
     try testing.expectEqualStrings("grid", strategies[3].name);
+    try testing.expectEqualStrings("hybrid_ai", strategies[4].name);
 }
 
 test "StrategyFactory: create dual_ma" {
@@ -525,4 +618,49 @@ test "StrategyFactory: missing parameters" {
     // Missing "parameters" field should fail
     const result = factory.create("dual_ma", config_json);
     try testing.expectError(StrategyFactoryError.MissingParameter, result);
+}
+
+test "StrategyFactory: create hybrid_ai without LLM client" {
+    const testing = std.testing;
+    var factory = StrategyFactory.init(testing.allocator);
+
+    const config_json =
+        \\{
+        \\  "strategy": "hybrid_ai",
+        \\  "pair": { "base": "BTC", "quote": "USDT" },
+        \\  "parameters": {
+        \\    "rsi_period": 14,
+        \\    "sma_period": 20,
+        \\    "ai_weight": 0.4,
+        \\    "technical_weight": 0.6
+        \\  }
+        \\}
+    ;
+
+    var wrapper = try factory.create("hybrid_ai", config_json);
+    defer wrapper.deinit();
+
+    const strategy = wrapper.interface;
+    const metadata = strategy.getMetadata();
+    try testing.expectEqualStrings("Hybrid AI Strategy", metadata.name);
+}
+
+test "StrategyFactory: hybrid_ai with default parameters" {
+    const testing = std.testing;
+    var factory = StrategyFactory.init(testing.allocator);
+
+    // Minimal config - uses all defaults
+    const config_json =
+        \\{
+        \\  "pair": { "base": "ETH", "quote": "USDT" },
+        \\  "parameters": {}
+        \\}
+    ;
+
+    var wrapper = try factory.create("hybrid_ai", config_json);
+    defer wrapper.deinit();
+
+    const strategy = wrapper.interface;
+    const metadata = strategy.getMetadata();
+    try testing.expectEqualStrings("Hybrid AI Strategy", metadata.name);
 }

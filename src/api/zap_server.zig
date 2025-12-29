@@ -25,6 +25,11 @@ const BacktestRequest = engine_mod.BacktestRequest;
 const BacktestStatus = engine_mod.BacktestStatus;
 const StrategyRequest = engine_mod.StrategyRequest;
 const TradingMode = engine_mod.TradingMode;
+const LiveRequest = engine_mod.LiveRequest;
+const LiveStatus = engine_mod.LiveStatus;
+const LiveTradingMode = engine_mod.LiveTradingMode;
+const AIRuntimeConfig = engine_mod.AIRuntimeConfig;
+const AIStatus = engine_mod.AIStatus;
 
 // ============================================================================
 // Embedded JWT Implementation (to avoid cross-module import conflicts)
@@ -379,6 +384,12 @@ fn handleRequest(r: zap.Request) !void {
     } else if (std.mem.startsWith(u8, path, "/api/v2/backtest/")) {
         try handleBacktestDetail(r, ctx, path, method);
     }
+    // V2 Live Trading endpoints
+    else if (std.mem.eql(u8, path, "/api/v2/live") or std.mem.eql(u8, path, "/api/v2/live/sessions")) {
+        try handleLiveList(r, ctx, method);
+    } else if (std.mem.startsWith(u8, path, "/api/v2/live/")) {
+        try handleLiveDetail(r, ctx, path, method);
+    }
     // V2 System endpoints
     else if (std.mem.eql(u8, path, "/api/v2/system/kill-switch")) {
         try handleKillSwitch(r, ctx, method);
@@ -386,6 +397,14 @@ fn handleRequest(r: zap.Request) !void {
         try handleSystemHealth(r, ctx);
     } else if (std.mem.eql(u8, path, "/api/v2/system/logs")) {
         try handleSystemLogs(r, ctx);
+    }
+    // V2 AI Configuration endpoints
+    else if (std.mem.eql(u8, path, "/api/v2/ai/config") or std.mem.eql(u8, path, "/api/v2/ai/status")) {
+        try handleAIConfig(r, ctx, method);
+    } else if (std.mem.eql(u8, path, "/api/v2/ai/enable")) {
+        try handleAIEnable(r, ctx, method);
+    } else if (std.mem.eql(u8, path, "/api/v2/ai/disable")) {
+        try handleAIDisable(r, ctx, method);
     } else {
         r.setStatus(.not_found);
         try r.sendJson(
@@ -1139,6 +1158,344 @@ fn handleBacktestDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, m
 }
 
 // ============================================================================
+// Live Trading API Handlers
+// ============================================================================
+
+fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    if (ctx.deps.engine_manager == null) {
+        r.setStatus(.service_unavailable);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
+        );
+        return;
+    }
+
+    const manager = ctx.deps.engine_manager.?;
+
+    switch (method) {
+        .GET => {
+            // List all live trading sessions
+            const sessions = manager.listLive(ctx.allocator) catch |err| {
+                r.setStatus(.internal_server_error);
+                var buf: [256]u8 = undefined;
+                const json = std.fmt.bufPrint(&buf,
+                    \\{{"success":false,"error":{{"code":"LIST_FAILED","message":"Failed to list live sessions: {s}"}}}}
+                , .{@errorName(err)}) catch
+                    \\{"success":false,"error":{"code":"LIST_FAILED","message":"Failed to list live sessions"}}
+                ;
+                try r.setContentType(.JSON);
+                try r.sendBody(json);
+                return;
+            };
+            defer ctx.allocator.free(sessions);
+
+            // Build JSON response
+            var response_buf = std.ArrayList(u8){};
+            defer response_buf.deinit(ctx.allocator);
+
+            const writer = response_buf.writer(ctx.allocator);
+            try writer.writeAll("{\"success\":true,\"data\":{\"sessions\":[");
+
+            for (sessions, 0..) |s, i| {
+                if (i > 0) try writer.writeAll(",");
+                try std.fmt.format(writer,
+                    \\{{"id":"{s}","name":"{s}","exchange":"{s}","status":"{s}","testnet":{s},"orders_submitted":{d},"orders_filled":{d},"total_volume":{d:.4},"realized_pnl":{d:.4},"uptime_ms":{d}}}
+                , .{
+                    s.id,
+                    s.name,
+                    s.exchange,
+                    s.status,
+                    if (s.testnet) "true" else "false",
+                    s.orders_submitted,
+                    s.orders_filled,
+                    s.total_volume,
+                    s.realized_pnl,
+                    s.uptime_ms,
+                });
+            }
+
+            try writer.writeAll("],\"total\":");
+            try std.fmt.format(writer, "{d}", .{sessions.len});
+            try writer.writeAll("}}");
+
+            try r.setContentType(.JSON);
+            try r.sendBody(response_buf.items);
+        },
+        .POST => {
+            // Start a new live trading session
+            const body = r.body orelse {
+                r.setStatus(.bad_request);
+                try r.sendJson(
+                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Missing request body"}}
+                );
+                return;
+            };
+
+            // Parse live trading request
+            const LiveStartRequest = struct {
+                id: ?[]const u8 = null,
+                name: []const u8 = "default",
+                mode: []const u8 = "event_driven",
+                exchange: []const u8 = "hyperliquid",
+                testnet: bool = true,
+                symbols: ?[]const []const u8 = null,
+                heartbeat_interval_ms: u64 = 30000,
+                tick_interval_ms: u64 = 1000,
+                auto_reconnect: bool = true,
+                wallet: ?[]const u8 = null,
+                private_key: ?[]const u8 = null,
+            };
+
+            const parsed = std.json.parseFromSlice(LiveStartRequest, ctx.allocator, body, .{}) catch {
+                r.setStatus(.bad_request);
+                try r.sendJson(
+                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Invalid JSON format"}}
+                );
+                return;
+            };
+            defer parsed.deinit();
+
+            const req = parsed.value;
+
+            // Generate ID if not provided
+            var id_buf: [32]u8 = undefined;
+            const live_id = req.id orelse blk: {
+                const now = std.time.milliTimestamp();
+                break :blk std.fmt.bufPrint(&id_buf, "live_{d}", .{now}) catch "live_default";
+            };
+
+            // Parse trading mode
+            const trading_mode: LiveTradingMode = if (std.mem.eql(u8, req.mode, "clock_driven"))
+                .clock_driven
+            else if (std.mem.eql(u8, req.mode, "hybrid"))
+                .hybrid
+            else
+                .event_driven;
+
+            // Build live request
+            const live_request = LiveRequest{
+                .name = req.name,
+                .mode = trading_mode,
+                .symbols = req.symbols orelse &[_][]const u8{},
+                .heartbeat_interval_ms = req.heartbeat_interval_ms,
+                .tick_interval_ms = req.tick_interval_ms,
+                .auto_reconnect = req.auto_reconnect,
+                .exchange = req.exchange,
+                .wallet = req.wallet,
+                .private_key = req.private_key,
+                .testnet = req.testnet,
+            };
+
+            // Start live trading session
+            manager.startLive(live_id, live_request) catch |err| {
+                r.setStatus(.internal_server_error);
+                var buf: [256]u8 = undefined;
+                const json = std.fmt.bufPrint(&buf,
+                    \\{{"success":false,"error":{{"code":"START_FAILED","message":"Failed to start live session: {s}"}}}}
+                , .{@errorName(err)}) catch
+                    \\{"success":false,"error":{"code":"START_FAILED","message":"Failed to start live session"}}
+                ;
+                try r.setContentType(.JSON);
+                try r.sendBody(json);
+                return;
+            };
+
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":true,"data":{{"id":"{s}","status":"running","name":"{s}","exchange":"{s}","testnet":{s}}}}}
+            , .{ live_id, req.name, req.exchange, if (req.testnet) "true" else "false" }) catch
+                \\{"success":true,"data":{"status":"started"}}
+            ;
+            r.setStatus(.created);
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+        },
+        else => {
+            r.setStatus(.method_not_allowed);
+            try r.sendJson(
+                \\{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"Use GET to list or POST to start"}}
+            );
+        },
+    }
+}
+
+fn handleLiveDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, method: zap.http.Method) !void {
+    if (ctx.deps.engine_manager == null) {
+        r.setStatus(.service_unavailable);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
+        );
+        return;
+    }
+
+    const manager = ctx.deps.engine_manager.?;
+
+    // Extract live session ID from path: /api/v2/live/:id[/action]
+    const prefix = "/api/v2/live/";
+    const remainder = path[prefix.len..];
+
+    // Find session ID and optional action
+    var session_id = remainder;
+    var action: []const u8 = "";
+    if (std.mem.indexOf(u8, remainder, "/")) |idx| {
+        session_id = remainder[0..idx];
+        action = remainder[idx + 1 ..];
+    }
+
+    if (std.mem.eql(u8, action, "stop") or (action.len == 0 and method == .DELETE)) {
+        // Stop a live trading session
+        manager.stopLive(session_id) catch |err| {
+            r.setStatus(.not_found);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"STOP_FAILED","message":"Failed to stop live session: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"STOP_FAILED","message":"Live session not found or failed to stop"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        var buf: [128]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"id":"{s}","status":"stopped"}}}}
+        , .{session_id}) catch
+            \\{"success":true,"data":{"status":"stopped"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else if (std.mem.eql(u8, action, "pause")) {
+        manager.pauseLive(session_id) catch |err| {
+            r.setStatus(.internal_server_error);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"PAUSE_FAILED","message":"Failed to pause live session: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"PAUSE_FAILED","message":"Live session not found or failed to pause"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        var buf: [128]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"id":"{s}","status":"paused"}}}}
+        , .{session_id}) catch
+            \\{"success":true,"data":{"status":"paused"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else if (std.mem.eql(u8, action, "resume")) {
+        manager.resumeLive(session_id) catch |err| {
+            r.setStatus(.internal_server_error);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"RESUME_FAILED","message":"Failed to resume live session: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"RESUME_FAILED","message":"Live session not found or failed to resume"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        var buf: [128]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"id":"{s}","status":"running"}}}}
+        , .{session_id}) catch
+            \\{"success":true,"data":{"status":"running"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else if (action.len == 0 and method == .GET) {
+        // Get live session details
+        const stats = manager.getLiveStats(session_id) catch |err| {
+            r.setStatus(.not_found);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"NOT_FOUND","message":"Live session not found: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"NOT_FOUND","message":"Live session not found"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        const status = manager.getLiveStatus(session_id) catch .stopped;
+
+        var buf: [512]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"id":"{s}","status":"{s}","stats":{{"uptime_ms":{d},"ticks":{d},"heartbeats_sent":{d},"reconnects":{d},"orders_submitted":{d},"orders_filled":{d},"orders_cancelled":{d},"total_volume":{d:.4},"realized_pnl":{d:.4}}}}}}}
+        , .{
+            session_id,
+            status.toString(),
+            stats.uptime_ms,
+            stats.ticks,
+            stats.heartbeats_sent,
+            stats.reconnects,
+            stats.orders_submitted,
+            stats.orders_filled,
+            stats.orders_cancelled,
+            stats.total_volume,
+            stats.realized_pnl,
+        }) catch
+            \\{"success":true,"data":{"status":"unknown"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else if (std.mem.eql(u8, action, "subscribe") and method == .POST) {
+        // Subscribe to a symbol
+        const body = r.body orelse {
+            r.setStatus(.bad_request);
+            try r.sendJson(
+                \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Missing request body"}}
+            );
+            return;
+        };
+
+        const SubscribeRequest = struct { symbol: []const u8 };
+        const parsed = std.json.parseFromSlice(SubscribeRequest, ctx.allocator, body, .{}) catch {
+            r.setStatus(.bad_request);
+            try r.sendJson(
+                \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Invalid JSON format"}}
+            );
+            return;
+        };
+        defer parsed.deinit();
+
+        manager.subscribeLiveSymbol(session_id, parsed.value.symbol) catch |err| {
+            r.setStatus(.internal_server_error);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"SUBSCRIBE_FAILED","message":"Failed to subscribe: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"SUBSCRIBE_FAILED","message":"Failed to subscribe"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        var buf: [128]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"symbol":"{s}","subscribed":true}}}}
+        , .{parsed.value.symbol}) catch
+            \\{"success":true,"data":{"subscribed":true}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else {
+        r.setStatus(.not_found);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"NOT_FOUND","message":"Unknown live endpoint"}}
+        );
+    }
+}
+
+// ============================================================================
 // System API Handlers
 // ============================================================================
 
@@ -1230,10 +1587,11 @@ fn handleSystemHealth(r: zap.Request, ctx: *ServerContext) !void {
         var buf: [512]u8 = undefined;
 
         const json = std.fmt.bufPrint(&buf,
-            \\{{"success":true,"data":{{"status":"{s}","components":{{"api_server":"up","engine_manager":"up"}},"metrics":{{"running_strategies":{d},"active_backtests":{d},"kill_switch_active":{s},"uptime_seconds":{d}}}}}}}
+            \\{{"success":true,"data":{{"status":"{s}","components":{{"api_server":"up","engine_manager":"up"}},"metrics":{{"running_strategies":{d},"running_live":{d},"active_backtests":{d},"kill_switch_active":{s},"uptime_seconds":{d}}}}}}}
         , .{
             health.status,
             health.running_strategies,
+            health.running_live,
             health.running_backtests,
             if (health.kill_switch_active) "true" else "false",
             ctx.uptime(),
@@ -1256,6 +1614,172 @@ fn handleSystemLogs(r: zap.Request, ctx: *ServerContext) !void {
     try r.setContentType(.JSON);
     try r.sendBody(
         \\{"success":true,"data":{"logs":[],"total":0,"has_more":false}}
+    );
+}
+
+// ============================================================================
+// AI Configuration Handlers
+// ============================================================================
+
+fn handleAIConfig(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    const manager = ctx.deps.engine_manager orelse {
+        r.setStatus(.service_unavailable);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"NO_ENGINE","message":"Engine manager not configured"}}
+        );
+        return;
+    };
+
+    switch (method) {
+        .GET => {
+            // Get current AI status
+            const status = manager.getAIStatus();
+            var buf: [1024]u8 = undefined;
+
+            const endpoint_str = if (status.api_endpoint) |ep| ep else "null";
+            const has_endpoint = status.api_endpoint != null;
+
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":true,"data":{{"enabled":{s},"provider":"{s}","model_id":"{s}","api_endpoint":{s}"{s}"{s},"has_api_key":{s},"connected":{s}}}}}
+            , .{
+                if (status.enabled) "true" else "false",
+                status.provider,
+                status.model_id,
+                if (has_endpoint) "\"" else "",
+                endpoint_str,
+                if (has_endpoint) "\"" else "",
+                if (status.has_api_key) "true" else "false",
+                if (status.connected) "true" else "false",
+            }) catch
+                \\{"success":true,"data":{"enabled":false,"provider":"openai","model_id":"gpt-4o"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+        },
+        .POST, .PUT, .PATCH => {
+            // Update AI configuration
+            const body = r.body() orelse {
+                r.setStatus(.bad_request);
+                try r.sendJson(
+                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Request body required"}}
+                );
+                return;
+            };
+
+            const AIConfigRequest = struct {
+                provider: ?[]const u8 = null,
+                model_id: ?[]const u8 = null,
+                api_endpoint: ?[]const u8 = null,
+                api_key: ?[]const u8 = null,
+            };
+
+            const parsed = std.json.parseFromSlice(AIConfigRequest, ctx.allocator, body, .{}) catch {
+                r.setStatus(.bad_request);
+                try r.sendJson(
+                    \\{"success":false,"error":{"code":"PARSE_ERROR","message":"Invalid JSON body"}}
+                );
+                return;
+            };
+            defer parsed.deinit();
+
+            const req = parsed.value;
+
+            // Update configuration
+            manager.updateAIConfig(
+                req.provider,
+                req.model_id,
+                req.api_endpoint,
+                req.api_key,
+                null, // don't auto-enable on config update
+            );
+
+            const status = manager.getAIStatus();
+            var buf: [512]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":true,"data":{{"message":"AI configuration updated","provider":"{s}","model_id":"{s}","has_api_key":{s}}}}}
+            , .{
+                status.provider,
+                status.model_id,
+                if (status.has_api_key) "true" else "false",
+            }) catch
+                \\{"success":true,"data":{"message":"AI configuration updated"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+        },
+        else => {
+            r.setStatus(.method_not_allowed);
+            try r.sendJson(
+                \\{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"Use GET to read config, POST/PUT/PATCH to update"}}
+            );
+        },
+    }
+}
+
+fn handleAIEnable(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    if (method != .POST) {
+        r.setStatus(.method_not_allowed);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"Use POST to enable AI"}}
+        );
+        return;
+    }
+
+    const manager = ctx.deps.engine_manager orelse {
+        r.setStatus(.service_unavailable);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"NO_ENGINE","message":"Engine manager not configured"}}
+        );
+        return;
+    };
+
+    // Try to initialize the AI client
+    manager.initAIClient() catch |err| {
+        r.setStatus(.bad_request);
+        var buf: [256]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":false,"error":{{"code":"AI_INIT_FAILED","message":"Failed to initialize AI: {s}"}}}}
+        , .{@errorName(err)}) catch
+            \\{"success":false,"error":{"code":"AI_INIT_FAILED","message":"Failed to initialize AI client"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+        return;
+    };
+
+    const status = manager.getAIStatus();
+    var buf: [512]u8 = undefined;
+    const json = std.fmt.bufPrint(&buf,
+        \\{{"success":true,"data":{{"enabled":true,"provider":"{s}","model_id":"{s}","message":"AI enabled successfully"}}}}
+    , .{ status.provider, status.model_id }) catch
+        \\{"success":true,"data":{"enabled":true,"message":"AI enabled successfully"}}
+    ;
+    try r.setContentType(.JSON);
+    try r.sendBody(json);
+}
+
+fn handleAIDisable(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    if (method != .POST) {
+        r.setStatus(.method_not_allowed);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"Use POST to disable AI"}}
+        );
+        return;
+    }
+
+    const manager = ctx.deps.engine_manager orelse {
+        r.setStatus(.service_unavailable);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"NO_ENGINE","message":"Engine manager not configured"}}
+        );
+        return;
+    };
+
+    manager.disableAI();
+
+    try r.setContentType(.JSON);
+    try r.sendBody(
+        \\{"success":true,"data":{"enabled":false,"message":"AI disabled successfully"}}
     );
 }
 

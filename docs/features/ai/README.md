@@ -1,8 +1,8 @@
 # AI 模块
 
-**版本**: v0.9.0
+**版本**: v0.9.1
 **模块路径**: `src/ai/`
-**状态**: 基础实现完成
+**状态**: ✅ 已完成 (含 REST API 配置)
 
 ---
 
@@ -485,13 +485,93 @@ const ai_advice = self.ai_advisor.getAdvice(market_ctx) catch |err| {
 
 ---
 
+## REST API 运行时配置 (v0.9.1)
+
+v0.9.1 新增了通过 REST API 动态配置 AI 的能力，无需重启服务即可更改 AI 提供商和模型。
+
+### API 端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/v2/ai/config` | GET | 获取当前 AI 配置状态 |
+| `/api/v2/ai/config` | POST | 更新 AI 配置 |
+| `/api/v2/ai/enable` | POST | 启用 AI (初始化 LLM 客户端) |
+| `/api/v2/ai/disable` | POST | 禁用 AI |
+
+### 配置流程
+
+```bash
+# 1. 配置 AI 提供商和 API Key
+curl -X POST http://localhost:8080/api/v2/ai/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "openai",
+    "model_id": "gpt-4o",
+    "api_key": "sk-xxx..."
+  }'
+
+# 2. 启用 AI (初始化客户端)
+curl -X POST http://localhost:8080/api/v2/ai/enable
+
+# 3. 检查状态
+curl http://localhost:8080/api/v2/ai/config
+# Response:
+# {
+#   "success": true,
+#   "data": {
+#     "enabled": true,
+#     "provider": "openai",
+#     "model_id": "gpt-4o",
+#     "has_api_key": true,
+#     "connected": true
+#   }
+# }
+
+# 4. 启动使用 AI 的策略
+curl -X POST http://localhost:8080/api/v2/strategy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy": "hybrid_ai",
+    "symbol": "BTC-USDT",
+    "timeframe": "1h",
+    "mode": "paper"
+  }'
+```
+
+### 切换提供商
+
+运行时可以切换到不同的 AI 提供商：
+
+```bash
+# 切换到本地 LM Studio
+curl -X POST http://localhost:8080/api/v2/ai/config \
+  -d '{
+    "provider": "lmstudio",
+    "model_id": "local-model",
+    "api_endpoint": "http://127.0.0.1:1234/v1",
+    "api_key": "lm-studio"
+  }'
+
+# 重新启用以应用新配置
+curl -X POST http://localhost:8080/api/v2/ai/enable
+```
+
+### 安全说明
+
+- API Key 不会在 `GET /api/v2/ai/config` 响应中返回
+- 响应只包含 `has_api_key: true/false` 表示是否已配置
+- 建议在生产环境使用环境变量传递 API Key
+
+---
+
 ## 相关文档
 
 - [Story 046: AI 策略集成](../../stories/v0.9.0/STORY_046_AI_STRATEGY.md)
+- [Story 047: REST API](../../stories/v1.0.0/STORY_047_REST_API.md) - AI 配置端点详情
 - [v0.9.0 版本概览](../../stories/v0.9.0/OVERVIEW.md)
 - [实现细节](./implementation.md)
 - [Release Notes](../../releases/RELEASE_v0.9.0.md)
 
 ---
 
-*最后更新: 2025-12-28*
+*最后更新: 2025-12-29*

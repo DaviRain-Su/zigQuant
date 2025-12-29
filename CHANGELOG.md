@@ -6,6 +6,93 @@
 
 ---
 
+## [0.9.1] - 2025-12-29
+
+### Added
+
+#### Engine Architecture Unification (Steps 2 & 3)
+
+##### LiveRunner 实盘交易封装
+- ✨ **LiveRunner** - 统一实盘交易管理 (`src/engine/runners/live_runner.zig`)
+  - `LiveRequest` 配置类型 (strategy_type, exchange, symbol, mode, initial_capital)
+  - `LiveStatus` 状态枚举 (stopped, starting, running, paused, stopping, error)
+  - `LiveStats` 统计信息 (ticks_processed, orders_placed, orders_filled, current_pnl)
+  - `OrderHistoryEntry` 订单历史记录
+  - 线程安全执行 (Mutex + Atomic flags)
+  - 生命周期管理 (start/stop/pause/resume)
+
+##### EngineManager 扩展
+- ✨ **Live Trading API** - EngineManager 新增实盘管理
+  - `live_runners: HashMap<*LiveRunner>` 会话存储
+  - `startLive()` / `stopLive()` / `pauseLive()` / `resumeLive()` 方法
+  - `getLiveStatus()` / `getLiveStats()` 查询方法
+  - `listLiveSessions()` 列出所有会话
+  - `activateKillSwitch()` 联动停止所有实盘
+  - `getSystemHealth()` 包含 `running_live` 统计
+
+##### REST API 扩展
+- ✨ **Live Trading REST API** - 7 个新端点 (`/api/v2/live`)
+  - `GET /api/v2/live` - 列出所有实盘会话
+  - `POST /api/v2/live` - 启动新会话
+  - `GET /api/v2/live/:id` - 会话详情
+  - `DELETE /api/v2/live/:id` - 停止会话
+  - `POST /api/v2/live/:id/pause` - 暂停会话
+  - `POST /api/v2/live/:id/resume` - 恢复会话
+  - `POST /api/v2/live/:id/subscribe` - 订阅交易对
+
+##### 模块导出
+- ✨ **engine/mod.zig** 新增导出:
+  - LiveRunner, LiveRequest, LiveStatus, LiveStats
+  - OrderHistoryEntry, LiveTradingMode
+  - AIRuntimeConfig, AIStatus
+
+#### AI 策略集成完善
+
+##### StrategyFactory 扩展
+- ✨ **hybrid_ai 策略支持** (`src/strategy/factory.zig`)
+  - 添加 `HybridAIStrategy` 到策略列表 (共 5 个策略)
+  - 添加 `llm_client` 字段用于 AI 策略
+  - `setLLMClient()` / `clearLLMClient()` 方法
+  - `createHybridAI()` 支持完整参数配置
+
+##### EngineManager AI 管理
+- ✨ **AIRuntimeConfig** - 运行时 AI 配置
+  - provider, model_id, api_endpoint, api_key
+  - enabled, timeout_ms
+- ✨ **AIStatus** - 安全状态暴露 (不含 API key)
+- ✨ **AI 配置方法**:
+  - `configureAI()` / `updateAIConfig()` - 配置管理
+  - `initAIClient()` / `disableAI()` - 客户端生命周期
+  - `getAIStatus()` / `getLLMClient()` / `isAIReady()` - 状态查询
+
+##### REST API AI 端点
+- ✨ **AI Configuration REST API** - 3 个新端点 (`/api/v2/ai`)
+  - `GET /api/v2/ai/config` - 获取 AI 配置状态
+  - `POST /api/v2/ai/config` - 更新 AI 配置
+  - `POST /api/v2/ai/enable` - 启用 AI (初始化客户端)
+  - `POST /api/v2/ai/disable` - 禁用 AI
+
+### Changed
+
+- 🔧 `SystemHealth` 结构新增 `running_live` 字段
+- 🔧 `KillSwitchResult` 结构新增 `live_sessions_stopped` 字段
+- 🔧 `getManagerStats()` 包含实盘会话统计
+- 🔧 `StrategyFactory` 支持 LLM 客户端注入
+
+### Tests
+- ✅ 781 个单元测试通过 (从 776 增长)
+- ✅ 所有集成测试通过
+- ✅ 零内存泄漏 (GPA 验证)
+
+### Documentation
+- 📚 更新 `STORY_047_REST_API.md` - 添加 Live Trading API 和 AI API 文档
+- 📚 更新 `paper-trading/README.md` - 添加架构说明
+- 📚 更新 `live-trading/README.md` - 添加 LiveRunner 文档
+- 📚 更新 `features/ai/README.md` - 添加 REST API 配置部分
+- 📚 更新 `NEXT_STEPS.md` - v0.9.1 进度
+
+---
+
 ## [0.9.0] - 2025-12-28
 
 ### Added
@@ -733,6 +820,6 @@
 
 ---
 
-*更新时间: 2025-12-28*
-*当前版本: v0.9.0*
-*完成度: 69% (9/13 版本完成)*
+*更新时间: 2025-12-29*
+*当前版本: v0.9.1*
+*完成度: 71% (9.1/13 版本完成)*

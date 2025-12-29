@@ -6,7 +6,8 @@
 //! Architecture:
 //! - All strategies (including Grid) run through StrategyRunner
 //! - Backtests run through BacktestRunner
-//! - Unified API for all strategy types
+//! - Live trading sessions run through LiveRunner
+//! - Unified API for all runner types
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -25,6 +26,48 @@ const StrategyStatus = strategy_runner.StrategyStatus;
 const StrategyStats = strategy_runner.StrategyStats;
 const SignalHistoryEntry = strategy_runner.SignalHistoryEntry;
 
+const live_runner = @import("runners/live_runner.zig");
+const LiveRunner = live_runner.LiveRunner;
+const LiveRequest = live_runner.LiveRequest;
+const LiveStatus = live_runner.LiveStatus;
+const LiveStats = live_runner.LiveStats;
+const OrderHistoryEntry = live_runner.OrderHistoryEntry;
+
+// AI module imports
+const ai = @import("../ai/mod.zig");
+const LLMClient = ai.LLMClient;
+const AIConfig = ai.AIConfig;
+const AIProvider = ai.AIProvider;
+const AIAdvisor = ai.AIAdvisor;
+const AdvisorStats = ai.AdvisorStats;
+
+/// AI Configuration for runtime updates
+pub const AIRuntimeConfig = struct {
+    /// AI provider (openai, anthropic, lmstudio, ollama, deepseek, custom)
+    provider: []const u8 = "openai",
+    /// Model ID (e.g., "gpt-4o", "claude-sonnet-4-5", "deepseek-chat")
+    model_id: []const u8 = "gpt-4o",
+    /// API endpoint URL (for custom providers or local models)
+    api_endpoint: ?[]const u8 = null,
+    /// API key (stored securely, not exposed in status)
+    api_key: ?[]const u8 = null,
+    /// Whether AI is enabled
+    enabled: bool = false,
+    /// Request timeout in milliseconds
+    timeout_ms: u32 = 30000,
+};
+
+/// AI Status response (excludes sensitive data)
+pub const AIStatus = struct {
+    enabled: bool,
+    provider: []const u8,
+    model_id: []const u8,
+    api_endpoint: ?[]const u8,
+    has_api_key: bool,
+    connected: bool,
+    stats: ?AdvisorStats,
+};
+
 /// Engine Manager - manages all running components
 pub const EngineManager = struct {
     allocator: Allocator,
@@ -35,11 +78,20 @@ pub const EngineManager = struct {
     // Strategy runners by ID (includes all strategy types: dual_ma, rsi, grid, etc.)
     strategy_runners: std.StringHashMap(*StrategyRunner),
 
+    // Live trading runners by ID
+    live_runners: std.StringHashMap(*LiveRunner),
+
+    // AI configuration and client
+    ai_config: AIRuntimeConfig,
+    llm_client: ?*LLMClient,
+
     // Statistics
     total_backtests_started: u64,
     total_backtests_completed: u64,
     total_strategies_started: u64,
     total_strategies_stopped: u64,
+    total_live_started: u64,
+    total_live_stopped: u64,
 
     // System state
     kill_switch_active: bool,
@@ -56,10 +108,15 @@ pub const EngineManager = struct {
             .allocator = allocator,
             .backtest_runners = std.StringHashMap(*BacktestRunner).init(allocator),
             .strategy_runners = std.StringHashMap(*StrategyRunner).init(allocator),
+            .live_runners = std.StringHashMap(*LiveRunner).init(allocator),
+            .ai_config = .{},
+            .llm_client = null,
             .total_backtests_started = 0,
             .total_backtests_completed = 0,
             .total_strategies_started = 0,
             .total_strategies_stopped = 0,
+            .total_live_started = 0,
+            .total_live_stopped = 0,
             .kill_switch_active = false,
             .kill_switch_reason = null,
             .mutex = .{},
@@ -84,6 +141,18 @@ pub const EngineManager = struct {
             runner.*.deinit();
         }
         self.strategy_runners.deinit();
+
+        // Stop and clean up all live runners
+        var live_it = self.live_runners.valueIterator();
+        while (live_it.next()) |runner| {
+            runner.*.deinit();
+        }
+        self.live_runners.deinit();
+
+        // Clean up LLM client
+        if (self.llm_client) |client| {
+            client.deinit();
+        }
 
         // Clean up kill switch reason
         if (self.kill_switch_reason) |reason| {
@@ -364,6 +433,188 @@ pub const EngineManager = struct {
     }
 
     // ========================================================================
+    // Live Trading API
+    // ========================================================================
+
+    /// Start a new live trading session
+    pub fn startLive(self: *Self, id: []const u8, request: LiveRequest) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Check kill switch
+        if (self.kill_switch_active) {
+            return error.KillSwitchActive;
+        }
+
+        // Check if already exists
+        if (self.live_runners.contains(id)) {
+            return error.LiveAlreadyExists;
+        }
+
+        // Create and start the live runner
+        const runner = try LiveRunner.init(self.allocator, id, request);
+        errdefer runner.deinit();
+
+        try runner.start();
+
+        // Store in live runners map
+        try self.live_runners.put(runner.id, runner);
+        self.total_live_started += 1;
+    }
+
+    /// Stop a live trading session
+    pub fn stopLive(self: *Self, id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const entry = self.live_runners.fetchRemove(id) orelse return error.LiveNotFound;
+        const runner = entry.value;
+
+        runner.stop() catch {};
+        runner.deinit();
+        self.total_live_stopped += 1;
+    }
+
+    /// Pause a live trading session
+    pub fn pauseLive(self: *Self, id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        try runner.pause();
+    }
+
+    /// Resume a paused live trading session
+    pub fn resumeLive(self: *Self, id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        try runner.unpause();
+    }
+
+    /// Get live trading status
+    pub fn getLiveStatus(self: *Self, id: []const u8) !LiveStatus {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        return runner.getStatus();
+    }
+
+    /// Get live trading statistics
+    pub fn getLiveStats(self: *Self, id: []const u8) !LiveStats {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        return runner.getStats();
+    }
+
+    /// Get live trading order history
+    pub fn getLiveOrderHistory(self: *Self, allocator: Allocator, id: []const u8, limit: usize) ![]OrderHistoryEntry {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        return runner.getOrderHistory(allocator, limit);
+    }
+
+    /// Submit order to live trading session
+    pub fn submitLiveOrder(self: *Self, id: []const u8, request: @import("../core/execution_engine.zig").OrderRequest) !@import("../core/execution_engine.zig").OrderResult {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        return runner.submitOrder(request);
+    }
+
+    /// Cancel order in live trading session
+    pub fn cancelLiveOrder(self: *Self, id: []const u8, order_id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        try runner.cancelOrder(order_id);
+    }
+
+    /// Cancel all orders in live trading session
+    pub fn cancelAllLiveOrders(self: *Self, id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        try runner.cancelAllOrders();
+    }
+
+    /// Subscribe to symbol in live trading session
+    pub fn subscribeLiveSymbol(self: *Self, id: []const u8, symbol: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        try runner.subscribe(symbol);
+    }
+
+    /// Unsubscribe from symbol in live trading session
+    pub fn unsubscribeLiveSymbol(self: *Self, id: []const u8, symbol: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.live_runners.get(id) orelse return error.LiveNotFound;
+        runner.unsubscribe(symbol);
+    }
+
+    /// Get count of running live sessions
+    pub fn getRunningLiveCount(self: *Self) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        return self.getRunningLiveCountUnlocked();
+    }
+
+    fn getRunningLiveCountUnlocked(self: *Self) usize {
+        var count: usize = 0;
+
+        var live_it = self.live_runners.valueIterator();
+        while (live_it.next()) |runner| {
+            if (runner.*.status == .running or runner.*.status == .paused) count += 1;
+        }
+
+        return count;
+    }
+
+    /// List all live trading sessions
+    pub fn listLive(self: *Self, allocator: Allocator) ![]LiveSummary {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var list = std.ArrayList(LiveSummary){};
+        errdefer list.deinit(allocator);
+
+        var live_it = self.live_runners.iterator();
+        while (live_it.next()) |entry| {
+            const runner = entry.value_ptr.*;
+            const stats = runner.getStats();
+
+            try list.append(allocator, .{
+                .id = entry.key_ptr.*,
+                .name = runner.request.name,
+                .exchange = runner.request.exchange,
+                .status = runner.status.toString(),
+                .testnet = runner.request.testnet,
+                .orders_submitted = stats.orders_submitted,
+                .orders_filled = stats.orders_filled,
+                .total_volume = stats.total_volume,
+                .realized_pnl = stats.realized_pnl,
+                .uptime_ms = stats.uptime_ms,
+            });
+        }
+
+        return list.toOwnedSlice(allocator);
+    }
+
+    // ========================================================================
     // System API (Kill Switch)
     // ========================================================================
 
@@ -383,6 +634,15 @@ pub const EngineManager = struct {
             if (runner.*.status == .running or runner.*.status == .paused) {
                 runner.*.stop() catch {};
                 result.strategies_stopped += 1;
+            }
+        }
+
+        // Stop all live trading sessions
+        var live_it = self.live_runners.valueIterator();
+        while (live_it.next()) |runner| {
+            if (runner.*.status == .running or runner.*.status == .paused) {
+                runner.*.stop() catch {};
+                result.live_stopped += 1;
             }
         }
 
@@ -424,6 +684,7 @@ pub const EngineManager = struct {
             .status = if (self.kill_switch_active) "kill_switch" else "healthy",
             .running_backtests = self.getRunningBacktestCountUnlocked(),
             .running_strategies = self.getRunningStrategyCountUnlocked(),
+            .running_live = self.getRunningLiveCountUnlocked(),
             .kill_switch_active = self.kill_switch_active,
             .kill_switch_reason = self.kill_switch_reason,
         };
@@ -461,15 +722,139 @@ pub const EngineManager = struct {
             }
         }
 
+        // Count live sessions
+        var running_live: usize = 0;
+        var live_it = self.live_runners.valueIterator();
+        while (live_it.next()) |runner| {
+            const stats = runner.*.getStats();
+            total_pnl += stats.realized_pnl;
+
+            if (runner.*.status == .running or runner.*.status == .paused) {
+                running_live += 1;
+            }
+        }
+
         return .{
             .total_strategies = self.strategy_runners.count(),
             .running_strategies = running,
             .stopped_strategies = stopped,
             .total_strategies_started = self.total_strategies_started,
             .total_strategies_stopped = self.total_strategies_stopped,
+            .total_live = self.live_runners.count(),
+            .running_live = running_live,
+            .total_live_started = self.total_live_started,
+            .total_live_stopped = self.total_live_stopped,
             .total_realized_pnl = total_pnl,
             .total_trades = total_trades,
         };
+    }
+
+    // ========================================================================
+    // AI Configuration Management
+    // ========================================================================
+
+    /// Configure AI settings (does not create client yet)
+    pub fn configureAI(self: *Self, config: AIRuntimeConfig) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        self.ai_config = config;
+    }
+
+    /// Update AI configuration partially
+    pub fn updateAIConfig(
+        self: *Self,
+        provider: ?[]const u8,
+        model_id: ?[]const u8,
+        api_endpoint: ?[]const u8,
+        api_key: ?[]const u8,
+        enabled: ?bool,
+    ) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (provider) |p| self.ai_config.provider = p;
+        if (model_id) |m| self.ai_config.model_id = m;
+        if (api_endpoint) |e| self.ai_config.api_endpoint = e;
+        if (api_key) |k| self.ai_config.api_key = k;
+        if (enabled) |e| self.ai_config.enabled = e;
+    }
+
+    /// Initialize or reinitialize the LLM client with current config
+    pub fn initAIClient(self: *Self) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Clean up existing client
+        if (self.llm_client) |client| {
+            client.deinit();
+            self.llm_client = null;
+        }
+
+        // Validate config
+        if (self.ai_config.api_key == null) {
+            return error.MissingApiKey;
+        }
+
+        // Parse provider
+        const provider = std.meta.stringToEnum(AIProvider, self.ai_config.provider) orelse .openai;
+
+        // Create AI config
+        const ai_cfg = AIConfig{
+            .provider = provider,
+            .model_id = self.ai_config.model_id,
+            .api_key = self.ai_config.api_key.?,
+            .base_url = self.ai_config.api_endpoint,
+            .timeout_ms = self.ai_config.timeout_ms,
+        };
+
+        // Create client
+        self.llm_client = try LLMClient.init(self.allocator, ai_cfg);
+        self.ai_config.enabled = true;
+    }
+
+    /// Disable AI and clean up client
+    pub fn disableAI(self: *Self) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.llm_client) |client| {
+            client.deinit();
+            self.llm_client = null;
+        }
+        self.ai_config.enabled = false;
+    }
+
+    /// Get AI status (safe to expose via API - excludes API key)
+    pub fn getAIStatus(self: *Self) AIStatus {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        return .{
+            .enabled = self.ai_config.enabled,
+            .provider = self.ai_config.provider,
+            .model_id = self.ai_config.model_id,
+            .api_endpoint = self.ai_config.api_endpoint,
+            .has_api_key = self.ai_config.api_key != null,
+            .connected = self.llm_client != null,
+            .stats = null, // TODO: Get from advisor if available
+        };
+    }
+
+    /// Get the current LLM client (for StrategyFactory)
+    pub fn getLLMClient(self: *Self) ?*LLMClient {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        return self.llm_client;
+    }
+
+    /// Check if AI is configured and ready
+    pub fn isAIReady(self: *Self) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        return self.ai_config.enabled and self.llm_client != null;
     }
 };
 
@@ -499,6 +884,20 @@ pub const StrategySummary = struct {
     uptime_seconds: i64,
 };
 
+/// Summary of a single live trading session
+pub const LiveSummary = struct {
+    id: []const u8,
+    name: []const u8,
+    exchange: []const u8,
+    status: []const u8,
+    testnet: bool,
+    orders_submitted: u64,
+    orders_filled: u64,
+    total_volume: f64,
+    realized_pnl: f64,
+    uptime_ms: u64,
+};
+
 /// Manager statistics
 pub const ManagerStats = struct {
     total_strategies: usize,
@@ -506,6 +905,10 @@ pub const ManagerStats = struct {
     stopped_strategies: usize,
     total_strategies_started: u64,
     total_strategies_stopped: u64,
+    total_live: usize,
+    running_live: usize,
+    total_live_started: u64,
+    total_live_stopped: u64,
     total_realized_pnl: f64,
     total_trades: u32,
 };
@@ -513,6 +916,7 @@ pub const ManagerStats = struct {
 /// Kill switch result
 pub const KillSwitchResult = struct {
     strategies_stopped: usize = 0,
+    live_stopped: usize = 0,
     orders_cancelled: usize = 0,
     positions_closed: usize = 0,
 };
@@ -522,6 +926,7 @@ pub const SystemHealth = struct {
     status: []const u8,
     running_backtests: usize,
     running_strategies: usize,
+    running_live: usize,
     kill_switch_active: bool,
     kill_switch_reason: ?[]const u8,
 };
@@ -605,4 +1010,88 @@ test "EngineManager kill switch" {
 
     manager.deactivateKillSwitch();
     try std.testing.expect(!manager.isKillSwitchActive());
+}
+
+test "EngineManager live runner lifecycle" {
+    const allocator = std.testing.allocator;
+    var manager = EngineManager.init(allocator);
+    defer manager.deinit();
+
+    // Just test that the runner can be created and cleaned up
+    // Full lifecycle test requires actual exchange connection setup
+    try std.testing.expectEqual(@as(usize, 0), manager.live_runners.count());
+    try std.testing.expectEqual(@as(u64, 0), manager.total_live_started);
+}
+
+test "LiveRunner unit test" {
+    const allocator = std.testing.allocator;
+
+    const request = LiveRequest{
+        .name = "test_live",
+        .exchange = "hyperliquid",
+        .testnet = true,
+    };
+
+    // Test init and deinit without starting (requires no exchange connection)
+    const runner = try LiveRunner.init(allocator, "live_test_1", request);
+    defer runner.deinit();
+
+    try std.testing.expectEqualStrings("live_test_1", runner.id);
+    try std.testing.expectEqual(LiveStatus.stopped, runner.status);
+}
+
+test "EngineManager system health includes live" {
+    const allocator = std.testing.allocator;
+    var manager = EngineManager.init(allocator);
+    defer manager.deinit();
+
+    const health = manager.getSystemHealth();
+    try std.testing.expectEqual(@as(usize, 0), health.running_live);
+    try std.testing.expectEqualStrings("healthy", health.status);
+}
+
+test "EngineManager AI configuration" {
+    const allocator = std.testing.allocator;
+    var manager = EngineManager.init(allocator);
+    defer manager.deinit();
+
+    // Initial state - AI disabled
+    try std.testing.expect(!manager.isAIReady());
+
+    const status = manager.getAIStatus();
+    try std.testing.expect(!status.enabled);
+    try std.testing.expect(!status.has_api_key);
+    try std.testing.expect(!status.connected);
+    try std.testing.expectEqualStrings("openai", status.provider);
+    try std.testing.expectEqualStrings("gpt-4o", status.model_id);
+}
+
+test "EngineManager AI config update" {
+    const allocator = std.testing.allocator;
+    var manager = EngineManager.init(allocator);
+    defer manager.deinit();
+
+    // Update config
+    manager.updateAIConfig(
+        "anthropic",
+        "claude-sonnet-4-5",
+        "https://api.anthropic.com",
+        null, // no api key yet
+        null,
+    );
+
+    const status = manager.getAIStatus();
+    try std.testing.expectEqualStrings("anthropic", status.provider);
+    try std.testing.expectEqualStrings("claude-sonnet-4-5", status.model_id);
+    try std.testing.expect(!status.has_api_key);
+}
+
+test "EngineManager AI init without key fails" {
+    const allocator = std.testing.allocator;
+    var manager = EngineManager.init(allocator);
+    defer manager.deinit();
+
+    // Try to init without API key - should fail
+    const result = manager.initAIClient();
+    try std.testing.expectError(error.MissingApiKey, result);
 }

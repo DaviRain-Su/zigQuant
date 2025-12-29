@@ -1,15 +1,15 @@
-# v0.9.0 - AI 策略集成
+# v0.9.0 - AI 策略集成 & 引擎架构统一
 
-**版本**: 0.9.0
-**代号**: AI-Powered Trading
+**版本**: 0.9.0 → 0.9.1
+**代号**: AI-Powered Trading + Unified Engine
 **状态**: ✅ 已完成
-**完成日期**: 2025-12-28
+**完成日期**: 2025-12-29
 
 ---
 
 ## 版本概述
 
-v0.9.0 引入 AI 辅助交易决策能力，通过 `openai-zig` 集成 OpenAI 兼容 API（LM Studio、Ollama、DeepSeek 等），实现传统技术分析与 AI 智能分析的混合决策系统。
+v0.9.0 引入 AI 辅助交易决策能力，v0.9.1 完成引擎架构统一，将所有运行器（Strategy、Backtest、Live）整合到 `src/engine/runners/` 目录下，提供统一的 API 访问。
 
 ### 核心价值
 
@@ -17,6 +17,7 @@ v0.9.0 引入 AI 辅助交易决策能力，通过 `openai-zig` 集成 OpenAI �
 2. **OpenAI 兼容** - 支持 OpenAI、LM Studio、Ollama、DeepSeek 等
 3. **混合策略** - 结合技术指标和 AI 建议的加权决策
 4. **容错设计** - AI 失败时自动回退到纯技术指标
+5. **统一引擎架构** - 所有运行器使用一致的模式和 API (v0.9.1)
 
 ---
 
@@ -283,13 +284,111 @@ v0.9.0 建立在 v0.8.0 风险管理基础之上：
 
 ---
 
+---
+
+## v0.9.1 - 引擎架构统一
+
+### 核心变更
+
+v0.9.1 完成了引擎架构的统一工作：
+
+#### Step 1: Grid Runner 移除 ✅
+- 删除 `grid_runner.zig`
+- Grid 策略通过 `StrategyRunner` + `GridStrategy` 运行
+- 更新 REST API (`/api/v2/grid` → `/api/v2/strategy`)
+
+#### Step 2: Live Runner 迁移 ✅
+- 创建 `src/engine/runners/live_runner.zig` (~760 行)
+- 包装 `LiveTradingEngine` 为统一的运行器模式
+- 添加 `live_runners` HashMap 到 `EngineManager`
+- 新增 `/api/v2/live` REST API 端点
+
+#### Step 3: Paper Trading 评估 ✅
+- 分析 `PaperTradingEngine` 与 `StrategyRunner` 的关系
+- 决策：保持两者独立，服务不同用途
+- `PaperTradingEngine` - 订单执行模拟
+- `StrategyRunner` (paper mode) - 策略信号生成
+
+### 新增组件
+
+#### LiveRunner (`src/engine/runners/live_runner.zig`)
+
+```zig
+pub const LiveRunner = struct {
+    allocator: Allocator,
+    id: []const u8,
+    request: LiveRequest,
+    status: LiveStatus,
+    stats: LiveStats,
+    engine: ?LiveTradingEngine,
+    // ...
+
+    pub fn start(self: *Self) !void;
+    pub fn stop(self: *Self) !void;
+    pub fn pause(self: *Self) !void;
+    pub fn unpause(self: *Self) !void;
+    pub fn submitOrder(self: *Self, request: OrderRequest) !OrderResult;
+    pub fn subscribe(self: *Self, symbol: []const u8) !void;
+};
+```
+
+### 新增 API 端点
+
+```
+Live Trading:
+  GET  /api/v2/live           # 列出所有实时交易会话
+  POST /api/v2/live           # 启动会话
+  GET  /api/v2/live/:id       # 会话详情
+  DELETE /api/v2/live/:id     # 停止会话
+  POST /api/v2/live/:id/pause    # 暂停
+  POST /api/v2/live/:id/resume   # 恢复
+  POST /api/v2/live/:id/subscribe  # 订阅交易对
+```
+
+### 架构变更
+
+**之前 (v0.9.0)**:
+```
+src/engine/
+├── manager.zig
+└── runners/
+    ├── strategy_runner.zig
+    └── backtest_runner.zig
+
+src/trading/
+├── live_engine.zig  ← 独立
+└── paper_engine.zig ← 独立
+```
+
+**之后 (v0.9.1)**:
+```
+src/engine/
+├── manager.zig      # 管理所有运行器
+└── runners/
+    ├── strategy_runner.zig   # 所有策略 (含 Grid)
+    ├── backtest_runner.zig   # 回测作业
+    └── live_runner.zig       # 实时交易会话 (新增)
+
+src/trading/
+├── live_engine.zig   # 被 LiveRunner 包装
+└── paper_trading.zig # 独立使用或与策略组合
+```
+
+### 测试结果
+
+- ✅ **776/776 单元测试通过**
+- ✅ **零内存泄漏**
+
+---
+
 ## 相关文档
 
 - [Story 046: AI 策略集成](./STORY_046_AI_STRATEGY.md)
 - [AI 模块 API](../../features/ai/README.md)
 - [实现细节](../../features/ai/implementation.md)
+- [Live Trading 文档](../../features/live-trading/README.md)
 - [Release Notes](../../releases/RELEASE_v0.9.0.md)
 
 ---
 
-*最后更新: 2025-12-28*
+*最后更新: 2025-12-29*
