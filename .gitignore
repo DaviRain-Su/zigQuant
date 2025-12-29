@@ -5,7 +5,8 @@ zig-out
 tests/integration/test_config.json
 
 config.test.json
-
+config.json
+data
 # front
 # Logs
 logs
