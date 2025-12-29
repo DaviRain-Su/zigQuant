@@ -9,9 +9,6 @@ const strategy_commands = @import("cli/strategy_commands.zig");
 const Logger = zigQuant.Logger;
 const ConsoleWriter = zigQuant.ConsoleWriter;
 
-/// Default development JWT secret (32 bytes)
-const DEV_JWT_SECRET = "zigquant-dev-secret-key-32bytes!";
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -129,6 +126,8 @@ fn printGeneralHelp() !void {
         \\    backtest         Run strategy backtests
         \\    optimize         Parameter optimization (coming soon)
         \\    run-strategy     Live/paper trading (coming soon)
+        \\    grid             Grid trading bot (paper/testnet/live)
+        \\    live             Live trading with configurable strategy
         \\
         \\TRADING COMMANDS:
         \\    price            Query current price
@@ -216,11 +215,11 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         }
     }
 
-    // Get JWT secret from environment or use development default
-    const jwt_secret = std.posix.getenv("ZIGQUANT_JWT_SECRET") orelse blk: {
-        std.log.warn("ZIGQUANT_JWT_SECRET not set, using development secret", .{});
+    // Get JWT secret from config file
+    const jwt_secret: []const u8 = if (app_config) |cfg| cfg.value.security.jwt_secret else blk: {
+        std.log.warn("No config loaded, using development JWT secret", .{});
         std.log.warn("WARNING: Do not use this in production!", .{});
-        break :blk DEV_JWT_SECRET;
+        break :blk "zigquant-dev-secret-key-32bytes!";
     };
 
     // Create Zap server config
@@ -296,11 +295,15 @@ fn printServeHelp() !void {
         \\    zigquant serve [OPTIONS]
         \\
         \\OPTIONS:
-        \\    -p, --port <PORT>    Server port (default: 8080)
+        \\    -c, --config <FILE>  Config file path (default: config.json)
+        \\    -p, --port <PORT>    Server port (default: 8080, or from config)
         \\    -h, --help           Show this help message
         \\
-        \\ENVIRONMENT VARIABLES:
-        \\    ZIGQUANT_JWT_SECRET  JWT signing secret (required for production)
+        \\CONFIG FILE:
+        \\    All settings are read from config file:
+        \\    - server.port: Server port
+        \\    - security.jwt_secret: JWT signing secret
+        \\    - exchanges: Exchange credentials
         \\
         \\FEATURES:
         \\    - High-performance Zap/facil.io HTTP server
@@ -324,9 +327,9 @@ fn printServeHelp() !void {
         \\    GET  /api/v1/grid/summary     Get grid summary stats
         \\
         \\EXAMPLES:
-        \\    zigquant serve                         # Default port 8080
-        \\    zigquant serve -p 3000                 # Custom port
-        \\    ZIGQUANT_JWT_SECRET=... zigquant serve # Production mode
+        \\    zigquant serve                          # Default config.json
+        \\    zigquant serve -c prod.json             # Custom config
+        \\    zigquant serve -c config.json -p 3000   # Override port
         \\
         \\
     );

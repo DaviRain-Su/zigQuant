@@ -87,6 +87,72 @@ pub const LoggingConfig = struct {
 };
 
 // ============================================================================
+// Security Configuration
+// ============================================================================
+
+pub const SecurityConfig = struct {
+    jwt_secret: []const u8 = "zigquant-dev-secret-key-32bytes!",
+    jwt_expiry_hours: u32 = 24,
+};
+
+// ============================================================================
+// Grid Strategy Configuration
+// ============================================================================
+
+pub const GridStrategyConfig = struct {
+    /// Upper price bound
+    upper_price: f64 = 100000.0,
+
+    /// Lower price bound
+    lower_price: f64 = 90000.0,
+
+    /// Number of grid levels
+    grid_count: u32 = 10,
+
+    /// Take profit percentage per grid
+    take_profit_pct: f64 = 0.5,
+
+    /// Enable long (buy) orders
+    enable_long: bool = true,
+
+    /// Enable short (sell) orders
+    enable_short: bool = false,
+};
+
+// ============================================================================
+// Live Trading Configuration
+// ============================================================================
+
+pub const LiveTradingConfig = struct {
+    /// Strategy to run: "grid", "momentum", "arbitrage", etc.
+    strategy: []const u8 = "grid",
+
+    /// Trading pair (e.g., "BTC-USDC")
+    pair: []const u8 = "BTC-USDC",
+
+    /// Order size per trade
+    order_size: f64 = 0.001,
+
+    /// Maximum total position
+    max_position: f64 = 1.0,
+
+    /// Check interval in milliseconds
+    interval_ms: u64 = 5000,
+
+    /// Run duration in minutes (0 = infinite)
+    duration_minutes: u64 = 0,
+
+    /// Enable risk management
+    risk_enabled: bool = true,
+
+    /// Use testnet (default true for safety)
+    testnet: bool = true,
+
+    /// Grid strategy specific config (used when strategy = "grid")
+    grid: GridStrategyConfig = .{},
+};
+
+// ============================================================================
 // Application Configuration
 // ============================================================================
 
@@ -95,6 +161,8 @@ pub const AppConfig = struct {
     exchanges: []ExchangeConfig = &[_]ExchangeConfig{},
     trading: TradingConfig = .{},
     logging: LoggingConfig = .{},
+    security: SecurityConfig = .{},
+    live: ?LiveTradingConfig = null,
 
     /// Validate configuration
     pub fn validate(self: AppConfig) ConfigError!void {
@@ -280,6 +348,27 @@ pub const ConfigLoader = struct {
                 defer allocator.free(nested_prefix);
 
                 try applyEnvOverrides(&@field(config.*, field.name), nested_prefix, allocator);
+            } else if (field_type_info == .optional) {
+                // Handle optional types
+                const child_type_info = @typeInfo(field_type_info.optional.child);
+                if (child_type_info == .@"struct") {
+                    // For optional structs, only apply env overrides if the value is non-null
+                    if (@field(config.*, field.name)) |*inner_value| {
+                        const nested_prefix = try std.fmt.allocPrint(
+                            allocator,
+                            "{s}_{s}",
+                            .{ prefix, env_key_upper },
+                        );
+                        defer allocator.free(nested_prefix);
+
+                        try applyEnvOverrides(inner_value, nested_prefix, allocator);
+                    }
+                } else {
+                    // For other optional types, try to parse from env
+                    if (std.posix.getenv(env_key)) |value| {
+                        @field(config.*, field.name) = try parseValue(field.type, value, allocator);
+                    }
+                }
             } else if (field_type_info == .pointer and
                 field_type_info.pointer.size == .slice)
             {

@@ -211,7 +211,7 @@ pub const HybridAIConfig = strategy_hybrid_ai.Config;
 
 // Re-export Grid Trading strategy
 pub const GridStrategy = strategy_grid.GridStrategy;
-pub const GridStrategyConfig = strategy_grid.Config;
+pub const GridStrategyConfig = strategy_grid.Config;  // Strategy internal config
 pub const GridLevel = strategy_grid.GridLevel;
 
 // Re-export indicator types
@@ -542,6 +542,9 @@ pub const ServerConfig = config.ServerConfig;
 pub const ExchangeConfig = config.ExchangeConfig;
 pub const TradingConfig = config.TradingConfig;
 pub const LoggingConfig = config.LoggingConfig;
+pub const SecurityConfig = config.SecurityConfig;
+pub const ConfigGridParams = config.GridStrategyConfig;  // Config file grid params
+pub const LiveTradingConfig = config.LiveTradingConfig;
 pub const ConfigLoader = config.ConfigLoader;
 pub const ConfigError = config.ConfigError;
 

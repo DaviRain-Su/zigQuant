@@ -298,8 +298,14 @@ pub fn parsePrice(price_str: []const u8) !Decimal {
 }
 
 /// Format Decimal to price string
+/// Rounds to 1 decimal place for Hyperliquid (BTC tick size is 1)
 pub fn formatPrice(allocator: std.mem.Allocator, price: Decimal) ![]const u8 {
-    return price.toString(allocator);
+    // Round to 1 decimal place (multiply by 10, round, divide by 10)
+    const multiplier = Decimal.fromInt(10);
+    const scaled = price.mul(multiplier);
+    const rounded_value = @divTrunc(scaled.value + 500000000000000000, 1000000000000000000) * 1000000000000000000;
+    const rounded = Decimal{ .value = @divTrunc(rounded_value, 10), .scale = price.scale };
+    return rounded.toString(allocator);
 }
 
 /// Parse size string to Decimal
@@ -308,8 +314,13 @@ pub fn parseSize(size_str: []const u8) !Decimal {
 }
 
 /// Format Decimal to size string
+/// Rounds to 4 decimal places for Hyperliquid (minimum order size precision)
 pub fn formatSize(allocator: std.mem.Allocator, size: Decimal) ![]const u8 {
-    return size.toString(allocator);
+    // Round to 4 decimal places
+    const scale_factor: i128 = 100000000000000; // 10^14 (18 - 4 = 14)
+    const rounded_value = @divTrunc(size.value + @divTrunc(scale_factor, 2), scale_factor) * scale_factor;
+    const rounded = Decimal{ .value = rounded_value, .scale = size.scale };
+    return rounded.toString(allocator);
 }
 
 // ============================================================================

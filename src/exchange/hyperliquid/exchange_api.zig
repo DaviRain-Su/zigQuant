@@ -138,6 +138,9 @@ pub const ExchangeAPI = struct {
         );
         defer self.allocator.free(request_json);
 
+        // Debug: Log the request being sent
+        self.logger.debug("Sending placeOrder request: {s}", .{request_json}) catch {};
+
         // Send request
         const response_body = try self.http_client.postExchange(request_json);
         defer self.allocator.free(response_body);
