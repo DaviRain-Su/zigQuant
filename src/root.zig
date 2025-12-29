@@ -442,13 +442,21 @@ pub const LLMClient = ai.LLMClient;
 pub const AIAdvisor = ai.AIAdvisor;
 pub const PromptBuilder = ai.PromptBuilder;
 
-// Re-export v0.10.0 Engine Management types
+// Re-export v1.0.0 Engine Management types (unified architecture)
 pub const EngineManager = engine.EngineManager;
-pub const EngineGridRunner = engine.GridRunner;
-pub const EngineGridConfig = engine.GridConfig;
-pub const EngineGridStatus = engine.GridStatus;
-pub const EngineGridStats = engine.GridStats;
-pub const EngineGridOrder = engine.GridOrder;
+pub const EngineManagerStats = engine.ManagerStats;
+pub const EngineStrategySummary = engine.StrategySummary;
+pub const EngineBacktestSummary = engine.BacktestSummary;
+pub const EngineKillSwitchResult = engine.KillSwitchResult;
+pub const EngineSystemHealth = engine.SystemHealth;
+
+// Strategy Runner exports (unified - supports all strategy types including grid)
+pub const StrategyRunner = engine.StrategyRunner;
+pub const StrategyRequest = engine.StrategyRequest;
+pub const StrategyStatus = engine.StrategyStatus;
+pub const StrategyStats = engine.StrategyStats;
+pub const StrategySignalHistory = engine.SignalHistoryEntry;
+pub const StrategyTradingMode = engine.TradingMode;
 
 // Re-export API Server types (Zap/facil.io based)
 pub const ZapServer = zap_api.ZapServer;

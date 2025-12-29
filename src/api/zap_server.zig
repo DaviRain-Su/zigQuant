@@ -21,21 +21,10 @@ const Allocator = std.mem.Allocator;
 // Import zigQuant types via relative imports (since this file is part of the zigQuant module)
 const engine_mod = @import("../engine/mod.zig");
 const EngineManager = engine_mod.EngineManager;
-const GridConfig = engine_mod.GridConfig;
-const TradingMode = engine_mod.TradingMode;
-const GridStatus = engine_mod.GridStatus;
-const GridStats = engine_mod.GridStats;
 const BacktestRequest = engine_mod.BacktestRequest;
 const BacktestStatus = engine_mod.BacktestStatus;
-
-const exchange_types = @import("../exchange/types.zig");
-const TradingPair = exchange_types.TradingPair;
-
-const decimal_mod = @import("../core/decimal.zig");
-const Decimal = decimal_mod.Decimal;
-
-const logger_mod = @import("../core/logger.zig");
-const Logger = logger_mod.Logger;
+const StrategyRequest = engine_mod.StrategyRequest;
+const TradingMode = engine_mod.TradingMode;
 
 // ============================================================================
 // Embedded JWT Implementation (to avoid cross-module import conflicts)
@@ -378,13 +367,11 @@ fn handleRequest(r: zap.Request) !void {
     else if (std.mem.startsWith(u8, path, "/api/v1/auth/") or std.mem.startsWith(u8, path, "/api/v2/auth/")) {
         try handleAuth(r, ctx, path, method);
     }
-    // Grid endpoints (v1 and v2)
-    else if (std.mem.eql(u8, path, "/api/v1/grid/summary") or std.mem.eql(u8, path, "/api/v2/grid/summary")) {
-        try handleGridSummary(r, ctx);
-    } else if (std.mem.eql(u8, path, "/api/v1/grid") or std.mem.eql(u8, path, "/api/v2/grid")) {
-        try handleGrid(r, ctx, method);
-    } else if (std.mem.startsWith(u8, path, "/api/v1/grid/") or std.mem.startsWith(u8, path, "/api/v2/grid/")) {
-        try handleGridDetail(r, ctx, path, method);
+    // V2 Strategy endpoints (unified - supports all strategy types including grid)
+    else if (std.mem.eql(u8, path, "/api/v2/strategy") or std.mem.eql(u8, path, "/api/v2/strategies")) {
+        try handleStrategyList(r, ctx, method);
+    } else if (std.mem.startsWith(u8, path, "/api/v2/strategy/")) {
+        try handleStrategyDetail(r, ctx, path, method);
     }
     // V2 Backtest endpoints
     else if (std.mem.eql(u8, path, "/api/v2/backtest/run")) {
@@ -582,87 +569,106 @@ fn handleAuth(r: zap.Request, ctx: *ServerContext, path: []const u8, method: zap
     }
 }
 
-fn handleGrid(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
-    if (method == .GET) {
-        // GET /api/v1/grid - List all grids
-        if (ctx.deps.engine_manager) |manager| {
-            const grids = manager.getAllGridsSummary(ctx.allocator) catch |err| {
+// ============================================================================
+// Strategy API Handlers (Unified - supports all strategy types including Grid)
+// ============================================================================
+
+fn handleStrategyList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    if (ctx.deps.engine_manager == null) {
+        r.setStatus(.service_unavailable);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
+        );
+        return;
+    }
+
+    const manager = ctx.deps.engine_manager.?;
+
+    switch (method) {
+        .GET => {
+            // List all strategies
+            const strategies = manager.listStrategies(ctx.allocator) catch |err| {
                 r.setStatus(.internal_server_error);
                 var buf: [256]u8 = undefined;
                 const json = std.fmt.bufPrint(&buf,
-                    \\{{"error":"Failed to get grids: {s}"}}
+                    \\{{"success":false,"error":{{"code":"LIST_FAILED","message":"Failed to list strategies: {s}"}}}}
                 , .{@errorName(err)}) catch
-                    \\{"error":"Failed to get grids"}
+                    \\{"success":false,"error":{"code":"LIST_FAILED","message":"Failed to list strategies"}}
                 ;
                 try r.setContentType(.JSON);
                 try r.sendBody(json);
                 return;
             };
-            defer ctx.allocator.free(grids);
+            defer ctx.allocator.free(strategies);
 
             // Build JSON response
-            var response = std.ArrayList(u8){};
-            defer response.deinit(ctx.allocator);
+            var response_buf = std.ArrayList(u8){};
+            defer response_buf.deinit(ctx.allocator);
 
-            try response.appendSlice(ctx.allocator, "{\"grids\":[");
-            for (grids, 0..) |grid, i| {
-                if (i > 0) try response.append(ctx.allocator, ',');
-                var grid_buf: [512]u8 = undefined;
-                const grid_json = std.fmt.bufPrint(&grid_buf,
-                    \\{{"id":"{s}","pair":"{s}/{s}","status":"{s}","mode":"{s}","realized_pnl":{d:.4},"position":{d:.6},"trades":{d},"uptime":{d}}}
+            const writer = response_buf.writer(ctx.allocator);
+            try writer.writeAll("{\"success\":true,\"data\":{\"strategies\":[");
+
+            for (strategies, 0..) |s, i| {
+                if (i > 0) try writer.writeAll(",");
+                try std.fmt.format(writer,
+                    \\{{"id":"{s}","strategy":"{s}","symbol":"{s}","status":"{s}","mode":"{s}","realized_pnl":{d:.4},"current_position":{d:.4},"total_signals":{d},"total_trades":{d},"win_rate":{d:.2},"uptime_seconds":{d}}}
                 , .{
-                    grid.id,
-                    grid.pair.base,
-                    grid.pair.quote,
-                    grid.status,
-                    grid.mode,
-                    grid.realized_pnl,
-                    grid.current_position,
-                    grid.total_trades,
-                    grid.uptime_seconds,
-                }) catch continue;
-                try response.appendSlice(ctx.allocator, grid_json);
+                    s.id,
+                    s.strategy,
+                    s.symbol,
+                    s.status,
+                    s.mode,
+                    s.realized_pnl,
+                    s.current_position,
+                    s.total_signals,
+                    s.total_trades,
+                    s.win_rate,
+                    s.uptime_seconds,
+                });
             }
-            var total_buf: [64]u8 = undefined;
-            const total_json = std.fmt.bufPrint(&total_buf, "],\"total\":{d}}}", .{grids.len}) catch "]}";
-            try response.appendSlice(ctx.allocator, total_json);
+
+            try writer.writeAll("],\"total\":");
+            try std.fmt.format(writer, "{d}", .{strategies.len});
+            try writer.writeAll("}}");
 
             try r.setContentType(.JSON);
-            try r.sendBody(response.items);
-        } else {
-            try r.setContentType(.JSON);
-            try r.sendBody(
-                \\{"grids":[],"total":0,"note":"Engine manager not configured"}
-            );
-        }
-    } else if (method == .POST) {
-        // POST /api/v1/grid - Create new grid
-        if (ctx.deps.engine_manager) |manager| {
+            try r.sendBody(response_buf.items);
+        },
+        .POST => {
+            // Start a new strategy
             const body = r.body orelse {
                 r.setStatus(.bad_request);
                 try r.sendJson(
-                    \\{"error":"Missing request body"}
+                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Missing request body"}}
                 );
                 return;
             };
 
-            // Parse grid creation request
-            const CreateGridRequest = struct {
+            // Parse strategy request
+            const StrategyStartRequest = struct {
                 id: ?[]const u8 = null,
-                pair_base: []const u8,
-                pair_quote: []const u8,
-                upper_price: f64,
-                lower_price: f64,
-                grid_count: u32,
-                order_size: f64,
-                take_profit_pct: f64 = 0.5,
+                strategy: []const u8,
+                symbol: []const u8,
+                timeframe: []const u8 = "1h",
                 mode: []const u8 = "paper",
+                initial_capital: f64 = 10000,
+                check_interval_ms: u64 = 5000,
+                params: ?[]const u8 = null,
+                risk_enabled: bool = true,
+                max_daily_loss_pct: f64 = 0.02,
+                max_position_size: f64 = 1.0,
+                // Grid-specific parameters (used when strategy = "grid")
+                upper_price: ?f64 = null,
+                lower_price: ?f64 = null,
+                grid_count: u32 = 10,
+                order_size: f64 = 0.001,
+                take_profit_pct: f64 = 0.5,
             };
 
-            const parsed = std.json.parseFromSlice(CreateGridRequest, ctx.allocator, body, .{}) catch {
+            const parsed = std.json.parseFromSlice(StrategyStartRequest, ctx.allocator, body, .{}) catch {
                 r.setStatus(.bad_request);
                 try r.sendJson(
-                    \\{"error":"Invalid JSON format. Required: pair_base, pair_quote, upper_price, lower_price, grid_count, order_size"}
+                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Invalid JSON format"}}
                 );
                 return;
             };
@@ -672,211 +678,198 @@ fn handleGrid(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !voi
 
             // Generate ID if not provided
             var id_buf: [32]u8 = undefined;
-            const grid_id = req.id orelse blk: {
-                const ts = std.time.timestamp();
-                const formatted = std.fmt.bufPrint(&id_buf, "grid_{d}", .{ts}) catch "grid_new";
-                break :blk formatted;
+            const strategy_id = req.id orelse blk: {
+                const now = std.time.milliTimestamp();
+                break :blk std.fmt.bufPrint(&id_buf, "strat_{d}", .{now}) catch "strat_default";
             };
 
-            // Parse trading mode
-            const mode: engine_mod.TradingMode = if (std.mem.eql(u8, req.mode, "mainnet"))
-                .mainnet
-            else if (std.mem.eql(u8, req.mode, "testnet"))
-                .testnet
-            else
-                .paper;
+            // Parse mode
+            const mode = TradingMode.fromString(req.mode);
 
-            // Create grid config
-            const grid_config = engine_mod.GridConfig{
-                .pair = .{ .base = req.pair_base, .quote = req.pair_quote },
-                .upper_price = Decimal.fromFloat(req.upper_price),
-                .lower_price = Decimal.fromFloat(req.lower_price),
-                .grid_count = req.grid_count,
-                .order_size = Decimal.fromFloat(req.order_size),
-                .take_profit_pct = req.take_profit_pct,
+            // Build strategy request
+            const strategy_request = StrategyRequest{
+                .strategy = req.strategy,
+                .symbol = req.symbol,
+                .timeframe = req.timeframe,
                 .mode = mode,
+                .initial_capital = req.initial_capital,
+                .check_interval_ms = req.check_interval_ms,
+                .params = req.params,
+                .risk_enabled = req.risk_enabled,
+                .max_daily_loss_pct = req.max_daily_loss_pct,
+                .max_position_size = req.max_position_size,
+                // Grid-specific parameters
+                .upper_price = req.upper_price,
+                .lower_price = req.lower_price,
+                .grid_count = req.grid_count,
+                .order_size = req.order_size,
+                .take_profit_pct = req.take_profit_pct,
             };
 
-            // Validate config
-            grid_config.validate() catch |err| {
-                r.setStatus(.bad_request);
-                var buf: [256]u8 = undefined;
-                const json = std.fmt.bufPrint(&buf,
-                    \\{{"error":"Invalid grid config: {s}"}}
-                , .{@errorName(err)}) catch
-                    \\{"error":"Invalid grid configuration"}
-                ;
-                try r.setContentType(.JSON);
-                try r.sendBody(json);
-                return;
-            };
-
-            // Start the grid
-            manager.startGrid(grid_id, grid_config) catch |err| {
+            // Start strategy
+            manager.startStrategy(strategy_id, strategy_request) catch |err| {
                 r.setStatus(.internal_server_error);
                 var buf: [256]u8 = undefined;
                 const json = std.fmt.bufPrint(&buf,
-                    \\{{"error":"Failed to start grid: {s}"}}
+                    \\{{"success":false,"error":{{"code":"START_FAILED","message":"Failed to start strategy: {s}"}}}}
                 , .{@errorName(err)}) catch
-                    \\{"error":"Failed to start grid"}
+                    \\{"success":false,"error":{"code":"START_FAILED","message":"Failed to start strategy"}}
                 ;
                 try r.setContentType(.JSON);
                 try r.sendBody(json);
                 return;
             };
 
-            r.setStatus(.created);
             var buf: [256]u8 = undefined;
             const json = std.fmt.bufPrint(&buf,
-                \\{{"id":"{s}","status":"started","message":"Grid trading bot created and started"}}
-            , .{grid_id}) catch
-                \\{"status":"started"}
+                \\{{"success":true,"data":{{"id":"{s}","status":"running","strategy":"{s}","symbol":"{s}","mode":"{s}"}}}}
+            , .{ strategy_id, req.strategy, req.symbol, req.mode }) catch
+                \\{"success":true,"data":{"status":"started"}}
             ;
+            r.setStatus(.created);
             try r.setContentType(.JSON);
             try r.sendBody(json);
-        } else {
-            r.setStatus(.service_unavailable);
+        },
+        else => {
+            r.setStatus(.method_not_allowed);
             try r.sendJson(
-                \\{"error":"Engine manager not configured"}
+                \\{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"Use GET to list or POST to start"}}
             );
-        }
-    } else {
-        r.setStatus(.method_not_allowed);
-        try r.sendJson(
-            \\{"error":"Method not allowed"}
-        );
+        },
     }
 }
 
-fn handleGridSummary(r: zap.Request, ctx: *ServerContext) !void {
-    if (ctx.deps.engine_manager) |manager| {
-        const stats = manager.getManagerStats();
-        var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf,
-            \\{{"total_grids":{d},"running_grids":{d},"stopped_grids":{d},"total_started":{d},"total_stopped":{d},"total_realized_pnl":{d:.4},"total_trades":{d}}}
-        , .{
-            stats.total_grids,
-            stats.running_grids,
-            stats.stopped_grids,
-            stats.total_grids_started,
-            stats.total_grids_stopped,
-            stats.total_realized_pnl,
-            stats.total_trades,
-        }) catch
-            \\{"error":"buffer overflow"}
-        ;
-        try r.setContentType(.JSON);
-        try r.sendBody(json);
-    } else {
-        try r.setContentType(.JSON);
-        try r.sendBody(
-            \\{"total_grids":0,"running_grids":0,"stopped_grids":0,"note":"Engine manager not configured"}
-        );
-    }
-}
-
-fn handleGridDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, method: zap.http.Method) !void {
-    const prefix = "/api/v1/grid/";
-    const grid_id = path[prefix.len..];
-
+fn handleStrategyDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, method: zap.http.Method) !void {
     if (ctx.deps.engine_manager == null) {
         r.setStatus(.service_unavailable);
         try r.sendJson(
-            \\{"error":"Engine manager not configured"}
+            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
         );
         return;
     }
 
     const manager = ctx.deps.engine_manager.?;
 
-    if (method == .GET) {
-        // GET /api/v1/grid/:id - Get grid details
-        const status = manager.getGridStatus(grid_id) catch |err| {
-            if (err == error.GridNotFound) {
-                r.setStatus(.not_found);
-                var buf: [256]u8 = undefined;
-                const json = std.fmt.bufPrint(&buf,
-                    \\{{"error":"Grid not found","id":"{s}"}}
-                , .{grid_id}) catch
-                    \\{"error":"Grid not found"}
-                ;
-                try r.setContentType(.JSON);
-                try r.sendBody(json);
-            } else {
-                r.setStatus(.internal_server_error);
-                try r.sendJson(
-                    \\{"error":"Failed to get grid status"}
-                );
-            }
+    // Extract strategy ID from path: /api/v2/strategy/:id[/action]
+    const prefix = "/api/v2/strategy/";
+    const remainder = path[prefix.len..];
+
+    // Find strategy ID and optional action
+    var strategy_id = remainder;
+    var action: []const u8 = "";
+    if (std.mem.indexOf(u8, remainder, "/")) |idx| {
+        strategy_id = remainder[0..idx];
+        action = remainder[idx + 1 ..];
+    }
+
+    if (std.mem.eql(u8, action, "stop") or (action.len == 0 and method == .DELETE)) {
+        // Stop a strategy
+        manager.stopStrategy(strategy_id) catch |err| {
+            r.setStatus(.not_found);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"STOP_FAILED","message":"Failed to stop strategy: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"STOP_FAILED","message":"Strategy not found or failed to stop"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
             return;
         };
 
-        const stats = manager.getGridStats(grid_id) catch {
-            r.setStatus(.internal_server_error);
-            try r.sendJson(
-                \\{"error":"Failed to get grid stats"}
-            );
-            return;
-        };
-
-        var buf: [1024]u8 = undefined;
+        var buf: [128]u8 = undefined;
         const json = std.fmt.bufPrint(&buf,
-            \\{{"id":"{s}","status":"{s}","stats":{{"total_trades":{d},"realized_pnl":{d:.4},"unrealized_pnl":{d:.4},"current_position":{d:.6},"active_buy_orders":{d},"active_sell_orders":{d},"last_price":{d:.2},"uptime_seconds":{d}}}}}
-        , .{
-            grid_id,
-            status.toString(),
-            stats.total_trades,
-            stats.realized_pnl,
-            stats.unrealized_pnl,
-            stats.current_position,
-            stats.active_buy_orders,
-            stats.active_sell_orders,
-            stats.last_price,
-            stats.uptime_seconds,
-        }) catch
-            \\{"error":"buffer overflow"}
+            \\{{"success":true,"data":{{"id":"{s}","status":"stopped"}}}}
+        , .{strategy_id}) catch
+            \\{"success":true,"data":{"status":"stopped"}}
         ;
         try r.setContentType(.JSON);
         try r.sendBody(json);
-    } else if (method == .DELETE) {
-        // DELETE /api/v1/grid/:id - Stop and remove grid
-        manager.stopGrid(grid_id) catch |err| {
-            if (err == error.GridNotFound) {
-                r.setStatus(.not_found);
-                var buf: [256]u8 = undefined;
-                const json = std.fmt.bufPrint(&buf,
-                    \\{{"error":"Grid not found","id":"{s}"}}
-                , .{grid_id}) catch
-                    \\{"error":"Grid not found"}
-                ;
-                try r.setContentType(.JSON);
-                try r.sendBody(json);
-            } else {
-                r.setStatus(.internal_server_error);
-                var buf: [256]u8 = undefined;
-                const json = std.fmt.bufPrint(&buf,
-                    \\{{"error":"Failed to stop grid: {s}"}}
-                , .{@errorName(err)}) catch
-                    \\{"error":"Failed to stop grid"}
-                ;
-                try r.setContentType(.JSON);
-                try r.sendBody(json);
-            }
+    } else if (std.mem.eql(u8, action, "pause")) {
+        manager.pauseStrategy(strategy_id) catch |err| {
+            r.setStatus(.internal_server_error);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"PAUSE_FAILED","message":"Failed to pause strategy: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"PAUSE_FAILED","message":"Strategy not found or failed to pause"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
             return;
         };
 
-        var buf: [256]u8 = undefined;
+        var buf: [128]u8 = undefined;
         const json = std.fmt.bufPrint(&buf,
-            \\{{"id":"{s}","status":"stopped","message":"Grid trading bot stopped and removed"}}
-        , .{grid_id}) catch
-            \\{"status":"stopped"}
+            \\{{"success":true,"data":{{"id":"{s}","status":"paused"}}}}
+        , .{strategy_id}) catch
+            \\{"success":true,"data":{"status":"paused"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else if (std.mem.eql(u8, action, "resume")) {
+        manager.resumeStrategy(strategy_id) catch |err| {
+            r.setStatus(.internal_server_error);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"RESUME_FAILED","message":"Failed to resume strategy: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"RESUME_FAILED","message":"Strategy not found or failed to resume"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        var buf: [128]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"id":"{s}","status":"running"}}}}
+        , .{strategy_id}) catch
+            \\{"success":true,"data":{"status":"running"}}
+        ;
+        try r.setContentType(.JSON);
+        try r.sendBody(json);
+    } else if (action.len == 0 and method == .GET) {
+        // Get strategy details
+        const stats = manager.getStrategyStats(strategy_id) catch |err| {
+            r.setStatus(.not_found);
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":false,"error":{{"code":"NOT_FOUND","message":"Strategy not found: {s}"}}}}
+            , .{@errorName(err)}) catch
+                \\{"success":false,"error":{"code":"NOT_FOUND","message":"Strategy not found"}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+            return;
+        };
+
+        const status = manager.getStrategyStatus(strategy_id) catch .stopped;
+
+        var buf: [512]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf,
+            \\{{"success":true,"data":{{"id":"{s}","status":"{s}","stats":{{"total_signals":{d},"total_trades":{d},"winning_trades":{d},"losing_trades":{d},"realized_pnl":{d:.4},"unrealized_pnl":{d:.4},"current_position":{d:.4},"win_rate":{d:.2},"uptime_seconds":{d}}}}}}}
+        , .{
+            strategy_id,
+            status.toString(),
+            stats.total_signals,
+            stats.total_trades,
+            stats.winning_trades,
+            stats.losing_trades,
+            stats.realized_pnl,
+            stats.unrealized_pnl,
+            stats.current_position,
+            stats.win_rate,
+            stats.uptime_seconds,
+        }) catch
+            \\{"success":true,"data":{"status":"unknown"}}
         ;
         try r.setContentType(.JSON);
         try r.sendBody(json);
     } else {
-        r.setStatus(.method_not_allowed);
+        r.setStatus(.not_found);
         try r.sendJson(
-            \\{"error":"Method not allowed"}
+            \\{"success":false,"error":{"code":"NOT_FOUND","message":"Unknown strategy endpoint"}}
         );
     }
 }
@@ -1211,8 +1204,8 @@ fn handleKillSwitch(r: zap.Request, ctx: *ServerContext, method: zap.http.Method
 
         var buf: [512]u8 = undefined;
         const json = std.fmt.bufPrint(&buf,
-            \\{{"success":true,"data":{{"kill_switch":true,"affected":{{"grids_stopped":{d},"strategies_stopped":{d},"orders_cancelled":{d},"positions_closed":{d}}}}}}}
-        , .{ result.grids_stopped, result.strategies_stopped, result.orders_cancelled, result.positions_closed }) catch
+            \\{{"success":true,"data":{{"kill_switch":true,"affected":{{"strategies_stopped":{d},"orders_cancelled":{d},"positions_closed":{d}}}}}}}
+        , .{ result.strategies_stopped, result.orders_cancelled, result.positions_closed }) catch
             \\{"success":true,"data":{"kill_switch":true}}
         ;
         try r.setContentType(.JSON);
@@ -1236,19 +1229,17 @@ fn handleSystemHealth(r: zap.Request, ctx: *ServerContext) !void {
         const health = manager.getSystemHealth();
         var buf: [512]u8 = undefined;
 
-        const kill_reason = health.kill_switch_reason orelse "null";
         const json = std.fmt.bufPrint(&buf,
-            \\{{"success":true,"data":{{"status":"{s}","components":{{"api_server":"up","engine_manager":"up"}},"metrics":{{"running_grids":{d},"active_backtests":{d},"kill_switch_active":{s},"uptime_seconds":{d}}}}}}}
+            \\{{"success":true,"data":{{"status":"{s}","components":{{"api_server":"up","engine_manager":"up"}},"metrics":{{"running_strategies":{d},"active_backtests":{d},"kill_switch_active":{s},"uptime_seconds":{d}}}}}}}
         , .{
             health.status,
-            health.running_grids,
+            health.running_strategies,
             health.running_backtests,
             if (health.kill_switch_active) "true" else "false",
             ctx.uptime(),
         }) catch
             \\{"success":true,"data":{"status":"healthy"}}
         ;
-        _ = kill_reason;
         try r.setContentType(.JSON);
         try r.sendBody(json);
     } else {
