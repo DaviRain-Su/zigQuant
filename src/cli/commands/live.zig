@@ -84,9 +84,36 @@ const StrategyType = enum {
 };
 
 // ============================================================================
-// Grid Order State
+// Grid Level State (Bidirectional Grid Support)
 // ============================================================================
 
+/// Grid level state for bidirectional grid trading
+/// Each level can either be waiting for entry, in position, or waiting for exit
+const GridLevelState = struct {
+    level: u32,
+    grid_price: Decimal, // The grid level price
+    direction: GridDirection, // Long (below current) or Short (above current)
+    status: LevelStatus,
+    entry_order_id: ?u64 = null,
+    exit_order_id: ?u64 = null,
+    entry_price: Decimal = Decimal.ZERO,
+    position_size: Decimal = Decimal.ZERO,
+    realized_pnl: Decimal = Decimal.ZERO,
+
+    const GridDirection = enum {
+        long, // Buy low, sell high
+        short, // Sell high, buy low
+    };
+
+    const LevelStatus = enum {
+        waiting_entry, // Entry order placed, waiting to fill
+        in_position, // Position opened, exit order placed
+        waiting_reentry, // Exit filled, waiting to place new entry
+        disabled, // Level disabled (e.g., by config)
+    };
+};
+
+// Legacy GridOrderState for compatibility
 const GridOrderState = struct {
     level: u32,
     price: Decimal,
@@ -120,8 +147,16 @@ const LiveStrategyRunner = struct {
     // Grid state (used when strategy = grid)
     grid_config: ?GridConfig = null,
     grid_levels: ?[]GridLevel = null,
+    grid_level_states: ?[]GridLevelState = null, // Bidirectional grid state
     buy_orders: std.ArrayList(GridOrderState),
     sell_orders: std.ArrayList(GridOrderState),
+
+    // Grid statistics
+    grid_long_entries: u32 = 0,
+    grid_long_exits: u32 = 0,
+    grid_short_entries: u32 = 0,
+    grid_short_exits: u32 = 0,
+    grid_total_pnl: Decimal = Decimal.ZERO,
 
     // AI Strategy state (used when strategy = ai)
     indicator_manager: ?*IndicatorManager = null,
@@ -183,6 +218,9 @@ const LiveStrategyRunner = struct {
         if (self.grid_levels) |levels| {
             self.allocator.free(levels);
         }
+        if (self.grid_level_states) |states| {
+            self.allocator.free(states);
+        }
         // Clean up AI strategy resources
         if (self.indicator_manager) |im| {
             im.deinit();
@@ -235,6 +273,34 @@ const LiveStrategyRunner = struct {
             };
         }
         self.grid_levels = grid_levels;
+
+        // Initialize grid level states for bidirectional trading
+        const level_states = try self.allocator.alloc(GridLevelState, grid.grid_count + 1);
+        for (0..grid.grid_count + 1) |i| {
+            const level: u32 = @intCast(i);
+            level_states[i] = GridLevelState{
+                .level = level,
+                .grid_price = strategy_config.priceAtLevel(level),
+                .direction = .long, // Will be set based on current price later
+                .status = .disabled, // Will be enabled based on config
+            };
+        }
+        self.grid_level_states = level_states;
+
+        try self.logger.info("[GRID] Bidirectional grid initialized", .{});
+        try self.logger.info("[GRID] Price range: {d:.2} - {d:.2}", .{
+            grid.lower_price,
+            grid.upper_price,
+        });
+        try self.logger.info("[GRID] Grid count: {}, Order size: {d:.6}", .{
+            grid.grid_count,
+            self.live_config.order_size,
+        });
+        try self.logger.info("[GRID] Take profit: {d:.2}%", .{grid.take_profit_pct});
+        try self.logger.info("[GRID] Enable Long: {}, Enable Short: {}", .{
+            grid.enable_long,
+            grid.enable_short,
+        });
     }
 
     /// Initialize AI strategy specific state
@@ -819,26 +885,131 @@ const LiveStrategyRunner = struct {
 
     fn placeGridInitialOrders(self: *LiveStrategyRunner) !void {
         const current_price = try self.getCurrentPrice();
-        try self.logger.info("Current price: {d:.2}", .{current_price.toFloat()});
+        try self.logger.info("[GRID] Current price: {d:.2}", .{current_price.toFloat()});
 
-        const levels = self.grid_levels orelse return error.GridNotInitialized;
+        const config = self.grid_config orelse return error.GridNotInitialized;
+        const level_states = self.grid_level_states orelse return error.GridNotInitialized;
 
-        var buy_count: u32 = 0;
-        var sell_count: u32 = 0;
+        var long_count: u32 = 0;
+        var short_count: u32 = 0;
 
-        for (levels) |*level| {
-            if (level.price.cmp(current_price) == .lt) {
-                try self.placeBuyOrder(level);
-                buy_count += 1;
+        // Set up bidirectional grid based on current price
+        for (level_states) |*state| {
+            const is_below_price = state.grid_price.cmp(current_price) == .lt;
+
+            if (is_below_price) {
+                // Level below current price - Long entry (buy low, sell high)
+                if (config.enable_long) {
+                    state.direction = .long;
+                    state.status = .waiting_entry;
+                    try self.placeGridEntryOrder(state);
+                    long_count += 1;
+                } else {
+                    state.status = .disabled;
+                }
             } else {
-                sell_count += 1;
+                // Level above current price - Short entry (sell high, buy low)
+                if (config.enable_short) {
+                    state.direction = .short;
+                    state.status = .waiting_entry;
+                    try self.placeGridEntryOrder(state);
+                    short_count += 1;
+                } else {
+                    state.status = .disabled;
+                }
             }
         }
 
-        try self.logger.info("Initial setup: {} buy orders below price, {} potential sell levels above", .{
-            buy_count,
-            sell_count,
-        });
+        try self.logger.info("[GRID] Initial setup complete:", .{});
+        try self.logger.info("[GRID]   Long entries (buy below): {}", .{long_count});
+        try self.logger.info("[GRID]   Short entries (sell above): {}", .{short_count});
+        try self.logger.info("[GRID]   Total active levels: {}", .{long_count + short_count});
+    }
+
+    /// Place entry order for a grid level (either long or short)
+    fn placeGridEntryOrder(self: *LiveStrategyRunner, state: *GridLevelState) !void {
+        const config = self.grid_config orelse return error.GridNotInitialized;
+
+        if (self.connector) |conn| {
+            const exchange = conn.interface();
+
+            const side: Side = switch (state.direction) {
+                .long => .buy, // Long: buy at grid price
+                .short => .sell, // Short: sell at grid price
+            };
+
+            const order_request = OrderRequest{
+                .pair = self.pair,
+                .side = side,
+                .order_type = .limit,
+                .amount = config.order_size,
+                .price = state.grid_price,
+                .time_in_force = .gtc,
+                .reduce_only = false,
+            };
+
+            if (!self.checkRisk(order_request)) {
+                try self.logger.warn("[GRID] Entry order rejected by risk @ {d:.2}", .{
+                    state.grid_price.toFloat(),
+                });
+                state.status = .disabled;
+                return;
+            }
+
+            const order = try exchange.createOrder(order_request);
+            state.entry_order_id = order.exchange_order_id;
+            state.status = .waiting_entry;
+
+            const dir_str = if (state.direction == .long) "LONG" else "SHORT";
+            try self.logger.info("[GRID] {s} Entry L{} @ {d:.2}", .{
+                dir_str,
+                state.level,
+                state.grid_price.toFloat(),
+            });
+        }
+    }
+
+    /// Place exit order after entry is filled
+    fn placeGridExitOrder(self: *LiveStrategyRunner, state: *GridLevelState) !void {
+        const config = self.grid_config orelse return error.GridNotInitialized;
+
+        if (self.connector) |conn| {
+            const exchange = conn.interface();
+
+            // Calculate exit price based on direction
+            const exit_price = switch (state.direction) {
+                .long => state.entry_price.mul(Decimal.fromFloat(1.0 + config.take_profit_pct / 100.0)),
+                .short => state.entry_price.mul(Decimal.fromFloat(1.0 - config.take_profit_pct / 100.0)),
+            };
+
+            const side: Side = switch (state.direction) {
+                .long => .sell, // Long: sell to close
+                .short => .buy, // Short: buy to close
+            };
+
+            const order_request = OrderRequest{
+                .pair = self.pair,
+                .side = side,
+                .order_type = .limit,
+                .amount = state.position_size,
+                .price = exit_price,
+                .time_in_force = .gtc,
+                .reduce_only = true,
+            };
+
+            const order = try exchange.createOrder(order_request);
+            state.exit_order_id = order.exchange_order_id;
+            state.status = .in_position;
+
+            const dir_str = if (state.direction == .long) "LONG" else "SHORT";
+            try self.logger.info("[GRID] {s} Exit L{} @ {d:.2} (entry: {d:.2}, TP: {d:.2}%)", .{
+                dir_str,
+                state.level,
+                exit_price.toFloat(),
+                state.entry_price.toFloat(),
+                config.take_profit_pct,
+            });
+        }
     }
 
     fn placeBuyOrder(self: *LiveStrategyRunner, level: *GridLevel) !void {
@@ -958,7 +1129,139 @@ const LiveStrategyRunner = struct {
 
     fn checkRealFills(self: *LiveStrategyRunner) !void {
         if (self.connector == null) return;
-        try self.logger.debug("Checking order status...", .{});
+
+        const conn = self.connector.?;
+        const config = self.grid_config orelse return;
+        const level_states = self.grid_level_states orelse return;
+
+        // Get current open orders from exchange
+        const exchange = conn.interface();
+        const open_orders = exchange.getOpenOrders(self.pair) catch |err| {
+            try self.logger.debug("[GRID] Failed to get open orders: {s}", .{@errorName(err)});
+            return;
+        };
+        defer self.allocator.free(open_orders);
+
+        // Build a set of open order IDs for quick lookup
+        var open_order_ids = std.AutoHashMap(u64, void).init(self.allocator);
+        defer open_order_ids.deinit();
+        for (open_orders) |order| {
+            if (order.exchange_order_id) |oid| {
+                open_order_ids.put(oid, {}) catch {};
+            }
+        }
+
+        // Check each level's order status
+        for (level_states) |*state| {
+            switch (state.status) {
+                .waiting_entry => {
+                    // Check if entry order was filled
+                    if (state.entry_order_id) |entry_id| {
+                        if (!open_order_ids.contains(entry_id)) {
+                            // Order not in open orders = filled
+                            try self.handleGridEntryFilled(state, config);
+                        }
+                    }
+                },
+                .in_position => {
+                    // Check if exit order was filled
+                    if (state.exit_order_id) |exit_id| {
+                        if (!open_order_ids.contains(exit_id)) {
+                            // Order not in open orders = filled
+                            try self.handleGridExitFilled(state, config);
+                        }
+                    }
+                },
+                .waiting_reentry => {
+                    // Place new entry order
+                    try self.placeGridEntryOrder(state);
+                },
+                .disabled => {},
+            }
+        }
+    }
+
+    /// Handle grid entry order filled
+    fn handleGridEntryFilled(self: *LiveStrategyRunner, state: *GridLevelState, config: GridConfig) !void {
+        state.entry_price = state.grid_price;
+        state.position_size = config.order_size;
+        state.entry_order_id = null;
+
+        // Update position tracking
+        switch (state.direction) {
+            .long => {
+                self.current_position = self.current_position.add(config.order_size);
+                self.total_bought = self.total_bought.add(config.order_size);
+                self.grid_long_entries += 1;
+            },
+            .short => {
+                self.current_position = self.current_position.sub(config.order_size);
+                self.total_sold = self.total_sold.add(config.order_size);
+                self.grid_short_entries += 1;
+            },
+        }
+        self.trades_count += 1;
+
+        const dir_str = if (state.direction == .long) "LONG" else "SHORT";
+        try self.logger.info("[GRID] {s} Entry FILLED L{} @ {d:.2}", .{
+            dir_str,
+            state.level,
+            state.entry_price.toFloat(),
+        });
+
+        self.sendTradeAlert(.trade_executed, self.pair.base, state.entry_price, config.order_size, null);
+
+        // Place exit order
+        try self.placeGridExitOrder(state);
+    }
+
+    /// Handle grid exit order filled
+    fn handleGridExitFilled(self: *LiveStrategyRunner, state: *GridLevelState, config: GridConfig) !void {
+        // Calculate exit price and PnL
+        const exit_price = switch (state.direction) {
+            .long => state.entry_price.mul(Decimal.fromFloat(1.0 + config.take_profit_pct / 100.0)),
+            .short => state.entry_price.mul(Decimal.fromFloat(1.0 - config.take_profit_pct / 100.0)),
+        };
+
+        const pnl = switch (state.direction) {
+            .long => exit_price.sub(state.entry_price).mul(state.position_size),
+            .short => state.entry_price.sub(exit_price).mul(state.position_size),
+        };
+
+        state.realized_pnl = state.realized_pnl.add(pnl);
+        self.realized_pnl = self.realized_pnl.add(pnl);
+        self.grid_total_pnl = self.grid_total_pnl.add(pnl);
+        state.exit_order_id = null;
+
+        // Update position tracking
+        switch (state.direction) {
+            .long => {
+                self.current_position = self.current_position.sub(state.position_size);
+                self.total_sold = self.total_sold.add(state.position_size);
+                self.grid_long_exits += 1;
+            },
+            .short => {
+                self.current_position = self.current_position.add(state.position_size);
+                self.total_bought = self.total_bought.add(state.position_size);
+                self.grid_short_exits += 1;
+            },
+        }
+        self.trades_count += 1;
+
+        const dir_str = if (state.direction == .long) "LONG" else "SHORT";
+        try self.logger.info("[GRID] {s} Exit FILLED L{} @ {d:.2} | PnL: {d:.4}", .{
+            dir_str,
+            state.level,
+            exit_price.toFloat(),
+            pnl.toFloat(),
+        });
+
+        self.sendTradeAlert(.trade_executed, self.pair.base, exit_price, state.position_size, pnl);
+
+        // Reset for re-entry
+        state.position_size = Decimal.ZERO;
+        state.entry_price = Decimal.ZERO;
+        state.status = .waiting_reentry;
     }
 
     /// Print status
@@ -973,8 +1276,21 @@ const LiveStrategyRunner = struct {
 
         switch (self.strategy_type) {
             .grid => {
-                try self.logger.info("Active Buy Orders:  {}", .{self.countActiveOrders(.buy)});
-                try self.logger.info("Active Sell Orders: {}", .{self.countActiveOrders(.sell)});
+                // Grid statistics
+                const grid_stats = self.countGridLevelsByStatus();
+                try self.logger.info("-------------------------------------------", .{});
+                try self.logger.info("Grid Level Status:", .{});
+                try self.logger.info("  Waiting Entry:    {}", .{grid_stats.waiting_entry});
+                try self.logger.info("  In Position:      {}", .{grid_stats.in_position});
+                try self.logger.info("  Waiting Reentry:  {}", .{grid_stats.waiting_reentry});
+                try self.logger.info("-------------------------------------------", .{});
+                try self.logger.info("Long Trades:", .{});
+                try self.logger.info("  Entries:          {}", .{self.grid_long_entries});
+                try self.logger.info("  Exits:            {}", .{self.grid_long_exits});
+                try self.logger.info("Short Trades:", .{});
+                try self.logger.info("  Entries:          {}", .{self.grid_short_entries});
+                try self.logger.info("  Exits:            {}", .{self.grid_short_exits});
+                try self.logger.info("Grid Total PnL:   {d:.4}", .{self.grid_total_pnl.toFloat()});
             },
             .ai => {
                 // Show AI-specific stats
@@ -1026,6 +1342,36 @@ const LiveStrategyRunner = struct {
             }
         }
         return count;
+    }
+
+    /// Count grid levels by status
+    const GridStatusCounts = struct {
+        waiting_entry: u32,
+        in_position: u32,
+        waiting_reentry: u32,
+        disabled: u32,
+    };
+
+    fn countGridLevelsByStatus(self: *LiveStrategyRunner) GridStatusCounts {
+        var counts = GridStatusCounts{
+            .waiting_entry = 0,
+            .in_position = 0,
+            .waiting_reentry = 0,
+            .disabled = 0,
+        };
+
+        if (self.grid_level_states) |states| {
+            for (states) |state| {
+                switch (state.status) {
+                    .waiting_entry => counts.waiting_entry += 1,
+                    .in_position => counts.in_position += 1,
+                    .waiting_reentry => counts.waiting_reentry += 1,
+                    .disabled => counts.disabled += 1,
+                }
+            }
+        }
+
+        return counts;
     }
 
     /// Cancel all orders
