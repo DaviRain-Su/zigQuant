@@ -15,11 +15,7 @@ pub const data_engine = @import("core/data_engine.zig");
 pub const execution_engine = @import("core/execution_engine.zig");
 pub const live_engine = @import("trading/live_engine.zig");
 
-// API modules (v1.0.0 + v2.0.0)
-// Note: The API modules use @import("zigQuant") internally, so they must be
-// accessed from main.zig (root module), not from within the zigQuant module.
-// The Zap-based API server depends on zap which is only available in zigQuant module,
-// so we have a separate zap_api module that just re-exports the Zap server parts.
+// API module - Zap/facil.io based HTTP server
 pub const zap_api = @import("api/zap_api.zig");
 
 // Exchange modules
@@ -454,13 +450,13 @@ pub const EngineGridStatus = engine.GridStatus;
 pub const EngineGridStats = engine.GridStats;
 pub const EngineGridOrder = engine.GridOrder;
 
-// Re-export v0.10.0 Zap API Server types (v2 - zap/facil.io based)
-// Note: The std.http based API server (v1) is accessed directly from main.zig
-// via @import("api/mod.zig") to avoid circular dependency issues.
+// Re-export API Server types (Zap/facil.io based)
 pub const ZapServer = zap_api.ZapServer;
 pub const ZapServerConfig = zap_api.Config;
 pub const ZapServerDependencies = zap_api.Dependencies;
 pub const ZapServerContext = zap_api.ServerContext;
+pub const ZapJwtManager = zap_api.JwtManager;
+pub const ZapJwtPayload = zap_api.JwtPayload;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;
@@ -517,6 +513,8 @@ pub const RetryConfig = errors.RetryConfig;
 // Re-export logger types
 pub const Logger = logger.Logger;
 pub const Level = logger.Level;
+pub const LogWriter = logger.LogWriter;
+pub const LogRecord = logger.LogRecord;
 pub const ConsoleWriter = logger.ConsoleWriter;
 pub const FileWriter = logger.FileWriter;
 pub const JSONWriter = logger.JSONWriter;

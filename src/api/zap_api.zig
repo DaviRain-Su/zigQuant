@@ -1,13 +1,13 @@
-//! Zap API Module - Thin wrapper for Zap Server exports
+//! API Module - Exports for zigQuant module
 //!
-//! This module re-exports Zap server types for use within the zigQuant module.
-//! It provides access to the Zap-based API server (v2) without importing jwt.zig
-//! directly, which would cause module conflicts.
+//! This module re-exports API server types for use within the zigQuant module.
 
 const zap_server = @import("zap_server.zig");
 
-// Re-export Zap server types
+// Re-export server types
 pub const ZapServer = zap_server.ZapServer;
 pub const Config = zap_server.Config;
 pub const Dependencies = zap_server.Dependencies;
 pub const ServerContext = zap_server.ServerContext;
+pub const JwtManager = zap_server.JwtManager;
+pub const JwtPayload = zap_server.JwtPayload;

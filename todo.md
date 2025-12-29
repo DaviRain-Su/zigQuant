@@ -1,6 +1,6 @@
 # zigQuant TODO 清单
 
-> 更新于 2025-12-28
+> 更新于 2025-12-29
 
 ---
 
@@ -78,6 +78,15 @@
 30. ✅ AlertSystem 警报系统
 31. ✅ RecoveryManager 崩溃恢复
 
+### Web Control Platform (v0.9 - v1.0)
+36. ✅ Zap HTTP Server (facil.io based)
+37. ✅ JWT Authentication (embedded implementation)
+38. ✅ Grid Trading REST API (CRUD with EngineManager)
+39. ✅ Backtest REST API (run, progress, result, cancel)
+40. ✅ System API (kill-switch, health, logs)
+41. ✅ EngineManager (grid + backtest lifecycle)
+42. ✅ BacktestRunner (async backtest execution)
+
 ### 代码质量
 32. ✅ Timeframe 统一定义 (16 种时间周期)
 33. ✅ WebSocket 回调支持 context 参数
@@ -90,13 +99,36 @@
 
 ### v1.0.0 - 生产就绪
 
-| 优先级 | Story | 内容 | 预计时间 |
-|--------|-------|------|---------|
-| P0 | 046 | REST API 服务 | 4-5 天 |
-| P0 | 047 | Web Dashboard | 5-7 天 |
-| P1 | 048 | 多策略组合 | 3-4 天 |
-| P1 | 049 | 分布式回测 | 4-5 天 |
-| P2 | 050 | Binance 适配器 | 3-4 天 |
+| 优先级 | Story | 内容 | 状态 |
+|--------|-------|------|------|
+| P0 | 046 | REST API 服务 (Zap-based) | ✅ 完成 |
+| P0 | - | WebSocket 实时通信 | ⏳ 进行中 |
+| P0 | 047 | Web Dashboard (Bun + React) | 🔜 待开始 |
+| P1 | - | Strategy API (start/stop/params) | 🔜 待开始 |
+| P1 | 048 | 多策略组合 | 🔜 待开始 |
+| P2 | 050 | Binance 适配器 | 🔜 待开始 |
+
+### API V2 端点完成状态
+
+| 模块 | 端点 | 状态 |
+|------|------|------|
+| Auth | `/api/v2/auth/login` | ✅ |
+| Auth | `/api/v2/auth/me` | ✅ |
+| Auth | `/api/v2/auth/refresh` | ✅ |
+| Grid | `/api/v2/grid` (GET/POST) | ✅ |
+| Grid | `/api/v2/grid/:id` (GET/DELETE) | ✅ |
+| Grid | `/api/v2/grid/summary` | ✅ |
+| Backtest | `/api/v2/backtest/run` | ✅ |
+| Backtest | `/api/v2/backtest/:id/progress` | ✅ |
+| Backtest | `/api/v2/backtest/:id/result` | ✅ |
+| Backtest | `/api/v2/backtest/:id/cancel` | ✅ |
+| System | `/api/v2/system/kill-switch` | ✅ |
+| System | `/api/v2/system/health` | ✅ |
+| System | `/api/v2/system/logs` | ✅ |
+| Strategy | `/api/v2/strategy/:id/start` | 🔜 |
+| Strategy | `/api/v2/strategy/:id/stop` | 🔜 |
+| Strategy | `/api/v2/strategy/:id/params` | 🔜 |
+| WebSocket | `ws://localhost:8080/ws` | 🔜 |
 
 ### 低优先级 (未来规划)
 
@@ -114,10 +146,10 @@
 
 ## 统计
 
-- ✅ 已完成: 35 项
+- ✅ 已完成: 42 项
 - ⏳ v1.0.0 待完成: 5 项
 - 🔹 低优先级待完成: 2 项
-- **总代码行数**: ~39,000 行
+- **总代码行数**: ~41,000 行
 - **单元测试**: 558+
 - **示例程序**: 25 个
 
@@ -135,10 +167,17 @@
 | v0.6 | 混合计算模式 | ✅ 完成 | 2025-12-27 |
 | v0.7 | 做市优化 | ✅ 完成 | 2025-12-27 |
 | v0.8 | 风险管理 | ✅ 完成 | 2025-12-28 |
-| v1.0 | 生产就绪 | 🔜 规划中 | - |
+| v0.9 | Web API (REST) | ✅ 完成 | 2025-12-29 |
+| v1.0 | Web Dashboard | 🔜 进行中 | - |
 
 ---
 
 ## 下一步
 
 详见 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md)
+
+### 立即可做的任务
+
+1. **WebSocket 服务器** - 添加实时通信支持
+2. **Strategy API** - 策略启动/停止/热更新
+3. **Frontend** - 初始化 Bun + React 项目

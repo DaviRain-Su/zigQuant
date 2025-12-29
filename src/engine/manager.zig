@@ -13,6 +13,13 @@ const GridStatus = grid_runner.GridStatus;
 const GridStats = grid_runner.GridStats;
 const GridOrder = grid_runner.GridOrder;
 
+const backtest_runner = @import("runners/backtest_runner.zig");
+const BacktestRunner = backtest_runner.BacktestRunner;
+const BacktestRequest = backtest_runner.BacktestRequest;
+const BacktestStatus = backtest_runner.BacktestStatus;
+const BacktestProgress = backtest_runner.BacktestProgress;
+const BacktestResultSummary = backtest_runner.BacktestResultSummary;
+
 /// Engine Manager - manages all running components
 pub const EngineManager = struct {
     allocator: Allocator,
@@ -20,9 +27,18 @@ pub const EngineManager = struct {
     // Grid runners by ID
     grid_runners: std.StringHashMap(*GridRunner),
 
+    // Backtest runners by ID
+    backtest_runners: std.StringHashMap(*BacktestRunner),
+
     // Statistics
     total_grids_started: u64,
     total_grids_stopped: u64,
+    total_backtests_started: u64,
+    total_backtests_completed: u64,
+
+    // System state
+    kill_switch_active: bool,
+    kill_switch_reason: ?[]const u8,
 
     // Thread safety
     mutex: std.Thread.Mutex,
@@ -34,8 +50,13 @@ pub const EngineManager = struct {
         return .{
             .allocator = allocator,
             .grid_runners = std.StringHashMap(*GridRunner).init(allocator),
+            .backtest_runners = std.StringHashMap(*BacktestRunner).init(allocator),
             .total_grids_started = 0,
             .total_grids_stopped = 0,
+            .total_backtests_started = 0,
+            .total_backtests_completed = 0,
+            .kill_switch_active = false,
+            .kill_switch_reason = null,
             .mutex = .{},
         };
     }
@@ -46,11 +67,23 @@ pub const EngineManager = struct {
         defer self.mutex.unlock();
 
         // Stop and clean up all grid runners
-        var it = self.grid_runners.valueIterator();
-        while (it.next()) |runner| {
+        var grid_it = self.grid_runners.valueIterator();
+        while (grid_it.next()) |runner| {
             runner.*.deinit();
         }
         self.grid_runners.deinit();
+
+        // Stop and clean up all backtest runners
+        var bt_it = self.backtest_runners.valueIterator();
+        while (bt_it.next()) |runner| {
+            runner.*.deinit();
+        }
+        self.backtest_runners.deinit();
+
+        // Clean up kill switch reason
+        if (self.kill_switch_reason) |reason| {
+            self.allocator.free(reason);
+        }
     }
 
     // ========================================================================
@@ -220,6 +253,206 @@ pub const EngineManager = struct {
             .total_trades = total_trades,
         };
     }
+
+    // ========================================================================
+    // Backtest API
+    // ========================================================================
+
+    /// Start a new backtest job
+    pub fn startBacktest(self: *Self, id: []const u8, request: BacktestRequest) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Check if already exists
+        if (self.backtest_runners.contains(id)) {
+            return error.BacktestAlreadyExists;
+        }
+
+        // Create and start the runner
+        const runner = try BacktestRunner.init(self.allocator, id, request);
+        errdefer runner.deinit();
+
+        try runner.start();
+
+        // Store in map
+        try self.backtest_runners.put(runner.id, runner);
+        self.total_backtests_started += 1;
+    }
+
+    /// Cancel a running backtest
+    pub fn cancelBacktest(self: *Self, id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.backtest_runners.get(id) orelse return error.BacktestNotFound;
+        try runner.cancel();
+    }
+
+    /// Get backtest status
+    pub fn getBacktestStatus(self: *Self, id: []const u8) !BacktestStatus {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.backtest_runners.get(id) orelse return error.BacktestNotFound;
+        return runner.getStatus();
+    }
+
+    /// Get backtest progress
+    pub fn getBacktestProgress(self: *Self, id: []const u8) !BacktestProgress {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.backtest_runners.get(id) orelse return error.BacktestNotFound;
+        return runner.getProgress();
+    }
+
+    /// Get backtest result summary
+    pub fn getBacktestResult(self: *Self, id: []const u8) !?BacktestResultSummary {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.backtest_runners.get(id) orelse return error.BacktestNotFound;
+        return runner.getResultSummary();
+    }
+
+    /// Remove a completed backtest
+    pub fn removeBacktest(self: *Self, id: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const entry = self.backtest_runners.fetchRemove(id) orelse return error.BacktestNotFound;
+        const runner = entry.value;
+
+        if (runner.status == .completed or runner.status == .failed or runner.status == .cancelled) {
+            self.total_backtests_completed += 1;
+        }
+
+        runner.deinit();
+    }
+
+    /// Get count of running backtests
+    pub fn getRunningBacktestCount(self: *Self) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var count: usize = 0;
+        var it = self.backtest_runners.valueIterator();
+        while (it.next()) |runner| {
+            if (runner.*.status == .running or runner.*.status == .queued) count += 1;
+        }
+        return count;
+    }
+
+    /// List all backtests
+    pub fn listBacktests(self: *Self, allocator: Allocator) ![]BacktestSummary {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var list = std.ArrayList(BacktestSummary){};
+        errdefer list.deinit(allocator);
+
+        var it = self.backtest_runners.iterator();
+        while (it.next()) |entry| {
+            const runner = entry.value_ptr.*;
+            const progress = runner.getProgress();
+
+            try list.append(allocator, .{
+                .id = entry.key_ptr.*,
+                .strategy = runner.request.strategy,
+                .symbol = runner.request.symbol,
+                .status = runner.status.toString(),
+                .progress = progress.progress,
+                .trades_so_far = progress.trades_so_far,
+                .elapsed_seconds = progress.elapsed_seconds,
+            });
+        }
+
+        return list.toOwnedSlice(allocator);
+    }
+
+    // ========================================================================
+    // System API (Kill Switch)
+    // ========================================================================
+
+    /// Activate kill switch - stops all trading
+    pub fn activateKillSwitch(self: *Self, reason: []const u8, cancel_orders: bool, close_positions: bool) !KillSwitchResult {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        _ = cancel_orders;
+        _ = close_positions;
+
+        var result = KillSwitchResult{};
+
+        // Stop all grids
+        var grid_it = self.grid_runners.valueIterator();
+        while (grid_it.next()) |runner| {
+            if (runner.*.status == .running) {
+                runner.*.stop() catch {};
+                result.grids_stopped += 1;
+            }
+        }
+
+        // Store reason
+        if (self.kill_switch_reason) |old| {
+            self.allocator.free(old);
+        }
+        self.kill_switch_reason = try self.allocator.dupe(u8, reason);
+        self.kill_switch_active = true;
+
+        return result;
+    }
+
+    /// Deactivate kill switch
+    pub fn deactivateKillSwitch(self: *Self) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        self.kill_switch_active = false;
+        if (self.kill_switch_reason) |reason| {
+            self.allocator.free(reason);
+            self.kill_switch_reason = null;
+        }
+    }
+
+    /// Check if kill switch is active
+    pub fn isKillSwitchActive(self: *Self) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.kill_switch_active;
+    }
+
+    /// Get system health status
+    pub fn getSystemHealth(self: *Self) SystemHealth {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        return .{
+            .status = if (self.kill_switch_active) "kill_switch" else "healthy",
+            .running_grids = self.getRunningGridCountUnlocked(),
+            .running_backtests = self.getRunningBacktestCountUnlocked(),
+            .kill_switch_active = self.kill_switch_active,
+            .kill_switch_reason = self.kill_switch_reason,
+        };
+    }
+
+    fn getRunningGridCountUnlocked(self: *Self) usize {
+        var count: usize = 0;
+        var it = self.grid_runners.valueIterator();
+        while (it.next()) |runner| {
+            if (runner.*.status == .running) count += 1;
+        }
+        return count;
+    }
+
+    fn getRunningBacktestCountUnlocked(self: *Self) usize {
+        var count: usize = 0;
+        var it = self.backtest_runners.valueIterator();
+        while (it.next()) |runner| {
+            if (runner.*.status == .running or runner.*.status == .queued) count += 1;
+        }
+        return count;
+    }
 };
 
 /// Summary of a single grid
@@ -234,6 +467,17 @@ pub const GridSummary = struct {
     uptime_seconds: i64,
 };
 
+/// Summary of a single backtest
+pub const BacktestSummary = struct {
+    id: []const u8,
+    strategy: []const u8,
+    symbol: []const u8,
+    status: []const u8,
+    progress: f64,
+    trades_so_far: u32,
+    elapsed_seconds: i64,
+};
+
 /// Manager statistics
 pub const ManagerStats = struct {
     total_grids: usize,
@@ -243,6 +487,23 @@ pub const ManagerStats = struct {
     total_grids_stopped: u64,
     total_realized_pnl: f64,
     total_trades: u32,
+};
+
+/// Kill switch result
+pub const KillSwitchResult = struct {
+    grids_stopped: usize = 0,
+    strategies_stopped: usize = 0,
+    orders_cancelled: usize = 0,
+    positions_closed: usize = 0,
+};
+
+/// System health status
+pub const SystemHealth = struct {
+    status: []const u8,
+    running_grids: usize,
+    running_backtests: usize,
+    kill_switch_active: bool,
+    kill_switch_reason: ?[]const u8,
 };
 
 // ============================================================================
