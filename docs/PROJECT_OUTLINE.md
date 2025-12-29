@@ -78,8 +78,7 @@ zigquant/
 │   │   ├── sqlite.zig       # SQLite 封装
 │   │   └── csv.zig          # CSV 处理
 │   ├── ui/                  # 用户界面
-│   │   ├── cli.zig          # 命令行界面
-│   │   └── tui.zig          # 终端 UI
+│   │   └── cli.zig          # 命令行界面
 │   └── utils/               # 工具函数
 │       ├── logger.zig       # 日志系统
 │       ├── config.zig       # 配置管理
@@ -205,8 +204,6 @@ pub const Decimal = struct {
         // 加密
         .zig_crypto = .{ ... },    // HMAC-SHA256 等
         
-        // 终端 UI
-        .zig_tui = .{ ... },       // TUI 库
     },
 }
 ```

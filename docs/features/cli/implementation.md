@@ -663,7 +663,6 @@ $ strace zig build run -- -c config.test.json price BTC-USDC
 - [ ] JSON 输出格式
 
 ### 长期
-- [ ] TUI 界面（使用 termbox）
 - [ ] 批处理脚本支持
 - [ ] 插件系统
 

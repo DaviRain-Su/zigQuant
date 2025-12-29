@@ -535,7 +535,6 @@ $ zigQuant -c config.testnet.json buy BTC-USDC 10 100000.0  # 确认环境！
 - [ ] 支持多交易所（Binance、OKX 等）
 - [ ] WebSocket 实时数据流
 - [ ] 批处理脚本模式（读取命令文件）
-- [ ] TUI 界面（使用 termbox 或类似库）
 - [ ] 命令别名系统
 - [ ] 插件系统
 

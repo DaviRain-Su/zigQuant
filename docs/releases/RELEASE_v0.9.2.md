@@ -2,7 +2,7 @@
 
 ## Overview
 
-Version 0.9.2 focuses on live trading improvements and begins the transition from Web-based to TUI-based interface.
+Version 0.9.2 focuses on live trading improvements and API enhancements.
 
 ## Release Date
 December 2024
@@ -72,22 +72,6 @@ The Web interface (React + Zap HTTP server) has fundamental architectural issues
 3. **Debugging difficulty**: Async communication between components
 4. **Resource overhead**: Higher memory and CPU usage
 
-### Migration to TUI
-
-We are transitioning to a Terminal User Interface (TUI) using **libvaxis**:
-
-| Aspect | Web Interface | TUI Interface |
-|--------|--------------|---------------|
-| Processes | Multiple (browser, server) | Single |
-| Shutdown | Complex, issues | Simple, clean |
-| Dependencies | React, npm, Zap | libvaxis only |
-| Server access | Requires browser | Works over SSH |
-| Development | Frontend + Backend | Pure Zig |
-
-See:
-- [TUI Research](../features/tui/TUI_RESEARCH.md)
-- [TUI Design](../features/tui/TUI_DESIGN.md)
-
 ---
 
 ## Changes Summary
@@ -120,7 +104,6 @@ See:
 - `src/core/log_buffer.zig` - Log buffer for UI
 - `src/exchange/hyperliquid/live_adapter.zig` - Live trading adapter
 - `web/` - React frontend (experimental)
-- `docs/features/tui/` - TUI documentation
 
 ---
 
@@ -163,13 +146,10 @@ New fields in live session request:
 ## Roadmap
 
 ### v0.9.3 (Planned)
-- TUI interface implementation
 - Fix leverage setting
 - Clean shutdown implementation
-- Remove Web interface dependency
 
 ### v1.0.0 (Future)
-- Stable TUI interface
 - Production-ready live trading
 - Multi-exchange support
 - Strategy marketplace
