@@ -15,10 +15,12 @@ pub const data_engine = @import("core/data_engine.zig");
 pub const execution_engine = @import("core/execution_engine.zig");
 pub const live_engine = @import("trading/live_engine.zig");
 
-// API modules (v1.0.0)
-// Note: API module is imported directly in main.zig to avoid httpz/websocket dependency conflicts.
-// The api/config.zig imports exchange types directly, not through root.zig.
-// pub const api = @import("api/mod.zig");
+// API modules (v1.0.0 + v2.0.0)
+// Note: The API modules use @import("zigQuant") internally, so they must be
+// accessed from main.zig (root module), not from within the zigQuant module.
+// The Zap-based API server depends on zap which is only available in zigQuant module,
+// so we have a separate zap_api module that just re-exports the Zap server parts.
+pub const zap_api = @import("api/zap_api.zig");
 
 // Exchange modules
 pub const exchange_types = @import("exchange/types.zig");
@@ -451,6 +453,14 @@ pub const EngineGridConfig = engine.GridConfig;
 pub const EngineGridStatus = engine.GridStatus;
 pub const EngineGridStats = engine.GridStats;
 pub const EngineGridOrder = engine.GridOrder;
+
+// Re-export v0.10.0 Zap API Server types (v2 - zap/facil.io based)
+// Note: The std.http based API server (v1) is accessed directly from main.zig
+// via @import("api/mod.zig") to avoid circular dependency issues.
+pub const ZapServer = zap_api.ZapServer;
+pub const ZapServerConfig = zap_api.Config;
+pub const ZapServerDependencies = zap_api.Dependencies;
+pub const ZapServerContext = zap_api.ServerContext;
 
 // Re-export optimizer types
 pub const OptimizerParameterType = optimizer_types.ParameterType;

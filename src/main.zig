@@ -6,7 +6,9 @@ const CLI = @import("cli/cli.zig").CLI;
 const format = @import("cli/format.zig");
 const strategy_commands = @import("cli/strategy_commands.zig");
 
-// API Server imports (direct import to avoid websocket module conflicts)
+// API Server imports (v1 - std.http based, direct import for legacy server)
+// Note: The v1 API server uses @import("zigQuant") internally, so we import it directly
+// from main.zig to avoid circular module dependencies.
 const api = @import("api/mod.zig");
 const ApiServer = api.Server;
 const ApiConfig = api.Config;
@@ -48,6 +50,12 @@ pub fn main() !void {
     // Check if it's the serve command (API server)
     if (std.mem.eql(u8, command, "serve")) {
         try runServeCommand(allocator, cli_args);
+        return;
+    }
+
+    // Check if it's the serve2 command (Zap-based API server v2)
+    if (std.mem.eql(u8, command, "serve2")) {
+        try runServe2Command(allocator, cli_args);
         return;
     }
 
@@ -136,7 +144,8 @@ fn printGeneralHelp() !void {
         \\    zigquant <COMMAND> [OPTIONS]
         \\
         \\SERVER COMMANDS:
-        \\    serve            Start REST API server
+        \\    serve            Start REST API server (std.http)
+        \\    serve2           Start Zap-based API server (v2, high-performance)
         \\
         \\STRATEGY COMMANDS:
         \\    backtest         Run strategy backtests
@@ -272,7 +281,7 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
             host = app_config.server.host;
         }
 
-        std.log.info("zigQuant API Server v{s}", .{api.version});
+        std.log.info("zigQuant API Server v1.0.0", .{});
         std.log.info("Config loaded: {d} exchange(s) configured", .{app_config.exchanges.len});
 
         // Initialize exchanges from config file
@@ -299,7 +308,7 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         }
     } else {
         // Load from environment variables (legacy mode)
-        std.log.info("zigQuant API Server v{s}", .{api.version});
+        std.log.info("zigQuant API Server v1.0.0", .{});
         std.log.info("No config file specified, using environment variables", .{});
 
         // Get global testnet setting
@@ -344,15 +353,15 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
         .jwt_secret = jwt_secret,
     };
 
-    std.log.info("Starting server on {s}:{d}...", .{host, port});
+    std.log.info("Starting server on {s}:{d}...", .{ host, port });
 
     // Initialize and start the server
     const server = try ApiServer.init(allocator, api_config, deps);
     defer server.deinit();
 
-    std.log.info("Server listening on http://{s}:{d}", .{host, port});
-    std.log.info("Health check: http://{s}:{d}/health", .{host, port});
-    std.log.info("API docs: http://{s}:{d}/api/v1/exchanges", .{host, port});
+    std.log.info("Server listening on http://{s}:{d}", .{ host, port });
+    std.log.info("Health check: http://{s}:{d}/health", .{ host, port });
+    std.log.info("API docs: http://{s}:{d}/api/v1/exchanges", .{ host, port });
     std.log.info("Press Ctrl+C to stop", .{});
 
     try server.start();
@@ -410,6 +419,111 @@ fn printServeHelp() !void {
         \\    zigquant serve -c config.json -p 3000   # Config + custom port
         \\    zigquant serve                          # Env vars or mock data
         \\    ZIGQUANT_HL_USER=0x... zigquant serve   # Env var mode
+        \\
+        \\
+    );
+}
+
+/// Run the Zap-based API server command (v2)
+fn runServe2Command(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    // Parse serve command arguments
+    var port: u16 = 8080;
+    var show_help = false;
+
+    var i: usize = 1; // Skip "serve2" command
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--port") or std.mem.eql(u8, arg, "-p")) {
+            i += 1;
+            if (i < args.len) {
+                port = std.fmt.parseInt(u16, args[i], 10) catch {
+                    std.debug.print("Invalid port number: {s}\n", .{args[i]});
+                    return error.InvalidArgument;
+                };
+            }
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            show_help = true;
+        }
+    }
+
+    if (show_help) {
+        try printServe2Help();
+        return;
+    }
+
+    // Get JWT secret from environment or use development default
+    const jwt_secret = std.posix.getenv("ZIGQUANT_JWT_SECRET") orelse blk: {
+        std.log.warn("ZIGQUANT_JWT_SECRET not set, using development secret", .{});
+        std.log.warn("WARNING: Do not use this in production!", .{});
+        break :blk DEV_JWT_SECRET;
+    };
+
+    // Create Zap server config
+    const zap_config = zigQuant.ZapServerConfig{
+        .port = port,
+        .jwt_secret = jwt_secret,
+        .log_requests = true,
+    };
+
+    // Create dependencies
+    var deps = zigQuant.ZapServerDependencies.init(allocator);
+
+    // Initialize engine manager for grid trading
+    var engine_manager = zigQuant.EngineManager.init(allocator);
+    defer engine_manager.deinit();
+    deps.setEngineManager(&engine_manager);
+
+    std.log.info("Starting zigQuant Zap Server v2.0.0...", .{});
+    std.log.info("Engine manager initialized for grid trading", .{});
+
+    // Initialize and start the server
+    const server = try zigQuant.ZapServer.init(allocator, zap_config, &deps);
+    defer server.deinit();
+
+    try server.start();
+}
+
+fn printServe2Help() !void {
+    const stdout = std.fs.File.stdout();
+    try stdout.writeAll(
+        \\
+        \\zigQuant serve2 - Start Zap-based REST API Server (v2)
+        \\
+        \\USAGE:
+        \\    zigquant serve2 [OPTIONS]
+        \\
+        \\OPTIONS:
+        \\    -p, --port <PORT>    Server port (default: 8080)
+        \\    -h, --help           Show this help message
+        \\
+        \\ENVIRONMENT VARIABLES:
+        \\    ZIGQUANT_JWT_SECRET  JWT signing secret (required for production)
+        \\
+        \\FEATURES:
+        \\    - High-performance Zap/facil.io HTTP server
+        \\    - JWT authentication
+        \\    - Grid Trading API
+        \\    - Health/Ready endpoints
+        \\    - Prometheus metrics
+        \\
+        \\API ENDPOINTS:
+        \\    GET  /health                  Health check
+        \\    GET  /ready                   Readiness check
+        \\    GET  /version                 API version info
+        \\    GET  /metrics                 Prometheus metrics
+        \\    POST /api/v1/auth/login       Login and get JWT token
+        \\    POST /api/v1/auth/refresh     Refresh JWT token
+        \\    GET  /api/v1/auth/me          Get current user info
+        \\    GET  /api/v1/grid             List all grid bots
+        \\    POST /api/v1/grid             Create new grid bot
+        \\    GET  /api/v1/grid/:id         Get grid bot details
+        \\    DELETE /api/v1/grid/:id       Stop grid bot
+        \\    GET  /api/v1/grid/summary     Get grid summary stats
+        \\
+        \\EXAMPLES:
+        \\    zigquant serve2                        # Default port 8080
+        \\    zigquant serve2 -p 3000                # Custom port
+        \\    ZIGQUANT_JWT_SECRET=... zigquant serve2
         \\
         \\
     );

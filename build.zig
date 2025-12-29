@@ -51,8 +51,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Note: httpz removed - using std.http.Server for REST API
-    // This eliminates third-party dependency issues with Zig 0.15
+    // Add zap dependency for high-performance HTTP/WebSocket server (v0.10.0)
+    const zap = b.dependency("zap", .{
+        .target = target,
+        .optimize = optimize,
+        .openssl = false, // Set to true to enable TLS support
+    });
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -77,9 +81,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "websocket", .module = websocket.module("websocket") },
             .{ .name = "xev", .module = libxev.module("xev") },
             .{ .name = "openai_zig", .module = openai_zig.module("openai_zig") },
-            // Note: httpz is NOT added here because:
-            // 1. API module is not exported from root.zig (to avoid websocket conflicts)
-            // 2. httpz is added directly to the exe for the serve command
+            .{ .name = "zap", .module = zap.module("zap") },
         },
     });
 
