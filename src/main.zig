@@ -122,7 +122,7 @@ fn printGeneralHelp() !void {
         \\USAGE:
         \\    zigquant <COMMAND> [OPTIONS]
         \\
-        \\SERVER COMMANDS:
+        \\INTERFACE COMMANDS:
         \\    serve            Start REST API server (Zap/facil.io)
         \\
         \\STRATEGY COMMANDS:
