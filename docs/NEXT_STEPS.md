@@ -1,7 +1,7 @@
 # 下一步行动计划
 
-**更新时间**: 2025-12-28
-**当前阶段**: v0.8.0 完成 → v1.0.0 规划
+**更新时间**: 2025-12-29
+**当前阶段**: v0.9.0 完成 → v1.0.0 进行中
 **架构参考**: [竞争分析](./architecture/COMPETITIVE_ANALYSIS.md) - NautilusTrader/Hummingbot/Freqtrade 深度研究
 
 ---
@@ -15,268 +15,128 @@
 - **v0.6**: 混合计算模式 ✅ 已完成 (向量化回测 12.6M bars/s + Paper Trading + 热重载)
 - **v0.7**: 做市优化 ✅ 已完成 (Clock-Driven + 库存管理 + 数据持久化)
 - **v0.8**: 风险管理 ✅ 已完成 (RiskEngine + Stop Loss + Money Management + Alert)
-- **v1.0**: 生产就绪 ← 当前焦点 (REST API + Web Dashboard)
+- **v0.9**: Web API ✅ 已完成 (REST API + WebSocket + 统一策略架构)
+- **v1.0**: 生产就绪 ← 当前焦点 (Web Dashboard + 架构清理)
 
 详见 [roadmap.md](../roadmap.md) 架构演进战略部分。
 
 ---
 
-## ✅ 已完成工作
+## ✅ 最新完成工作
 
-### MVP v0.2.0 - 交易系统核心 (100%) ✅
+### v0.9.0 - Web API & 统一策略架构 (100%) ✅
 
-**完成时间**: 2025-12-25
-
-#### 核心功能
-- ✅ Hyperliquid DEX 完整集成
-- ✅ HTTP REST API (市场数据、账户、订单查询)
-- ✅ WebSocket 实时数据流 (订单簿、订单更新、成交)
-- ✅ Orderbook 管理 (快照、增量更新、深度计算)
-- ✅ 订单管理 (下单、撤单、批量撤单、查询)
-- ✅ 仓位跟踪 (实时 PnL、账户状态同步)
-- ✅ CLI 界面 (11 个交易命令 + 交互式 REPL)
-
-#### 技术指标
-- ✅ WebSocket 延迟: 0.23ms (< 10ms 目标)
-- ✅ 订单执行: ~300ms (< 500ms 目标)
-- ✅ 内存占用: ~8MB (< 50MB 目标)
-- ✅ 零内存泄漏
-- ✅ 173/173 单元测试通过
-- ✅ 3/3 集成测试通过
-
----
-
-### MVP v0.3.0 - 策略回测系统 (100%) ✅
-
-**完成时间**: 2025-12-26 (Story 023)
+**完成时间**: 2025-12-29
 
 #### 核心功能
-- ✅ **IStrategy 接口重构** (Story 013)
-- ✅ **技术指标库** (Stories 014-016) - 6 个技术指标
-- ✅ **内置策略** (Stories 017-019) - 3 个策略
-- ✅ **回测引擎** (Story 020)
-- ✅ **性能分析** (Story 021) - 30+ 性能指标
-- ✅ **CLI 策略命令** (Story 023)
+
+1. **REST API 服务** (Zap/facil.io)
+   - ✅ 高性能 HTTP Server
+   - ✅ JWT 认证 (内嵌实现)
+   - ✅ 策略 API (`/api/v2/strategy`)
+   - ✅ 回测 API (`/api/v2/backtest`)
+   - ✅ 系统 API (`/api/v2/system`)
+
+2. **WebSocket 实时通信**
+   - ✅ 双向通信支持
+   - ✅ 频道订阅 (支持通配符)
+   - ✅ 实时状态广播
+   - ✅ 策略命令 (`strategy.*`)
+
+3. **统一策略架构** (重大重构)
+   - ✅ 删除 `grid_runner.zig` - Grid 策略现在通过 StrategyRunner 运行
+   - ✅ EngineManager 只使用 `strategy_runners` HashMap
+   - ✅ 所有策略类型(含 Grid)统一使用 `/api/v2/strategy` API
+   - ✅ StrategyRunner 支持 Grid 特定参数
+
+#### 架构变更
+
+**之前**:
+```
+EngineManager
+├── grid_runners: HashMap     # Grid 专用
+├── strategy_runners: HashMap # 其他策略
+└── backtest_runners: HashMap
+```
+
+**之后**:
+```
+EngineManager
+├── strategy_runners: HashMap  # 所有策略(含 Grid)
+└── backtest_runners: HashMap
+```
+
+#### 代码统计
+| 文件 | 行数 | 描述 |
+|------|------|------|
+| `src/api/zap_server.zig` | ~900 | REST API 服务 |
+| `src/api/websocket.zig` | ~940 | WebSocket 服务 |
+| `src/engine/manager.zig` | ~610 | 引擎管理器 |
+| `src/engine/runners/strategy_runner.zig` | ~930 | 统一策略运行器 |
+| **总计** | **~3380** | **v0.9.0 核心代码** |
 
 #### 测试结果
-- ✅ **343/343 单元测试通过**
+- ✅ **768/768 单元测试通过**
 - ✅ **零内存泄漏**
-- ✅ RSI Mean Reversion: **+11.05% 收益**
 
 ---
 
-### MVP v0.4.0 - 优化器增强与指标扩展 (100%) ✅
+## 🚀 当前进度: 引擎架构统一 (3步计划)
 
-**完成时间**: 2025-12-27
+### ✅ Step 1: Grid Runner 移除 (已完成)
+- [x] 删除 `grid_runner.zig`
+- [x] Grid 策略通过 `StrategyRunner` + `GridStrategy` 运行
+- [x] 更新 REST API (`/api/v2/grid` → `/api/v2/strategy`)
+- [x] 更新 WebSocket 命令
 
-#### 核心功能
-- ✅ **Walk-Forward 分析** (Story 022)
-- ✅ **扩展技术指标** (Story 025) - 8 个新指标
-- ✅ **回测结果导出** (Story 027)
-- ✅ **并行优化**
-- ✅ **新增策略** - MACD Divergence
+### ⏳ Step 2: Live Runner 迁移 (待开始)
+将 `LiveTradingEngine` 从 `src/trading/live_engine.zig` 迁移到 `src/engine/runners/live_runner.zig`
 
-#### 测试结果
-- ✅ **453/453 单元测试通过**
-- ✅ **12个示例程序**
+**任务清单**:
+- [ ] 创建 `src/engine/runners/live_runner.zig`
+- [ ] 复用 `StrategyRunner` 的模式
+- [ ] 整合 `LiveTradingEngine` 的实时交易功能
+- [ ] 添加到 `EngineManager`
+- [ ] 更新 REST/WebSocket API
 
----
+### ⏳ Step 3: Paper Trading 清理 (待开始)
+合并 `PaperTradingEngine` 到 `StrategyRunner` 的 paper 模式
 
-### MVP v0.5.0 - 事件驱动架构 (100%) ✅
-
-**完成时间**: 2025-12-27
-
-#### 核心功能
-- ✅ **MessageBus 消息总线** (Story 023)
-- ✅ **Cache 中央数据缓存** (Story 024)
-- ✅ **DataEngine 数据引擎** (Story 025)
-- ✅ **ExecutionEngine 执行引擎** (Story 026)
-- ✅ **LiveTradingEngine 统一接口** (Story 027)
-
-#### 代码统计
-| 文件 | 行数 | 描述 |
-|------|------|------|
-| `src/core/message_bus.zig` | 863 | 消息总线核心 |
-| `src/core/cache.zig` | 939 | 中央数据缓存 |
-| `src/core/data_engine.zig` | 1039 | 数据引擎 |
-| `src/core/execution_engine.zig` | 1036 | 执行引擎 |
-| `src/trading/live_engine.zig` | 859 | 实时交易引擎 |
-| **总计** | **4736** | **核心代码** |
-
-#### 测试结果
-- ✅ **502/502 单元测试通过**
-- ✅ **14 个示例程序**
+**任务清单**:
+- [ ] 分析 `PaperTradingEngine` 功能
+- [ ] 确保 `StrategyRunner.mode = .paper` 完整支持
+- [ ] 移除重复代码
+- [ ] 更新测试
 
 ---
 
-### MVP v0.6.0 - 混合计算模式 (100%) ✅
+## 📋 后续可执行任务
 
-**完成时间**: 2025-12-27
+### 优先级 P0 (必须完成)
 
-#### 核心功能
-- ✅ **向量化回测引擎** (Story 028) - 12.6M bars/s
-- ✅ **HyperliquidDataProvider** (Story 029)
-- ✅ **HyperliquidExecutionClient** (Story 030)
-- ✅ **Paper Trading** (Story 031)
-- ✅ **策略热重载** (Story 032)
-
-#### 测试结果
-- ✅ **558 单元测试通过**
-- ✅ **回测性能**: 12.6M bars/s
-
----
-
-### MVP v0.7.0 - 做市优化 (100%) ✅
-
-**完成时间**: 2025-12-27
-
-#### 核心功能
-- ✅ **Clock-Driven 模式** (Story 033)
-  - Clock 定时器实现 (可配置 tick interval)
-  - IClockStrategy 接口
-  - 策略注册/注销
-  - Tick 精度优化 (< 10ms 抖动)
-
-- ✅ **Pure Market Making 策略** (Story 034)
-  - PureMarketMaking 策略实现
-  - 双边报价 (bid/ask spread)
-  - 多层级订单
-  - 自动刷新报价
-
-- ✅ **Inventory Management** (Story 035)
-  - InventoryManager 库存管理器
-  - 库存偏斜 (Inventory Skew)
-  - 动态报价调整
-  - 再平衡机制
-
-- ✅ **数据持久化** (Story 036)
-  - DataStore 数据存储
-  - K 线数据存储/加载
-  - 回测结果存储
-  - CandleCache 内存缓存
-
-- ✅ **Cross-Exchange Arbitrage** (Story 037)
-  - 套利机会检测
-  - 利润计算 (含费用)
-  - 同步执行
-  - 风险控制
-
-- ✅ **Queue Position Modeling** (Story 038)
-  - QueuePosition 队列位置追踪
-  - 4 种成交概率模型
-  - 回测精度提升
-
-- ✅ **Dual Latency Simulation** (Story 039)
-  - Feed Latency 行情延迟模拟
-  - Order Latency 订单延迟
-  - 3 种延迟模型
-  - 纳秒级时间精度
-
-#### 代码统计
-| 文件 | 行数 | 描述 |
-|------|------|------|
-| `src/market_making/clock.zig` | ~500 | Clock-Driven 引擎 |
-| `src/market_making/pure_mm.zig` | ~650 | 做市策略 |
-| `src/market_making/inventory.zig` | ~620 | 库存管理 |
-| `src/market_making/arbitrage.zig` | ~880 | 套利策略 |
-| `src/storage/data_store.zig` | ~1100 | 数据持久化 |
-| `src/backtest/queue_position.zig` | ~730 | 队列建模 |
-| `src/backtest/latency_model.zig` | ~710 | 延迟模拟 |
-| **总计** | **~5190** | **v0.7.0 新增代码** |
-
----
-
-### MVP v0.8.0 - 风险管理 (100%) ✅
-
-**完成时间**: 2025-12-28
-
-#### 核心功能
-- ✅ **RiskEngine 风险引擎** (Story 040)
-  - 实时风险监控
-  - Kill Switch 紧急平仓
-  - 多维度风险检查
-  - IExchange 集成
-
-- ✅ **Stop Loss Manager** (Story 041)
-  - 止损订单管理
-  - 追踪止损
-  - 自动止损执行
-  - 订单执行回调
-
-- ✅ **Money Management** (Story 042)
-  - 仓位大小计算
-  - 资金分配策略
-  - 最大回撤控制
-  - 风险预算管理
-
-- ✅ **Risk Metrics** (Story 043)
-  - VaR (风险价值)
-  - 实时 Sharpe/Sortino
-  - 回撤监控
-  - 波动率计算
-
-- ✅ **Alert System** (Story 044)
-  - 多级别警报
-  - 警报通道 (控制台)
-  - 警报历史记录
-  - 警报过滤
-
-- ✅ **Crash Recovery** (Story 045)
-  - RecoveryManager 恢复管理器
-  - 状态快照/恢复
-  - 交易所同步功能
-  - 优雅降级
-
-#### 代码统计
-| 文件 | 行数 | 描述 |
-|------|------|------|
-| `src/risk/risk_engine.zig` | ~750 | 风险引擎核心 |
-| `src/risk/stop_loss.zig` | ~840 | 止损管理 |
-| `src/risk/money_manager.zig` | ~780 | 资金管理 |
-| `src/risk/metrics.zig` | ~770 | 风险指标 |
-| `src/risk/alert.zig` | ~750 | 警报系统 |
-| **总计** | **~3890** | **v0.8.0 新增代码** |
-
----
-
-## 🚀 当前任务: v1.0.0 规划
-
-### 📋 v1.0.0 目标概览
-
-**主题**: 生产就绪
-**核心目标**: REST API、Web Dashboard、多策略组合
-
----
-
-## 🎯 v1.0.0 Stories 规划
-
-### P0 - 必须完成
-
-#### Story 046: REST API 服务
-**预计时间**: 4-5 天
-**价值**: 极高 - 外部系统集成基础
-
-**功能清单**:
-- [ ] HTTP Server 实现
-- [ ] RESTful API 设计
-- [ ] 认证/授权
-- [ ] API 文档 (OpenAPI)
-
-#### Story 047: Web Dashboard
+#### 1. Web Dashboard (Story 047)
 **预计时间**: 5-7 天
-**价值**: 极高 - 可视化监控
+**技术栈**: Bun + React + TailwindCSS
 
 **功能清单**:
 - [ ] 实时仓位/盈亏展示
 - [ ] 策略性能图表
-- [ ] 订单/交易历史
+- [ ] 策略启动/停止控制
 - [ ] 风险指标面板
+- [ ] WebSocket 实时更新
 
-### P1 - 高优先级
+#### 2. 完成引擎架构统一 (Step 2 & 3)
+**预计时间**: 2-3 天
 
-#### Story 048: 多策略组合
+**功能清单**:
+- [ ] Live Runner 迁移
+- [ ] Paper Trading 清理
+- [ ] 统一的运行器接口
+
+### 优先级 P1 (高优先级)
+
+#### 3. 多策略组合 (Story 048)
 **预计时间**: 3-4 天
-**价值**: 高 - 组合策略管理
 
 **功能清单**:
 - [ ] Portfolio 管理器
@@ -284,21 +144,18 @@
 - [ ] 风险预算分配
 - [ ] 组合绩效分析
 
-#### Story 049: 分布式回测
-**预计时间**: 4-5 天
-**价值**: 高 - 大规模回测
+#### 4. API 文档 (OpenAPI/Swagger)
+**预计时间**: 1-2 天
 
 **功能清单**:
-- [ ] 任务分片
-- [ ] Worker 节点
-- [ ] 结果聚合
-- [ ] 进度监控
+- [ ] OpenAPI 3.0 规范
+- [ ] Swagger UI 集成
+- [ ] API 使用示例
 
-### P2 - 中优先级
+### 优先级 P2 (中优先级)
 
-#### Story 050: Binance 适配器
+#### 5. Binance 适配器 (Story 050)
 **预计时间**: 3-4 天
-**价值**: 中 - 多交易所支持
 
 **功能清单**:
 - [ ] Binance HTTP API
@@ -306,19 +163,14 @@
 - [ ] 订单管理
 - [ ] 账户同步
 
----
+#### 6. 分布式回测 (Story 049)
+**预计时间**: 4-5 天
 
-## 📅 v1.0.0 开发时间线
-
-| Story | 名称 | 优先级 | 预计时间 | 状态 |
-|-------|------|--------|---------|------|
-| 046 | REST API 服务 | P0 | 4-5 天 | 🔜 下一步 |
-| 047 | Web Dashboard | P0 | 5-7 天 | ⏳ 待开始 |
-| 048 | 多策略组合 | P1 | 3-4 天 | ⏳ 待开始 |
-| 049 | 分布式回测 | P1 | 4-5 天 | ⏳ 待开始 |
-| 050 | Binance 适配器 | P2 | 3-4 天 | ⏳ 待开始 |
-
-**v1.0.0 总预计时间**: 4-5 周
+**功能清单**:
+- [ ] 任务分片
+- [ ] Worker 节点
+- [ ] 结果聚合
+- [ ] 进度监控
 
 ---
 
@@ -332,12 +184,13 @@
 - ✅ 混合计算模式（v0.6.0）
 - ✅ 做市优化（v0.7.0）
 - ✅ 风险管理（v0.8.0）
+- ✅ Web API + 统一策略架构（v0.9.0）
 - ✅ 14 个技术指标
-- ✅ 5+ 个内置策略
+- ✅ 6+ 个内置策略
 - ✅ 25 个示例程序
-- ✅ 558+ 个单元测试
+- ✅ 768+ 个单元测试
 - ✅ 零内存泄漏
-- ✅ ~39,000 行代码
+- ✅ ~45,000 行代码
 
 ### 核心模块
 ```
@@ -346,44 +199,93 @@ src/
 ├── exchange/       交易所适配 (Hyperliquid HTTP/WebSocket)
 ├── market/         市场数据 (OrderBook, Candles, Indicators)
 ├── trading/        交易引擎 (OrderManager, PositionTracker, LiveEngine)
-├── strategy/       策略框架 (IStrategy, 5+ 内置策略)
+├── strategy/       策略框架 (IStrategy, 6+ 内置策略含 GridStrategy)
 ├── backtest/       回测引擎 (向量化回测, 队列建模, 延迟模拟)
 ├── market_making/  做市模块 (Clock-Driven, 库存管理, 套利)
 ├── storage/        数据持久化 (DataStore, CandleCache)
 ├── risk/           风险管理 (RiskEngine, StopLoss, Alert)
+├── engine/         引擎管理 (EngineManager, StrategyRunner, BacktestRunner)
+├── api/            API 层 (REST Server, WebSocket Server)
 ├── adapters/       适配器层 (HyperliquidDataProvider/ExecutionClient)
 └── cli/            命令行界面 (backtest, optimize, run-strategy)
 ```
 
-### 待实现功能
-- ⏳ REST API + Web Dashboard (v1.0.0)
-- ⏳ 多策略组合 (v1.0.0)
-- ⏳ Binance/OKX 适配器 (v1.0.0+)
+### API 端点一览
+```
+Authentication:
+  POST /api/v2/auth/login     # JWT 登录
+  GET  /api/v2/auth/me        # 当前用户
+  POST /api/v2/auth/refresh   # 刷新 Token
+
+Strategy (统一 - 支持所有策略类型含 Grid):
+  GET  /api/v2/strategy       # 列出所有策略
+  POST /api/v2/strategy       # 启动策略
+  GET  /api/v2/strategy/:id   # 策略详情
+  DELETE /api/v2/strategy/:id # 停止策略
+  POST /api/v2/strategy/:id/pause   # 暂停
+  POST /api/v2/strategy/:id/resume  # 恢复
+
+Backtest:
+  POST /api/v2/backtest/run           # 运行回测
+  GET  /api/v2/backtest/:id/progress  # 进度
+  GET  /api/v2/backtest/:id/result    # 结果
+  POST /api/v2/backtest/:id/cancel    # 取消
+
+System:
+  POST /api/v2/system/kill-switch  # 紧急停止
+  GET  /api/v2/system/health       # 健康检查
+  GET  /api/v2/system/logs         # 日志
+
+WebSocket:
+  ws://localhost:8080/ws  # 实时通信
+```
+
+### Grid 策略启动示例
+```json
+POST /api/v2/strategy
+{
+  "strategy": "grid",
+  "symbol": "BTC-USDT",
+  "mode": "paper",
+  "upper_price": 100000,
+  "lower_price": 90000,
+  "grid_count": 10,
+  "order_size": 0.001,
+  "take_profit_pct": 0.5
+}
+```
 
 ---
 
 ## 📈 成功指标
 
-### v0.8.0 完成标准 ✅
-- [x] RiskEngine 实现 ✅
-- [x] Stop Loss Manager ✅
-- [x] Money Management ✅
-- [x] Risk Metrics ✅
-- [x] Alert System ✅
-- [x] Crash Recovery ✅
-- [x] 完整文档 ✅
+### v0.9.0 完成标准 ✅
+- [x] REST API 服务 ✅
+- [x] WebSocket 实时通信 ✅
+- [x] 策略 API ✅
+- [x] 统一策略架构 (Grid 整合) ✅
+- [x] 768+ 单元测试通过 ✅
 - [x] 零内存泄漏 ✅
 
 ### v1.0.0 完成标准
-- [ ] REST API 服务
 - [ ] Web Dashboard
-- [ ] 多策略组合
+- [ ] 引擎架构统一完成 (Step 2 & 3)
+- [ ] API 文档
 - [ ] 生产环境部署文档
 - [ ] 性能优化
 
 ---
 
-**更新时间**: 2025-12-28
-**当前版本**: v0.8.0 ✅
+## 📅 推荐执行顺序
+
+1. **立即可做**: Web Dashboard (Bun + React) - 用户可视化需求最高
+2. **同时可做**: 引擎架构统一 Step 2 & 3 - 代码清理
+3. **之后**: 多策略组合 + API 文档
+4. **最后**: Binance 适配器 + 分布式回测
+
+---
+
+**更新时间**: 2025-12-29
+**当前版本**: v0.9.0 ✅
 **下一个版本**: v1.0.0 (生产就绪)
 **作者**: Claude
