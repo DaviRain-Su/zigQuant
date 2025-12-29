@@ -168,7 +168,8 @@ pub const HyperliquidDataProvider = struct {
 
         self.logger.info("Disconnecting from Hyperliquid...", .{}) catch {};
 
-        self.ws_client.disconnect();
+        // Use disconnectNoReconnect to prevent reconnection attempts
+        self.ws_client.disconnectNoReconnect();
         self.is_connected = false;
 
         // 入队断开连接消息
@@ -303,8 +304,12 @@ pub const HyperliquidDataProvider = struct {
         for (data.mids) |mid| {
             // AllMids 只有 mid price，没有 bid/ask
             // 我们用 mid 作为 bid 和 ask 的近似值
+
+            // Copy the symbol string since the original points to JSON parser buffer
+            const symbol_copy = self.allocator.dupe(u8, mid.coin) catch continue;
+
             const quote_msg = QuoteMessage{
-                .symbol = mid.coin,
+                .symbol = symbol_copy,
                 .bid = mid.mid,
                 .ask = mid.mid,
                 .bid_size = Decimal.ZERO,
@@ -318,10 +323,17 @@ pub const HyperliquidDataProvider = struct {
 
     /// 处理 L2Book 消息 (转换为 Orderbook)
     fn processL2Book(self: *Self, data: L2BookData) void {
+        // Copy the symbol string since the original points to JSON parser buffer
+        const symbol_copy = self.allocator.dupe(u8, data.coin) catch return;
+
         // 转换 Hyperliquid Level 到标准 Level
-        const bids = self.allocator.alloc(Level, data.levels.bids.len) catch return;
+        const bids = self.allocator.alloc(Level, data.levels.bids.len) catch {
+            self.allocator.free(symbol_copy);
+            return;
+        };
         const asks = self.allocator.alloc(Level, data.levels.asks.len) catch {
             self.allocator.free(bids);
+            self.allocator.free(symbol_copy);
             return;
         };
 
@@ -342,7 +354,7 @@ pub const HyperliquidDataProvider = struct {
         }
 
         const orderbook_msg = OrderbookMessage{
-            .symbol = data.coin,
+            .symbol = symbol_copy,
             .bids = bids,
             .asks = asks,
             .is_snapshot = true,
@@ -354,14 +366,25 @@ pub const HyperliquidDataProvider = struct {
 
     /// 处理 Trades 消息 (转换为 Trade)
     fn processTrades(self: *Self, data: TradesData) void {
-        for (data.trades) |trade| {
+        // Copy the symbol string once for all trades
+        const symbol_copy = self.allocator.dupe(u8, data.coin) catch return;
+        defer if (data.trades.len == 0) self.allocator.free(symbol_copy);
+
+        for (data.trades, 0..) |trade, i| {
             const side: TradeMessage.Side = if (std.mem.eql(u8, trade.side, "B"))
                 .buy
             else
                 .sell;
 
+            // For the last trade, use the symbol_copy directly
+            // For earlier trades, make additional copies
+            const symbol = if (i == data.trades.len - 1)
+                symbol_copy
+            else
+                self.allocator.dupe(u8, data.coin) catch continue;
+
             const trade_msg = TradeMessage{
-                .symbol = data.coin,
+                .symbol = symbol,
                 .price = trade.px,
                 .size = trade.sz,
                 .side = side,
@@ -374,9 +397,12 @@ pub const HyperliquidDataProvider = struct {
 
     /// 处理错误消息
     fn processError(self: *Self, data: ws_types.ErrorMessage) void {
+        // Copy the message string since the original points to JSON parser buffer
+        const msg_copy = self.allocator.dupe(u8, data.msg) catch return;
+
         const error_msg = ErrorMessage{
             .code = @as(u32, @intCast(@max(0, data.code))),
-            .message = data.msg,
+            .message = msg_copy,
         };
 
         self.enqueueMessage(.{ .err = error_msg });

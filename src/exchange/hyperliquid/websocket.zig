@@ -23,19 +23,24 @@ const ReadHandler = struct {
     ws: *HyperliquidWS,
 
     pub fn serverMessage(handler: *@This(), data: []u8) !void {
+        // Skip if disconnecting
+        if (!handler.ws.connected.load(.acquire)) return;
+
         handler.ws.handleMessage(data) catch {
-            handler.ws.logger.err("Error handling WebSocket message", .{}) catch {};
+            // Only log errors if still connected
+            if (handler.ws.connected.load(.acquire)) {
+                handler.ws.logger.err("Error handling WebSocket message", .{}) catch {};
+            }
         };
     }
 
     pub fn close(handler: *@This()) void {
         // Only log and reconnect if we should reconnect
-        if (handler.ws.should_reconnect.load(.acquire)) {
+        if (handler.ws.should_reconnect.load(.acquire) and handler.ws.connected.load(.acquire)) {
             handler.ws.logger.warn("Server closed connection", .{}) catch {};
             handler.ws.handleConnectionError();
-        } else {
-            handler.ws.logger.debug("Server closed connection during shutdown", .{}) catch {};
         }
+        // Silent during shutdown
     }
 
     pub fn serverPing(handler: *@This(), data: []u8) !void {
@@ -47,12 +52,11 @@ const ReadHandler = struct {
     pub fn serverClose(handler: *@This(), data: []u8) !void {
         _ = data;
         // Only log and reconnect if we should reconnect
-        if (handler.ws.should_reconnect.load(.acquire)) {
+        if (handler.ws.should_reconnect.load(.acquire) and handler.ws.connected.load(.acquire)) {
             handler.ws.logger.info("Received close frame", .{}) catch {};
             handler.ws.handleConnectionError();
-        } else {
-            handler.ws.logger.debug("Received close frame during shutdown", .{}) catch {};
         }
+        // Silent during shutdown
     }
 };
 
@@ -132,8 +136,7 @@ pub const HyperliquidWS = struct {
     }
 
     pub fn deinit(self: *HyperliquidWS) void {
-        self.should_reconnect.store(false, .release);
-        self.disconnect();
+        self.disconnectNoReconnect();
         self.subscription_manager.deinit();
     }
 
@@ -194,14 +197,34 @@ pub const HyperliquidWS = struct {
     }
 
     /// Disconnect from WebSocket
+    /// Note: This may trigger reconnection if should_reconnect is true.
+    /// Use disconnectNoReconnect() to disconnect without triggering reconnection.
     pub fn disconnect(self: *HyperliquidWS) void {
+        self.disconnectInternal();
+    }
+
+    /// Disconnect from WebSocket and prevent reconnection
+    pub fn disconnectNoReconnect(self: *HyperliquidWS) void {
+        self.should_reconnect.store(false, .release);
+        self.disconnectInternal();
+    }
+
+    /// Internal disconnect implementation
+    fn disconnectInternal(self: *HyperliquidWS) void {
         if (self.client) |*client| {
+            // Signal threads to stop
             self.connected.store(false, .release);
 
             // Give threads time to notice disconnect and exit
-            std.Thread.sleep(500 * std.time.ns_per_ms);
+            // Ping thread checks every ping_interval_ms, read thread should exit when connection closes
+            std.Thread.sleep(100 * std.time.ns_per_ms);
 
+            // Close the connection (this should cause read thread to exit)
             client.close(.{}) catch {};
+
+            // Wait a bit more for threads to clean up
+            std.Thread.sleep(200 * std.time.ns_per_ms);
+
             client.deinit();
             self.client = null;
 
@@ -211,7 +234,10 @@ pub const HyperliquidWS = struct {
                 self.thread_arena = null;
             }
 
-            self.logger.info("WebSocket disconnected", .{}) catch {};
+            // Only log if we're still supposed to (not during shutdown)
+            if (self.should_reconnect.load(.acquire)) {
+                self.logger.info("WebSocket disconnected", .{}) catch {};
+            }
         }
     }
 
@@ -302,7 +328,8 @@ pub const HyperliquidWS = struct {
 
     /// Handle incoming message
     fn handleMessage(self: *HyperliquidWS, data: []u8) !void {
-        self.logger.debug("Received WebSocket message", .{}) catch {};
+        // Skip processing if we're disconnecting
+        if (!self.connected.load(.acquire)) return;
 
         // Parse message
         const msg = try self.message_handler.parse(data);
@@ -316,24 +343,41 @@ pub const HyperliquidWS = struct {
 
     /// Handle connection error and attempt reconnect
     fn handleConnectionError(self: *HyperliquidWS) void {
-        if (!self.should_reconnect.load(.acquire)) return;
+        // Double-check we should reconnect (may have been set to false during shutdown)
+        if (!self.should_reconnect.load(.acquire)) {
+            self.logger.debug("Skipping reconnect - should_reconnect is false", .{}) catch {};
+            return;
+        }
+
+        // Mark as disconnected first
+        self.connected.store(false, .release);
 
         self.logger.warn("Connection lost, attempting to reconnect...", .{}) catch {};
 
         var attempts: u32 = 0;
         while (attempts < self.config.max_reconnect_attempts) : (attempts += 1) {
-            if (!self.should_reconnect.load(.acquire)) break;
+            // Check again before each attempt
+            if (!self.should_reconnect.load(.acquire)) {
+                self.logger.debug("Reconnect cancelled - should_reconnect is false", .{}) catch {};
+                break;
+            }
 
             std.Thread.sleep(self.config.reconnect_interval_ms * std.time.ns_per_ms);
 
+            // Check again after sleep
+            if (!self.should_reconnect.load(.acquire)) {
+                self.logger.debug("Reconnect cancelled after sleep - should_reconnect is false", .{}) catch {};
+                break;
+            }
+
             self.connect() catch {
-                self.logger.warn("Reconnect attempt failed", .{}) catch {};
+                self.logger.warn("Reconnect attempt {} failed", .{attempts + 1}) catch {};
                 continue;
             };
 
             // Resubscribe to all channels
-            self.resubscribeAll() catch {
-                self.logger.err("Failed to resubscribe", .{}) catch {};
+            self.resubscribeAll() catch |err| {
+                self.logger.err("Failed to resubscribe: {}", .{err}) catch {};
                 self.disconnect();
                 continue;
             };
@@ -347,7 +391,12 @@ pub const HyperliquidWS = struct {
 
     /// Resubscribe to all channels
     fn resubscribeAll(self: *HyperliquidWS) !void {
-        const subs = self.subscription_manager.getAll();
+        // Get a copy of subscriptions to avoid holding mutex during send
+        const subs = self.subscription_manager.getAllCopy(self.allocator) catch |err| {
+            self.logger.err("Failed to get subscriptions copy: {}", .{err}) catch {};
+            return err;
+        };
+        defer if (subs.len > 0) self.allocator.free(subs);
 
         for (subs) |sub| {
             const json = try sub.toJSON(self.allocator);

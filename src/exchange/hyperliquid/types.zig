@@ -172,6 +172,36 @@ pub const OpenOrder = struct {
 pub const OpenOrdersResponse = []OpenOrder;
 
 // ============================================================================
+// Candle (Kline) Types
+// ============================================================================
+
+/// Candle snapshot request parameters
+pub const CandleSnapshotReq = struct {
+    coin: []const u8, // Asset symbol (e.g., "BTC")
+    interval: []const u8, // "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M"
+    startTime: u64, // Epoch milliseconds
+    endTime: u64, // Epoch milliseconds
+};
+
+/// Single candle data from API response
+/// Response format: {"T": 1681924499999, "c": "29258.0", "h": "29309.0", "i": "15m", "l": "29250.0", "n": 189, "o": "29295.0", "s": "BTC", "t": 1681923600000, "v": "0.98639"}
+pub const CandleData = struct {
+    T: u64, // Close time (epoch ms)
+    c: []const u8, // Close price
+    h: []const u8, // High price
+    i: []const u8, // Interval
+    l: []const u8, // Low price
+    n: u64, // Number of trades
+    o: []const u8, // Open price
+    s: []const u8, // Symbol
+    t: u64, // Open time (epoch ms)
+    v: []const u8, // Volume
+};
+
+/// Candle snapshot response (array of candles)
+pub const CandleSnapshotResponse = []CandleData;
+
+// ============================================================================
 // Exchange API Request Types
 // ============================================================================
 

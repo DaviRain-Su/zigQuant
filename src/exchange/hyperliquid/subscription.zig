@@ -67,7 +67,23 @@ pub const SubscriptionManager = struct {
         self.subscriptions.clearRetainingCapacity();
     }
 
-    /// Get all subscriptions (caller must not modify the returned slice)
+    /// Get all subscriptions (returns a copy that caller owns)
+    /// Caller must free the returned slice when done
+    pub fn getAllCopy(self: *SubscriptionManager, allocator: std.mem.Allocator) ![]Subscription {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.subscriptions.items.len == 0) {
+            return &[_]Subscription{};
+        }
+
+        const copy = try allocator.alloc(Subscription, self.subscriptions.items.len);
+        @memcpy(copy, self.subscriptions.items);
+        return copy;
+    }
+
+    /// Get all subscriptions (unsafe - caller must hold lock or ensure no concurrent access)
+    /// Prefer getAllCopy() for thread-safe access
     pub fn getAll(self: *SubscriptionManager) []const Subscription {
         self.mutex.lock();
         defer self.mutex.unlock();

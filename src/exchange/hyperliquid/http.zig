@@ -100,15 +100,17 @@ pub const HttpClient = struct {
             .keep_alive = true,
         }) catch return NetworkError.ConnectionFailed;
 
+        // Get response body first (needed for error diagnostics)
+        const written = body_writer.written();
+
         // Check status code
         const status = @intFromEnum(result.status);
         if (status < 200 or status >= 300) {
-            self.logger.err("HTTP error: {d}", .{status}) catch {};
+            self.logger.err("HTTP error: {d}, response: {s}", .{ status, written }) catch {};
             return NetworkError.HttpError;
         }
 
         // Copy response to persistent memory
-        const written = body_writer.written();
         const response_body = try self.allocator.alloc(u8, written.len);
         @memcpy(response_body, written);
 

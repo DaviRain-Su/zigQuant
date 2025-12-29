@@ -180,10 +180,49 @@ pub const HistoricalDataFeed = struct {
             return try self.loadFromCSV(file_path, pair, timeframe);
         }
 
-        // Otherwise, construct expected filename based on convention
-        // For now, this is a stub that expects data to be pre-loaded in CSV files
-        // In a production system, this would query a database or API
+        // Try to find a matching data file using common naming conventions
+        // Priority: 1) Full range file 2) Year-based file 3) Generic file
+        var symbol_buf: [32]u8 = undefined;
+        const symbol = std.fmt.bufPrint(&symbol_buf, "{s}{s}", .{ pair.base, pair.quote }) catch "BTCUSDT";
+
+        // Map timeframe enum to string format used in filenames
+        const tf_str = timeframe.toString();
+
         var filename_buf: [256]u8 = undefined;
+
+        // Try pattern 1: Full historical data files (e.g., BTCUSDT_1h_2017_2025.csv)
+        if (std.fmt.bufPrint(&filename_buf, "data/{s}_{s}_2017_2025.csv", .{ symbol, tf_str })) |filename| {
+            if (std.fs.cwd().access(filename, .{})) |_| {
+                self.logger.info("Found data file: {s}", .{filename}) catch {};
+                return try self.loadFromCSV(filename, pair, timeframe);
+            } else |_| {}
+        } else |_| {}
+
+        // Try pattern 2: Year-specific files (e.g., BTCUSDT_1h_2024.csv)
+        if (std.fmt.bufPrint(&filename_buf, "data/{s}_{s}_2024.csv", .{ symbol, tf_str })) |filename| {
+            if (std.fs.cwd().access(filename, .{})) |_| {
+                self.logger.info("Found data file: {s}", .{filename}) catch {};
+                return try self.loadFromCSV(filename, pair, timeframe);
+            } else |_| {}
+        } else |_| {}
+
+        // Try pattern 3: Multi-year files (e.g., BTCUSDT_1h_2020_2024.csv)
+        if (std.fmt.bufPrint(&filename_buf, "data/{s}_{s}_2020_2024.csv", .{ symbol, tf_str })) |filename| {
+            if (std.fs.cwd().access(filename, .{})) |_| {
+                self.logger.info("Found data file: {s}", .{filename}) catch {};
+                return try self.loadFromCSV(filename, pair, timeframe);
+            } else |_| {}
+        } else |_| {}
+
+        // Try pattern 4: Generic file (e.g., BTCUSDT_1h.csv)
+        if (std.fmt.bufPrint(&filename_buf, "data/{s}_{s}.csv", .{ symbol, tf_str })) |filename| {
+            if (std.fs.cwd().access(filename, .{})) |_| {
+                self.logger.info("Found data file: {s}", .{filename}) catch {};
+                return try self.loadFromCSV(filename, pair, timeframe);
+            } else |_| {}
+        } else |_| {}
+
+        // If no pattern matched, fall back to original convention
         const filename = try std.fmt.bufPrint(
             &filename_buf,
             "data/{s}{s}_{s}_{d}_{d}.csv",
@@ -196,6 +235,7 @@ pub const HistoricalDataFeed = struct {
             },
         );
 
+        self.logger.err("No data file found. Tried multiple patterns. Last attempt: {s}", .{filename}) catch {};
         return try self.loadFromCSV(filename, pair, timeframe);
     }
 };

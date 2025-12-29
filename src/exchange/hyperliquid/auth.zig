@@ -271,6 +271,70 @@ pub const Signer = struct {
             .v = @truncate(sig.v), // Convert u64 to u8
         };
     }
+
+    /// Sign a JSON action for Hyperliquid API (for updateLeverage, etc.)
+    /// These actions use a different signing flow than order/cancel
+    ///
+    /// @param action_json: JSON action string (e.g., {"type":"updateLeverage",...})
+    /// @param nonce: Timestamp nonce (must match the request body nonce!)
+    /// @return Signature components (r, s, v)
+    pub fn signActionJson(
+        self: *Signer,
+        action_json: []const u8,
+        nonce: u64,
+    ) !Signature {
+        // For JSON actions like updateLeverage, we hash the action JSON directly
+        // and use it as the "source" in phantom agent construction
+
+        // Hash the action JSON to create connection ID
+        const action_hash = keccak256(action_json);
+
+        // Construct phantom agent with hashed action
+        const agent = try constructPhantomAgent(
+            self.allocator,
+            action_json, // Use the JSON directly
+            nonce,
+            self.is_testnet,
+        );
+
+        // Encode Agent type for EIP-712
+        const agent_hash = try encodeAgentType(self.allocator, agent);
+
+        // Compute domain separator hash
+        const domain_hash = try encodeDomainSeparator(
+            self.allocator,
+            HYPERLIQUID_EXCHANGE_DOMAIN,
+        );
+
+        // Construct EIP-712 digest
+        var digest_data: [66]u8 = undefined;
+        digest_data[0] = 0x19;
+        digest_data[1] = 0x01;
+        @memcpy(digest_data[2..34], &domain_hash);
+        @memcpy(digest_data[34..66], &agent_hash);
+
+        const digest = keccak256(&digest_data);
+        _ = action_hash; // Suppress unused warning
+
+        // Sign the digest
+        const Hash = zigeth.primitives.Hash;
+        const hash = Hash.fromBytes(digest);
+        const sig = try self.wallet.signer.signHash(hash);
+
+        // Convert signature components to hex strings with 0x prefix
+        const r_hex = try std.fmt.allocPrint(self.allocator, "0x{s}", .{
+            std.fmt.bytesToHex(&sig.r, .lower),
+        });
+        const s_hex = try std.fmt.allocPrint(self.allocator, "0x{s}", .{
+            std.fmt.bytesToHex(&sig.s, .lower),
+        });
+
+        return Signature{
+            .r = r_hex,
+            .s = s_hex,
+            .v = @truncate(sig.v),
+        };
+    }
 };
 
 /// ECDSA signature components

@@ -151,8 +151,9 @@ pub const LiveTradingEngine = struct {
     // 初始化和清理
     // ========================================================================
 
-    /// 初始化 LiveTradingEngine
-    /// 注意: 初始化后需要调用 initComponents() 来设置组件间的指针
+    /// 初始化 LiveTradingEngine (返回值版本)
+    /// 警告: 由于内部组件有指向兄弟字段的指针，返回的结构体不能被移动。
+    /// 推荐使用 initInPlace 或 create 函数代替。
     pub fn init(allocator: Allocator, config: LiveConfig) LiveTradingEngine {
         var self: LiveTradingEngine = .{
             .allocator = allocator,
@@ -178,6 +179,49 @@ pub const LiveTradingEngine = struct {
         self.execution_engine = ExecutionEngine.init(allocator, &self.bus, &self.cache, config.risk);
 
         return self;
+    }
+
+    /// 在已分配的内存位置就地初始化 LiveTradingEngine
+    /// 这确保了内部组件的指针（如 data_engine.bus）指向正确的位置
+    pub fn initInPlace(self: *LiveTradingEngine, allocator: Allocator, config: LiveConfig) void {
+        self.* = .{
+            .allocator = allocator,
+            .bus = MessageBus.init(allocator),
+            .cache = undefined,
+            .data_engine = undefined,
+            .execution_engine = undefined,
+            .config = config,
+            .state = .stopped,
+            .connection_state = .disconnected,
+            .stats = .{},
+            .on_tick = null,
+            .on_connected = null,
+            .on_disconnected = null,
+            .tick_count = 0,
+            .last_heartbeat = null,
+            .reconnect_attempts = 0,
+        };
+
+        // 现在 self 在最终位置，内部指针是正确的
+        self.cache = Cache.init(allocator, null, config.cache);
+        self.data_engine = DataEngine.init(allocator, &self.bus, &self.cache, config.data);
+        self.execution_engine = ExecutionEngine.init(allocator, &self.bus, &self.cache, config.risk);
+    }
+
+    /// 在堆上创建并初始化 LiveTradingEngine
+    /// 返回的指针拥有引擎，调用者负责调用 destroy() 释放
+    pub fn create(allocator: Allocator, config: LiveConfig) !*LiveTradingEngine {
+        const self = try allocator.create(LiveTradingEngine);
+        errdefer allocator.destroy(self);
+        self.initInPlace(allocator, config);
+        return self;
+    }
+
+    /// 释放堆上创建的 LiveTradingEngine
+    pub fn destroy(self: *LiveTradingEngine) void {
+        const allocator = self.allocator;
+        self.deinit();
+        allocator.destroy(self);
     }
 
     /// 释放资源
@@ -234,16 +278,15 @@ pub const LiveTradingEngine = struct {
         self.state = .starting;
         self.stats.start_time = Timestamp.now();
 
-        // 启动 DataEngine
+        // 启动 DataEngine (non-fatal if no provider - runs in simulation mode)
         self.data_engine.start() catch |err| {
-            self.state = .failed;
-            return err;
+            // Log warning but continue in simulation mode
+            std.log.warn("LiveTradingEngine: DataEngine start failed: {} (running in simulation mode)", .{err});
         };
 
-        // 启动 ExecutionEngine
+        // 启动 ExecutionEngine (non-fatal if no client)
         self.execution_engine.start() catch |err| {
-            self.state = .failed;
-            return err;
+            std.log.warn("LiveTradingEngine: ExecutionEngine start failed: {} (running in simulation mode)", .{err});
         };
 
         self.state = .running;

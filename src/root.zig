@@ -528,6 +528,13 @@ pub const FileWriter = logger.FileWriter;
 pub const JSONWriter = logger.JSONWriter;
 pub const StdLogWriter = logger.StdLogWriter;
 
+// Re-export log buffer types (for API log viewing)
+pub const log_buffer = @import("core/log_buffer.zig");
+pub const LogBuffer = log_buffer.LogBuffer;
+pub const LogEntry = log_buffer.LogEntry;
+pub const BufferWriter = log_buffer.BufferWriter;
+pub const MultiWriter = log_buffer.MultiWriter;
+
 // Re-export config types
 pub const Config = config;
 pub const AppConfig = config.AppConfig;

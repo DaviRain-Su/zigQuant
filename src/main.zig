@@ -160,6 +160,7 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     // Parse serve command arguments
     var port: u16 = 8080;
     var show_help = false;
+    var config_path: []const u8 = "config.json";
 
     var i: usize = 1; // Skip "serve" command
     while (i < args.len) : (i += 1) {
@@ -172,6 +173,11 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
                     return error.InvalidArgument;
                 };
             }
+        } else if (std.mem.eql(u8, arg, "--config") or std.mem.eql(u8, arg, "-c")) {
+            i += 1;
+            if (i < args.len) {
+                config_path = args[i];
+            }
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             show_help = true;
         }
@@ -180,6 +186,34 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     if (show_help) {
         try printServeHelp();
         return;
+    }
+
+    // Load application config from file
+    const app_config = zigQuant.ConfigLoader.load(allocator, config_path, zigQuant.AppConfig) catch |err| blk: {
+        std.log.warn("Failed to load config from {s}: {}, using defaults", .{ config_path, err });
+        break :blk null;
+    };
+    defer if (app_config) |cfg| cfg.deinit();
+
+    // Extract Hyperliquid config if available
+    var exchange_wallet: ?[]const u8 = null;
+    var exchange_secret: ?[]const u8 = null;
+    var exchange_testnet: bool = true;
+
+    if (app_config) |cfg| {
+        if (cfg.value.getExchange("hyperliquid")) |hl_config| {
+            exchange_wallet = hl_config.api_key;
+            exchange_secret = hl_config.api_secret;
+            exchange_testnet = hl_config.testnet;
+            std.log.info("Loaded Hyperliquid config: wallet={s}..., testnet={}", .{
+                if (exchange_wallet.?.len > 10) exchange_wallet.?[0..10] else exchange_wallet.?,
+                exchange_testnet,
+            });
+        }
+        // Override port from config if not specified on command line
+        if (port == 8080 and cfg.value.server.port != 8080) {
+            port = cfg.value.server.port;
+        }
     }
 
     // Get JWT secret from environment or use development default
@@ -199,6 +233,18 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     // Create dependencies
     var deps = zigQuant.ZapServerDependencies.init(allocator);
 
+    // Store exchange config in dependencies for live trading
+    deps.exchange_wallet = exchange_wallet;
+    deps.exchange_secret = exchange_secret;
+    deps.exchange_testnet = exchange_testnet;
+
+    // Initialize global log buffer for web UI log viewer
+    const log_buffer: ?*zigQuant.LogBuffer = zigQuant.log_buffer.initGlobalBuffer(allocator, 1000) catch |err| blk: {
+        std.log.warn("Failed to initialize log buffer: {}, log viewer will be unavailable", .{err});
+        break :blk null;
+    };
+    defer if (log_buffer != null) zigQuant.log_buffer.deinitGlobalBuffer();
+
     // Initialize engine manager for grid trading
     var engine_manager = zigQuant.EngineManager.init(allocator);
     defer engine_manager.deinit();
@@ -206,12 +252,38 @@ fn runServeCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
 
     std.log.info("Starting zigQuant API Server...", .{});
     std.log.info("Engine manager initialized for grid trading", .{});
+    if (log_buffer != null) {
+        std.log.info("Log buffer initialized with 1000 entry capacity", .{});
+    }
+    if (exchange_wallet != null) {
+        std.log.info("Hyperliquid exchange configured (testnet={})", .{exchange_testnet});
+    }
 
     // Initialize and start the server
     const server = try zigQuant.ZapServer.init(allocator, zap_config, &deps);
     defer server.deinit();
 
     try server.start();
+
+    // When server.start() returns (after Ctrl+C), begin graceful shutdown
+    std.log.info("", .{});
+    std.log.info("Received shutdown signal, cleaning up...", .{});
+
+    // Stop all live trading sessions first
+    std.log.info("Stopping all live trading sessions...", .{});
+    const live_stopped = engine_manager.stopAllLive();
+    if (live_stopped > 0) {
+        std.log.info("Stopped {d} live trading session(s)", .{live_stopped});
+    }
+
+    // Stop all strategy runners
+    std.log.info("Stopping all strategies...", .{});
+    const strategies_stopped = engine_manager.stopAllStrategies();
+    if (strategies_stopped > 0) {
+        std.log.info("Stopped {d} strategy session(s)", .{strategies_stopped});
+    }
+
+    std.log.info("Shutdown complete. Goodbye!", .{});
 }
 
 fn printServeHelp() !void {

@@ -221,6 +221,15 @@ pub const EngineManager = struct {
         return runner.getResultSummary();
     }
 
+    /// Get detailed backtest result with trades and equity curve
+    pub fn getBacktestDetailedResult(self: *Self, id: []const u8) !?*const @import("../backtest/types.zig").BacktestResult {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const runner = self.backtest_runners.get(id) orelse return error.BacktestNotFound;
+        return runner.result;
+    }
+
     /// Remove a completed backtest
     pub fn removeBacktest(self: *Self, id: []const u8) !void {
         self.mutex.lock();
@@ -596,22 +605,89 @@ pub const EngineManager = struct {
         while (live_it.next()) |entry| {
             const runner = entry.value_ptr.*;
             const stats = runner.getStats();
+            const conn_state = runner.getConnectionState();
+
+            // Get connection status string
+            const conn_status: []const u8 = switch (conn_state) {
+                .disconnected => "disconnected",
+                .connecting => "connecting",
+                .connected => "connected",
+                .reconnecting => "reconnecting",
+            };
+
+            // Get balance (uses cached real balance or falls back to initial)
+            const balance_info = runner.getBalance();
 
             try list.append(allocator, .{
                 .id = entry.key_ptr.*,
                 .name = runner.request.name,
                 .exchange = runner.request.exchange,
                 .status = runner.status.toString(),
+                .connection_status = conn_status,
                 .testnet = runner.request.testnet,
+                .symbols = runner.subscribed_symbols.items,
+                // Strategy info (NEW)
+                .strategy = runner.request.strategy orelse "none",
+                .timeframe = runner.request.timeframe,
+                .leverage = runner.request.leverage,
+                .current_position = runner.current_position,
+                .entry_price = runner.entry_price.toFloat(),
+                // Account balance (uses real balance from exchange)
+                .account_balance = balance_info.total,
+                .available_balance = balance_info.available,
+                .initial_capital = runner.initial_equity.toFloat(),
+                // Order stats
                 .orders_submitted = stats.orders_submitted,
                 .orders_filled = stats.orders_filled,
+                .orders_cancelled = stats.orders_cancelled,
+                .orders_rejected = stats.orders_rejected,
                 .total_volume = stats.total_volume,
                 .realized_pnl = stats.realized_pnl,
+                .unrealized_pnl = stats.unrealized_pnl,
+                .last_price = runner.last_price.toFloat(),
                 .uptime_ms = stats.uptime_ms,
+                .ticks = stats.ticks,
+                .reconnects = stats.reconnects,
             });
         }
 
         return list.toOwnedSlice(allocator);
+    }
+
+    // ========================================================================
+    // Graceful Shutdown API
+    // ========================================================================
+
+    /// Stop all live trading sessions (for graceful shutdown)
+    pub fn stopAllLive(self: *Self) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var count: usize = 0;
+        var live_it = self.live_runners.valueIterator();
+        while (live_it.next()) |runner| {
+            if (runner.*.status == .running or runner.*.status == .paused) {
+                runner.*.stop() catch {};
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    /// Stop all strategy runners (for graceful shutdown)
+    pub fn stopAllStrategies(self: *Self) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var count: usize = 0;
+        var strat_it = self.strategy_runners.valueIterator();
+        while (strat_it.next()) |runner| {
+            if (runner.*.status == .running or runner.*.status == .paused) {
+                runner.*.stop() catch {};
+                count += 1;
+            }
+        }
+        return count;
     }
 
     // ========================================================================
@@ -890,12 +966,31 @@ pub const LiveSummary = struct {
     name: []const u8,
     exchange: []const u8,
     status: []const u8,
+    connection_status: []const u8,
     testnet: bool,
+    symbols: []const []const u8,
+    // Strategy info (NEW)
+    strategy: []const u8,
+    timeframe: []const u8,
+    leverage: u32,
+    current_position: f64,
+    entry_price: f64,
+    // Account balance (NEW)
+    account_balance: f64,
+    available_balance: f64,
+    initial_capital: f64,
+    // Order stats
     orders_submitted: u64,
     orders_filled: u64,
+    orders_cancelled: u64,
+    orders_rejected: u64,
     total_volume: f64,
     realized_pnl: f64,
+    unrealized_pnl: f64,
+    last_price: f64,
     uptime_ms: u64,
+    ticks: u64,
+    reconnects: u64,
 };
 
 /// Manager statistics

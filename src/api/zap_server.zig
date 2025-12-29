@@ -31,6 +31,14 @@ const LiveTradingMode = engine_mod.LiveTradingMode;
 const AIRuntimeConfig = engine_mod.AIRuntimeConfig;
 const AIStatus = engine_mod.AIStatus;
 
+// Import Logger for colored output
+const logger_mod = @import("../core/logger.zig");
+const Logger = logger_mod.Logger;
+const LogWriter = logger_mod.LogWriter;
+const LogRecord = logger_mod.LogRecord;
+const Level = logger_mod.Level;
+const AnsiColors = logger_mod.AnsiColors;
+
 // ============================================================================
 // Embedded JWT Implementation (to avoid cross-module import conflicts)
 // ============================================================================
@@ -228,6 +236,10 @@ pub const Config = struct {
 pub const Dependencies = struct {
     allocator: Allocator,
     engine_manager: ?*EngineManager = null,
+    // Exchange configuration from config.json
+    exchange_wallet: ?[]const u8 = null,
+    exchange_secret: ?[]const u8 = null,
+    exchange_testnet: bool = true,
 
     pub fn init(allocator: Allocator) Dependencies {
         return .{ .allocator = allocator };
@@ -262,6 +274,105 @@ pub const ServerContext = struct {
 
 // Global context
 var global_context: ?*ServerContext = null;
+
+// ============================================================================
+// Colored Logging Helpers
+// ============================================================================
+
+/// Log an incoming request with color (using std.debug.print for simplicity)
+fn logRequest(method: []const u8, path: []const u8) void {
+    std.debug.print("{s}{s}>>> {s}{s} {s}{s} {s}{s}\n", .{
+        AnsiColors.BOLD,
+        AnsiColors.CYAN,
+        AnsiColors.RESET,
+        AnsiColors.BRIGHT_GREEN,
+        method,
+        AnsiColors.RESET,
+        path,
+        AnsiColors.RESET,
+    });
+}
+
+/// Log request body with color
+fn logRequestBody(body: []const u8) void {
+    const max_len: usize = 1000;
+    if (body.len > max_len) {
+        std.debug.print("{s}>>> BODY ({d} bytes, truncated):{s} {s}...\n", .{
+            AnsiColors.YELLOW,
+            body.len,
+            AnsiColors.RESET,
+            body[0..max_len],
+        });
+    } else {
+        std.debug.print("{s}>>> BODY ({d} bytes):{s} {s}\n", .{
+            AnsiColors.YELLOW,
+            body.len,
+            AnsiColors.RESET,
+            body,
+        });
+    }
+}
+
+/// Log response with color
+fn logResponse(status: []const u8, bytes: usize, body: []const u8) void {
+    const max_len: usize = 2000;
+
+    // Choose color based on status
+    const status_color = if (std.mem.startsWith(u8, status, "2"))
+        AnsiColors.GREEN
+    else if (std.mem.startsWith(u8, status, "4"))
+        AnsiColors.YELLOW
+    else if (std.mem.startsWith(u8, status, "5"))
+        AnsiColors.RED
+    else
+        AnsiColors.WHITE;
+
+    if (body.len > max_len) {
+        std.debug.print("{s}{s}<<< {s}{s}({d} bytes):{s} {s}...\n", .{
+            AnsiColors.BOLD,
+            AnsiColors.MAGENTA,
+            AnsiColors.RESET,
+            status_color,
+            bytes,
+            AnsiColors.RESET,
+            body[0..max_len],
+        });
+    } else {
+        std.debug.print("{s}{s}<<< {s}{s}({d} bytes):{s} {s}\n", .{
+            AnsiColors.BOLD,
+            AnsiColors.MAGENTA,
+            AnsiColors.RESET,
+            status_color,
+            bytes,
+            AnsiColors.RESET,
+            body,
+        });
+    }
+}
+
+/// Log handler entry with color
+fn logHandler(handler_name: []const u8) void {
+    std.debug.print("{s}    -> {s}{s}\n", .{
+        AnsiColors.DIM,
+        handler_name,
+        AnsiColors.RESET,
+    });
+}
+
+/// Log info message with color
+fn logInfo(comptime fmt: []const u8, args: anytype) void {
+    std.debug.print("{s}[INFO]{s} " ++ fmt ++ "\n", .{ AnsiColors.GREEN, AnsiColors.RESET } ++ args);
+}
+
+/// Log error message with color
+fn logError(comptime fmt: []const u8, args: anytype) void {
+    std.debug.print("{s}[ERROR]{s} " ++ fmt ++ "\n", .{ AnsiColors.RED, AnsiColors.RESET } ++ args);
+}
+
+/// Log debug/detail message with color
+fn logDetail(comptime fmt: []const u8, args: anytype) void {
+    std.debug.print("{s}    " ++ fmt ++ "{s}\n", .{AnsiColors.DIM} ++ args ++ .{AnsiColors.RESET});
+}
 
 // ============================================================================
 // Zap Server
@@ -357,6 +468,24 @@ fn handleRequest(r: zap.Request) !void {
 
     const path = r.path orelse "/";
     const method = zap.http.methodToEnum(r.method);
+    const method_str = r.method orelse "UNKNOWN";
+
+    // Log incoming request with color
+    logRequest(method_str, path);
+
+    // Log request body for POST/PUT/PATCH
+    if (method == .POST or method == .PUT or method == .PATCH) {
+        if (r.body) |body| {
+            logRequestBody(body);
+        }
+    }
+
+    // Log query parameters if present
+    if (r.query) |query| {
+        if (query.len > 0) {
+            logDetail("QUERY: {s}", .{query});
+        }
+    }
 
     // Route the request - support both /api/v1 and /api/v2 prefixes
     if (std.mem.eql(u8, path, "/health")) {
@@ -379,7 +508,9 @@ fn handleRequest(r: zap.Request) !void {
         try handleStrategyDetail(r, ctx, path, method);
     }
     // V2 Backtest endpoints
-    else if (std.mem.eql(u8, path, "/api/v2/backtest/run")) {
+    else if (std.mem.eql(u8, path, "/api/v2/backtest")) {
+        try handleBacktestList(r, ctx);
+    } else if (std.mem.eql(u8, path, "/api/v2/backtest/run")) {
         try handleBacktestRun(r, ctx, method);
     } else if (std.mem.startsWith(u8, path, "/api/v2/backtest/")) {
         try handleBacktestDetail(r, ctx, path, method);
@@ -911,30 +1042,93 @@ fn validateCredentials(username: []const u8, password: []const u8) bool {
 // Backtest API Handlers
 // ============================================================================
 
+fn handleBacktestList(r: zap.Request, ctx: *ServerContext) !void {
+    logHandler("handleBacktestList");
+
+    if (ctx.deps.engine_manager == null) {
+        // No engine manager, return empty list
+        const response = "{\"success\":true,\"data\":{\"backtests\":[],\"total\":0}}";
+        logResponse("200", response.len, response);
+        try r.setContentType(.JSON);
+        try r.sendJson(response);
+        return;
+    }
+
+    const manager = ctx.deps.engine_manager.?;
+
+    // Get backtest list from manager
+    const backtests = manager.listBacktests(ctx.allocator) catch |err| {
+        r.setStatus(.internal_server_error);
+        logError("Failed to list backtests: {}", .{err});
+        const err_response = "{\"success\":false,\"error\":{\"code\":\"LIST_FAILED\",\"message\":\"Failed to list backtests\"}}";
+        logResponse("500", err_response.len, err_response);
+        try r.setContentType(.JSON);
+        try r.sendJson(err_response);
+        return;
+    };
+    defer ctx.allocator.free(backtests);
+
+    logDetail("Found {d} backtests", .{backtests.len});
+
+    // Build JSON response
+    var response_buf = std.ArrayList(u8){};
+    defer response_buf.deinit(ctx.allocator);
+
+    const writer = response_buf.writer(ctx.allocator);
+    try writer.writeAll("{\"success\":true,\"data\":{\"backtests\":[");
+
+    for (backtests, 0..) |bt, i| {
+        if (i > 0) try writer.writeAll(",");
+        try std.fmt.format(writer,
+            \\{{"id":"{s}","strategy":"{s}","symbol":"{s}","status":"{s}","progress":{d:.2},"trades_so_far":{d},"elapsed_seconds":{d}}}
+        , .{
+            bt.id,
+            bt.strategy,
+            bt.symbol,
+            bt.status,
+            bt.progress,
+            bt.trades_so_far,
+            bt.elapsed_seconds,
+        });
+    }
+
+    try writer.writeAll("],\"total\":");
+    try std.fmt.format(writer, "{d}", .{backtests.len});
+    try writer.writeAll("}}");
+
+    // Log the response with color
+    logResponse("200", response_buf.items.len, response_buf.items);
+
+    try r.setContentType(.JSON);
+    try r.sendBody(response_buf.items);
+}
+
 fn handleBacktestRun(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    logHandler("handleBacktestRun");
+
     if (method != .POST) {
+        const err_resp = "{\"success\":false,\"error\":{\"code\":\"METHOD_NOT_ALLOWED\",\"message\":\"Only POST allowed\"}}";
+        logResponse("405", err_resp.len, err_resp);
         r.setStatus(.method_not_allowed);
-        try r.sendJson(
-            \\{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"Only POST allowed"}}
-        );
+        try r.sendJson(err_resp);
         return;
     }
 
     if (ctx.deps.engine_manager == null) {
+        const err_resp = "{\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Engine manager not configured\"}}";
+        logResponse("503", err_resp.len, err_resp);
         r.setStatus(.service_unavailable);
-        try r.sendJson(
-            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
-        );
+        try r.sendJson(err_resp);
         return;
     }
 
     const manager = ctx.deps.engine_manager.?;
 
     const body = r.body orelse {
+        const err_resp = "{\"success\":false,\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Missing request body\"}}";
+        logResponse("400", err_resp.len, err_resp);
         r.setStatus(.bad_request);
-        try r.sendJson(
-            \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Missing request body"}}
-        );
+        try r.sendJson(err_resp);
         return;
     };
 
@@ -953,20 +1147,22 @@ fn handleBacktestRun(r: zap.Request, ctx: *ServerContext, method: zap.http.Metho
     };
 
     const parsed = std.json.parseFromSlice(CreateBacktestRequest, ctx.allocator, body, .{}) catch {
+        const err_resp = "{\"success\":false,\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Invalid JSON format\"}}";
+        logResponse("400", err_resp.len, err_resp);
         r.setStatus(.bad_request);
-        try r.sendJson(
-            \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Invalid JSON format"}}
-        );
+        try r.sendJson(err_resp);
         return;
     };
     defer parsed.deinit();
 
     const req = parsed.value;
+    logDetail("Parsed: strategy={s}, symbol={s}, timeframe={s}", .{ req.strategy, req.symbol, req.timeframe });
 
     // Generate backtest ID
     var id_buf: [32]u8 = undefined;
     const ts = std.time.timestamp();
     const backtest_id = std.fmt.bufPrint(&id_buf, "bt_{d}", .{ts}) catch "bt_new";
+    logDetail("Generated backtest ID: {s}", .{backtest_id});
 
     // Create backtest request
     const backtest_request = BacktestRequest{
@@ -991,10 +1187,13 @@ fn handleBacktestRun(r: zap.Request, ctx: *ServerContext, method: zap.http.Metho
         , .{@errorName(err)}) catch
             \\{"success":false,"error":{"code":"INTERNAL_ERROR","message":"Failed to start backtest"}}
         ;
+        logResponse("500", json.len, json);
         try r.setContentType(.JSON);
         try r.sendBody(json);
         return;
     };
+
+    logInfo("Backtest started: {s}", .{backtest_id});
 
     r.setStatus(.created);
     var buf: [256]u8 = undefined;
@@ -1003,16 +1202,19 @@ fn handleBacktestRun(r: zap.Request, ctx: *ServerContext, method: zap.http.Metho
     , .{backtest_id}) catch
         \\{"success":true,"data":{"status":"queued"}}
     ;
+    logResponse("201", json.len, json);
     try r.setContentType(.JSON);
     try r.sendBody(json);
 }
 
 fn handleBacktestDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, method: zap.http.Method) !void {
+    logHandler("handleBacktestDetail");
+
     if (ctx.deps.engine_manager == null) {
+        const err_resp = "{\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Engine manager not configured\"}}";
+        logResponse("503", err_resp.len, err_resp);
         r.setStatus(.service_unavailable);
-        try r.sendJson(
-            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
-        );
+        try r.sendJson(err_resp);
         return;
     }
 
@@ -1030,6 +1232,8 @@ fn handleBacktestDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, m
         backtest_id = rest[0..idx];
         action = rest[idx + 1 ..];
     }
+
+    logDetail("backtest_id={s}, action={s}", .{ backtest_id, if (action.len > 0) action else "(status)" });
 
     if (std.mem.eql(u8, action, "progress") and method == .GET) {
         // GET /api/v2/backtest/:id/progress
@@ -1095,28 +1299,92 @@ fn handleBacktestDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, m
         };
 
         if (result) |res| {
-            var buf: [1024]u8 = undefined;
-            const json = std.fmt.bufPrint(&buf,
-                \\{{"success":true,"data":{{"id":"{s}","status":"completed","metrics":{{"total_return":{d:.4},"win_rate":{d:.4},"profit_factor":{d:.2},"total_trades":{d},"winning_trades":{d},"losing_trades":{d},"net_profit":{d:.2}}}}}}}
-            , .{
-                backtest_id,
-                res.total_return,
-                res.win_rate,
-                res.profit_factor,
-                res.total_trades,
-                res.winning_trades,
-                res.losing_trades,
-                res.net_profit,
-            }) catch
-                \\{"success":true,"data":{}}
-            ;
+            // Build full response with trades array
+            var response_buf = std.ArrayList(u8){};
+            defer response_buf.deinit(ctx.allocator);
+
+            const writer = response_buf.writer(ctx.allocator);
+
+            // Start response
+            try writer.writeAll("{\"success\":true,\"data\":{");
+
+            // Basic info
+            try std.fmt.format(writer, "\"id\":\"{s}\",\"status\":\"completed\",", .{backtest_id});
+
+            // Metrics
+            try writer.writeAll("\"metrics\":{");
+            try std.fmt.format(writer, "\"total_return\":{d:.6},", .{res.total_return});
+            try std.fmt.format(writer, "\"sharpe_ratio\":{d:.4},", .{res.sharpe_ratio});
+            try std.fmt.format(writer, "\"max_drawdown\":{d:.6},", .{res.max_drawdown});
+            try std.fmt.format(writer, "\"win_rate\":{d:.4},", .{res.win_rate});
+            try std.fmt.format(writer, "\"profit_factor\":{d:.4},", .{res.profit_factor});
+            try std.fmt.format(writer, "\"total_trades\":{d},", .{res.total_trades});
+            try std.fmt.format(writer, "\"winning_trades\":{d},", .{res.winning_trades});
+            try std.fmt.format(writer, "\"losing_trades\":{d},", .{res.losing_trades});
+            try std.fmt.format(writer, "\"net_profit\":{d:.2},", .{res.net_profit});
+            try std.fmt.format(writer, "\"total_commission\":{d:.4}", .{res.total_commission});
+            try writer.writeAll("},");
+
+            // Trades array (for chart visualization)
+            try writer.writeAll("\"trades\":[");
+
+            // Get detailed trades from the full result if available
+            const detailed_result = manager.getBacktestDetailedResult(backtest_id) catch null;
+            if (detailed_result) |detail| {
+                for (detail.trades, 0..) |trade, i| {
+                    if (i > 0) try writer.writeAll(",");
+                    try writer.writeAll("{");
+                    try std.fmt.format(writer, "\"id\":{d},", .{trade.id});
+                    try std.fmt.format(writer, "\"side\":\"{s}\",", .{trade.side.toString()});
+                    try std.fmt.format(writer, "\"entry_time\":{d},", .{trade.entry_time.millis});
+                    try std.fmt.format(writer, "\"exit_time\":{d},", .{trade.exit_time.millis});
+                    try std.fmt.format(writer, "\"entry_price\":{d:.8},", .{trade.entry_price.toFloat()});
+                    try std.fmt.format(writer, "\"exit_price\":{d:.8},", .{trade.exit_price.toFloat()});
+                    try std.fmt.format(writer, "\"size\":{d:.8},", .{trade.size.toFloat()});
+                    try std.fmt.format(writer, "\"pnl\":{d:.8},", .{trade.pnl.toFloat()});
+                    try std.fmt.format(writer, "\"pnl_percent\":{d:.6},", .{trade.pnl_percent.toFloat()});
+                    try std.fmt.format(writer, "\"commission\":{d:.8}", .{trade.commission.toFloat()});
+                    try writer.writeAll("}");
+                }
+            }
+            try writer.writeAll("],");
+
+            // Equity curve (for PnL chart)
+            try writer.writeAll("\"equity_curve\":[");
+            if (detailed_result) |detail| {
+                // Sample equity curve if too many points (max 500)
+                const max_points: usize = 500;
+                const curve = detail.equity_curve;
+                const step = if (curve.len > max_points) curve.len / max_points else 1;
+
+                var count: usize = 0;
+                var i: usize = 0;
+                while (i < curve.len) : (i += step) {
+                    if (count > 0) try writer.writeAll(",");
+                    const snapshot = curve[i];
+                    try writer.writeAll("{");
+                    try std.fmt.format(writer, "\"timestamp\":{d},", .{snapshot.timestamp.millis});
+                    try std.fmt.format(writer, "\"equity\":{d:.4},", .{snapshot.equity.toFloat()});
+                    try std.fmt.format(writer, "\"balance\":{d:.4}", .{snapshot.balance.toFloat()});
+                    try writer.writeAll("}");
+                    count += 1;
+                }
+            }
+            try writer.writeAll("]");
+
+            // Close data and response
+            try writer.writeAll("}}");
+
+            // Log response with color
+            logResponse("200", response_buf.items.len, response_buf.items);
+
             try r.setContentType(.JSON);
-            try r.sendBody(json);
+            try r.sendBody(response_buf.items);
         } else {
+            const err_resp = "{\"success\":false,\"error\":{\"code\":\"NO_RESULT\",\"message\":\"No result available\"}}";
+            logResponse("500", err_resp.len, err_resp);
             r.setStatus(.internal_server_error);
-            try r.sendJson(
-                \\{"success":false,"error":{"code":"NO_RESULT","message":"No result available"}}
-            );
+            try r.sendJson(err_resp);
         }
     } else if (std.mem.eql(u8, action, "cancel") and method == .POST) {
         // POST /api/v2/backtest/:id/cancel
@@ -1149,6 +1417,45 @@ fn handleBacktestDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, m
         ;
         try r.setContentType(.JSON);
         try r.sendBody(json);
+    } else if (action.len == 0 and method == .GET) {
+        // GET /api/v2/backtest/:id - Get backtest info/status
+        const status = manager.getBacktestStatus(backtest_id) catch |err| {
+            if (err == error.BacktestNotFound) {
+                r.setStatus(.not_found);
+                try r.sendJson(
+                    \\{"success":false,"error":{"code":"NOT_FOUND","message":"Backtest not found"}}
+                );
+            } else {
+                r.setStatus(.internal_server_error);
+                try r.sendJson(
+                    \\{"success":false,"error":{"code":"INTERNAL_ERROR","message":"Failed to get backtest status"}}
+                );
+            }
+            return;
+        };
+
+        // Try to get progress info if available
+        const progress = manager.getBacktestProgress(backtest_id) catch null;
+
+        if (progress) |prog| {
+            var buf: [512]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":true,"data":{{"id":"{s}","status":"{s}","progress":{d:.2},"trades_so_far":{d},"elapsed_seconds":{d}}}}}
+            , .{ backtest_id, status.toString(), prog.progress, prog.trades_so_far, prog.elapsed_seconds }) catch
+                \\{"success":true,"data":{}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+        } else {
+            var buf: [256]u8 = undefined;
+            const json = std.fmt.bufPrint(&buf,
+                \\{{"success":true,"data":{{"id":"{s}","status":"{s}"}}}}
+            , .{ backtest_id, status.toString() }) catch
+                \\{"success":true,"data":{}}
+            ;
+            try r.setContentType(.JSON);
+            try r.sendBody(json);
+        }
     } else {
         r.setStatus(.not_found);
         try r.sendJson(
@@ -1162,11 +1469,13 @@ fn handleBacktestDetail(r: zap.Request, ctx: *ServerContext, path: []const u8, m
 // ============================================================================
 
 fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) !void {
+    logHandler("handleLiveList");
+
     if (ctx.deps.engine_manager == null) {
+        const err_resp = "{\"success\":false,\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Engine manager not configured\"}}";
+        logResponse("503", err_resp.len, err_resp);
         r.setStatus(.service_unavailable);
-        try r.sendJson(
-            \\{"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"Engine manager not configured"}}
-        );
+        try r.sendJson(err_resp);
         return;
     }
 
@@ -1183,11 +1492,14 @@ fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
                 , .{@errorName(err)}) catch
                     \\{"success":false,"error":{"code":"LIST_FAILED","message":"Failed to list live sessions"}}
                 ;
+                logResponse("500", json.len, json);
                 try r.setContentType(.JSON);
                 try r.sendBody(json);
                 return;
             };
             defer ctx.allocator.free(sessions);
+
+            logDetail("Found {d} live sessions", .{sessions.len});
 
             // Build JSON response
             var response_buf = std.ArrayList(u8){};
@@ -1198,19 +1510,53 @@ fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
 
             for (sessions, 0..) |s, i| {
                 if (i > 0) try writer.writeAll(",");
+
+                // Build symbols array
+                try writer.writeAll("{\"id\":\"");
+                try writer.writeAll(s.id);
+                try writer.writeAll("\",\"name\":\"");
+                try writer.writeAll(s.name);
+                try writer.writeAll("\",\"exchange\":\"");
+                try writer.writeAll(s.exchange);
+                try writer.writeAll("\",\"status\":\"");
+                try writer.writeAll(s.status);
+                try writer.writeAll("\",\"connection_status\":\"");
+                try writer.writeAll(s.connection_status);
+                try writer.writeAll("\",\"testnet\":");
+                try writer.writeAll(if (s.testnet) "true" else "false");
+                // Strategy info (NEW)
+                try writer.writeAll(",\"strategy\":\"");
+                try writer.writeAll(s.strategy);
+                try writer.writeAll("\",\"timeframe\":\"");
+                try writer.writeAll(s.timeframe);
+                try std.fmt.format(writer, "\",\"leverage\":{d}", .{s.leverage});
+                // Symbols array
+                try writer.writeAll(",\"symbols\":[");
+                for (s.symbols, 0..) |sym, j| {
+                    if (j > 0) try writer.writeAll(",");
+                    try writer.writeAll("\"");
+                    try writer.writeAll(sym);
+                    try writer.writeAll("\"");
+                }
                 try std.fmt.format(writer,
-                    \\{{"id":"{s}","name":"{s}","exchange":"{s}","status":"{s}","testnet":{s},"orders_submitted":{d},"orders_filled":{d},"total_volume":{d:.4},"realized_pnl":{d:.4},"uptime_ms":{d}}}
+                    \\],"current_position":{d:.6},"entry_price":{d:.2},"account_balance":{d:.4},"available_balance":{d:.4},"initial_capital":{d:.4},"orders_submitted":{d},"orders_filled":{d},"orders_cancelled":{d},"orders_rejected":{d},"total_volume":{d:.4},"realized_pnl":{d:.4},"unrealized_pnl":{d:.4},"last_price":{d:.6},"uptime_ms":{d},"ticks":{d},"reconnects":{d}}}
                 , .{
-                    s.id,
-                    s.name,
-                    s.exchange,
-                    s.status,
-                    if (s.testnet) "true" else "false",
+                    s.current_position,
+                    s.entry_price,
+                    s.account_balance,
+                    s.available_balance,
+                    s.initial_capital,
                     s.orders_submitted,
                     s.orders_filled,
+                    s.orders_cancelled,
+                    s.orders_rejected,
                     s.total_volume,
                     s.realized_pnl,
+                    s.unrealized_pnl,
+                    s.last_price,
                     s.uptime_ms,
+                    s.ticks,
+                    s.reconnects,
                 });
             }
 
@@ -1218,16 +1564,17 @@ fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
             try std.fmt.format(writer, "{d}", .{sessions.len});
             try writer.writeAll("}}");
 
+            logResponse("200", response_buf.items.len, response_buf.items);
             try r.setContentType(.JSON);
             try r.sendBody(response_buf.items);
         },
         .POST => {
             // Start a new live trading session
             const body = r.body orelse {
+                const err_resp = "{\"success\":false,\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Missing request body\"}}";
+                logResponse("400", err_resp.len, err_resp);
                 r.setStatus(.bad_request);
-                try r.sendJson(
-                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Missing request body"}}
-                );
+                try r.sendJson(err_resp);
                 return;
             };
 
@@ -1237,25 +1584,49 @@ fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
                 name: []const u8 = "default",
                 mode: []const u8 = "event_driven",
                 exchange: []const u8 = "hyperliquid",
-                testnet: bool = true,
+                testnet: ?bool = null, // null means use config default
                 symbols: ?[]const []const u8 = null,
                 heartbeat_interval_ms: u64 = 30000,
                 tick_interval_ms: u64 = 1000,
                 auto_reconnect: bool = true,
                 wallet: ?[]const u8 = null,
                 private_key: ?[]const u8 = null,
+                // Strategy configuration (NEW)
+                strategy: ?[]const u8 = null,
+                strategy_params: ?[]const u8 = null,
+                timeframe: []const u8 = "1h",
+                initial_capital: f64 = 0, // 0 = use real balance from exchange
+                leverage: u32 = 1, // 1-100, default 1 (no leverage)
+                // Grid trading specific parameters
+                upper_price: ?f64 = null,
+                lower_price: ?f64 = null,
+                grid_count: u32 = 10,
+                order_size: f64 = 0.001,
+                take_profit_pct: f64 = 0.5,
             };
 
             const parsed = std.json.parseFromSlice(LiveStartRequest, ctx.allocator, body, .{}) catch {
+                const err_resp = "{\"success\":false,\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Invalid JSON format\"}}";
+                logResponse("400", err_resp.len, err_resp);
                 r.setStatus(.bad_request);
-                try r.sendJson(
-                    \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Invalid JSON format"}}
-                );
+                try r.sendJson(err_resp);
                 return;
             };
             defer parsed.deinit();
 
             const req = parsed.value;
+
+            // Use credentials from config.json if not provided in request
+            const wallet = req.wallet orelse ctx.deps.exchange_wallet;
+            const private_key = req.private_key orelse ctx.deps.exchange_secret;
+            const testnet = req.testnet orelse ctx.deps.exchange_testnet;
+
+            logDetail("Starting live session: name={s}, exchange={s}, testnet={}", .{ req.name, req.exchange, testnet });
+            if (wallet) |w| {
+                logDetail("Using wallet: {s}...", .{if (w.len > 10) w[0..10] else w});
+            } else {
+                logError("No wallet configured! Check config.json or provide wallet in request", .{});
+            }
 
             // Generate ID if not provided
             var id_buf: [32]u8 = undefined;
@@ -1272,7 +1643,10 @@ fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
             else
                 .event_driven;
 
-            // Build live request
+            // Validate leverage
+            const leverage = if (req.leverage >= 1 and req.leverage <= 100) req.leverage else 1;
+
+            // Build live request with merged credentials
             const live_request = LiveRequest{
                 .name = req.name,
                 .mode = trading_mode,
@@ -1281,31 +1655,85 @@ fn handleLiveList(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
                 .tick_interval_ms = req.tick_interval_ms,
                 .auto_reconnect = req.auto_reconnect,
                 .exchange = req.exchange,
-                .wallet = req.wallet,
-                .private_key = req.private_key,
-                .testnet = req.testnet,
+                .wallet = wallet,
+                .private_key = private_key,
+                .testnet = testnet,
+                // Strategy configuration (NEW)
+                .strategy = req.strategy,
+                .strategy_params = req.strategy_params,
+                .timeframe = req.timeframe,
+                .initial_capital = req.initial_capital,
+                .leverage = leverage,
+                // Grid trading parameters
+                .upper_price = req.upper_price,
+                .lower_price = req.lower_price,
+                .grid_count = req.grid_count,
+                .order_size = req.order_size,
+                .take_profit_pct = req.take_profit_pct,
             };
 
             // Start live trading session
             manager.startLive(live_id, live_request) catch |err| {
-                r.setStatus(.internal_server_error);
-                var buf: [256]u8 = undefined;
+                r.setStatus(.bad_request);
+                var buf: [512]u8 = undefined;
+
+                // Provide more helpful error messages
+                const error_info: struct { code: []const u8, message: []const u8 } = switch (err) {
+                    error.InvalidGridPrices => .{
+                        .code = "INVALID_GRID_PRICES",
+                        .message = "upper_price must be greater than lower_price",
+                    },
+                    error.MissingGridPrices => .{
+                        .code = "MISSING_GRID_PRICES",
+                        .message = "Grid strategy requires upper_price and lower_price",
+                    },
+                    error.InvalidStrategyConfig => .{
+                        .code = "INVALID_STRATEGY_CONFIG",
+                        .message = "Invalid strategy configuration",
+                    },
+                    error.MissingStrategyParam => .{
+                        .code = "MISSING_STRATEGY_PARAM",
+                        .message = "Missing required strategy parameter",
+                    },
+                    error.InvalidStrategyParam => .{
+                        .code = "INVALID_STRATEGY_PARAM",
+                        .message = "Invalid strategy parameter value",
+                    },
+                    error.StrategyNotFound => .{
+                        .code = "STRATEGY_NOT_FOUND",
+                        .message = "Unknown strategy name",
+                    },
+                    error.StrategyCreationFailed => .{
+                        .code = "STRATEGY_CREATION_FAILED",
+                        .message = "Failed to create strategy",
+                    },
+                    else => .{
+                        .code = "START_FAILED",
+                        .message = "Failed to start live session",
+                    },
+                };
+
                 const json = std.fmt.bufPrint(&buf,
-                    \\{{"success":false,"error":{{"code":"START_FAILED","message":"Failed to start live session: {s}"}}}}
-                , .{@errorName(err)}) catch
+                    \\{{"success":false,"error":{{"code":"{s}","message":"{s}"}}}}
+                , .{ error_info.code, error_info.message }) catch
                     \\{"success":false,"error":{"code":"START_FAILED","message":"Failed to start live session"}}
                 ;
+                logResponse("400", json.len, json);
                 try r.setContentType(.JSON);
                 try r.sendBody(json);
                 return;
             };
 
-            var buf: [256]u8 = undefined;
+            const strategy_name = req.strategy orelse "none";
+            logInfo("Live session started: id={s}, name={s}, strategy={s}", .{ live_id, req.name, strategy_name });
+
+            var buf: [512]u8 = undefined;
             const json = std.fmt.bufPrint(&buf,
-                \\{{"success":true,"data":{{"id":"{s}","status":"running","name":"{s}","exchange":"{s}","testnet":{s}}}}}
-            , .{ live_id, req.name, req.exchange, if (req.testnet) "true" else "false" }) catch
+                \\{{"success":true,"data":{{"id":"{s}","status":"running","name":"{s}","exchange":"{s}","testnet":{s},"strategy":"{s}"}}}}
+            , .{ live_id, req.name, req.exchange, if (testnet) "true" else "false", strategy_name }) catch
                 \\{"success":true,"data":{"status":"started"}}
             ;
+            logResponse("201", json.len, json);
             r.setStatus(.created);
             try r.setContentType(.JSON);
             try r.sendBody(json);
@@ -1609,12 +2037,108 @@ fn handleSystemHealth(r: zap.Request, ctx: *ServerContext) !void {
 }
 
 fn handleSystemLogs(r: zap.Request, ctx: *ServerContext) !void {
-    _ = ctx;
-    // Return empty logs for now - in production, this would read from a log buffer
+    // Import log buffer module
+    const log_buffer = @import("../core/log_buffer.zig");
+
+    // Parse query parameters for filtering
+    var limit: usize = 100;
+    var min_level: ?@import("../core/logger.zig").Level = null;
+
+    // Try to get limit from query params (using getParamSlice from zap)
+    if (r.getParamSlice("limit")) |limit_str| {
+        limit = std.fmt.parseInt(usize, limit_str, 10) catch 100;
+        if (limit > 1000) limit = 1000; // Cap at 1000
+    }
+
+    // Try to get level filter
+    if (r.getParamSlice("level")) |level_str| {
+        if (std.mem.eql(u8, level_str, "trace")) {
+            min_level = .trace;
+        } else if (std.mem.eql(u8, level_str, "debug")) {
+            min_level = .debug;
+        } else if (std.mem.eql(u8, level_str, "info")) {
+            min_level = .info;
+        } else if (std.mem.eql(u8, level_str, "warn")) {
+            min_level = .warn;
+        } else if (std.mem.eql(u8, level_str, "error")) {
+            min_level = .err;
+        }
+    }
+
+    // Get global log buffer
+    const buffer = log_buffer.getGlobalBuffer() orelse {
+        // No log buffer configured - return empty with message
+        try r.setContentType(.JSON);
+        try r.sendBody(
+            \\{"success":true,"data":{"logs":[],"total":0,"has_more":false,"message":"Log buffer not initialized"}}
+        );
+        return;
+    };
+
+    // Get recent logs
+    const logs = buffer.getRecent(ctx.allocator, limit, min_level, null) catch {
+        r.setStatus(.internal_server_error);
+        try r.sendJson(
+            \\{"success":false,"error":{"code":"LOG_FETCH_FAILED","message":"Failed to fetch logs"}}
+        );
+        return;
+    };
+    defer {
+        for (logs) |entry| {
+            ctx.allocator.free(entry.message);
+            if (entry.source) |src| ctx.allocator.free(src);
+            if (entry.context) |log_ctx| ctx.allocator.free(log_ctx);
+        }
+        ctx.allocator.free(logs);
+    }
+
+    // Build JSON response
+    var response_buf = std.ArrayList(u8){};
+    defer response_buf.deinit(ctx.allocator);
+
+    const writer = response_buf.writer(ctx.allocator);
+    try writer.writeAll("{\"success\":true,\"data\":{\"logs\":[");
+
+    for (logs, 0..) |entry, i| {
+        if (i > 0) try writer.writeAll(",");
+        try writer.writeAll("{");
+
+        // Level
+        try std.fmt.format(writer, "\"level\":\"{s}\",", .{entry.level.toString()});
+
+        // Timestamp
+        try std.fmt.format(writer, "\"timestamp\":{d},", .{entry.timestamp});
+
+        // Message (escape JSON special chars)
+        try writer.writeAll("\"message\":\"");
+        for (entry.message) |c| {
+            switch (c) {
+                '"' => try writer.writeAll("\\\""),
+                '\\' => try writer.writeAll("\\\\"),
+                '\n' => try writer.writeAll("\\n"),
+                '\r' => try writer.writeAll("\\r"),
+                '\t' => try writer.writeAll("\\t"),
+                else => try writer.writeByte(c),
+            }
+        }
+        try writer.writeAll("\"");
+
+        // Source (optional)
+        if (entry.source) |src| {
+            try std.fmt.format(writer, ",\"source\":\"{s}\"", .{src});
+        }
+
+        try writer.writeAll("}");
+    }
+
+    try writer.writeAll("],\"total\":");
+    try std.fmt.format(writer, "{d}", .{buffer.getCount()});
+    try writer.writeAll(",\"has_more\":");
+    try writer.writeAll(if (logs.len == limit) "true" else "false");
+    try writer.writeAll("}}");
+
     try r.setContentType(.JSON);
-    try r.sendBody(
-        \\{"success":true,"data":{"logs":[],"total":0,"has_more":false}}
-    );
+    try r.sendBody(response_buf.items);
 }
 
 // ============================================================================
@@ -1658,7 +2182,7 @@ fn handleAIConfig(r: zap.Request, ctx: *ServerContext, method: zap.http.Method) 
         },
         .POST, .PUT, .PATCH => {
             // Update AI configuration
-            const body = r.body() orelse {
+            const body = r.body orelse {
                 r.setStatus(.bad_request);
                 try r.sendJson(
                     \\{"success":false,"error":{"code":"VALIDATION_ERROR","message":"Request body required"}}

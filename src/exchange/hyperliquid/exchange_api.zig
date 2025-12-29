@@ -355,6 +355,94 @@ pub const ExchangeAPI = struct {
 
         return parsed.value;
     }
+
+    /// Update leverage for a specific asset
+    ///
+    /// @param asset_index: Asset index from meta (e.g., 3 for BTC)
+    /// @param leverage: Target leverage (1-100)
+    /// @param is_cross: true for cross margin, false for isolated
+    pub fn updateLeverage(
+        self: *ExchangeAPI,
+        asset_index: u64,
+        leverage: u32,
+        is_cross: bool,
+    ) !void {
+        if (self.signer == null) {
+            return error.SignerRequired;
+        }
+
+        self.logger.info("Updating leverage for asset {d} to {d}x (cross={})", .{
+            asset_index,
+            leverage,
+            is_cross,
+        }) catch {};
+
+        // Build the updateLeverage action
+        // Format: {"type": "updateLeverage", "asset": 3, "isCross": true, "leverage": 5}
+        const action_json = try std.fmt.allocPrint(
+            self.allocator,
+            \\{{"type":"updateLeverage","asset":{d},"isCross":{s},"leverage":{d}}}
+        ,
+            .{
+                asset_index,
+                if (is_cross) "true" else "false",
+                leverage,
+            },
+        );
+        defer self.allocator.free(action_json);
+
+        // For updateLeverage, we need to sign the action as-is (not msgpack)
+        // Generate nonce
+        const nonce = @as(u64, @intCast(std.time.milliTimestamp()));
+
+        // Sign the action (updateLeverage uses direct JSON signing, not msgpack)
+        const signature = try self.signer.?.signActionJson(action_json, nonce);
+        defer self.allocator.free(signature.r);
+        defer self.allocator.free(signature.s);
+
+        // Construct signed request
+        const request_json = try std.fmt.allocPrint(
+            self.allocator,
+            \\{{"action":{s},"nonce":{d},"signature":{{"r":"{s}","s":"{s}","v":{d}}},"vaultAddress":null}}
+        ,
+            .{
+                action_json,
+                nonce,
+                signature.r,
+                signature.s,
+                signature.v,
+            },
+        );
+        defer self.allocator.free(request_json);
+
+        // Send request
+        const response_body = try self.http_client.postExchange(request_json);
+        defer self.allocator.free(response_body);
+
+        self.logger.debug("updateLeverage response: {s}", .{response_body}) catch {};
+
+        // Parse response to check for errors
+        const parsed_raw = try std.json.parseFromSlice(
+            std.json.Value,
+            self.allocator,
+            response_body,
+            .{ .allocate = .alloc_always },
+        );
+        defer parsed_raw.deinit();
+
+        const root = parsed_raw.value.object;
+        const status = root.get("status") orelse return error.MissingStatus;
+        const status_str = status.string;
+
+        if (std.mem.eql(u8, status_str, "err")) {
+            const response = root.get("response") orelse return error.MissingResponse;
+            const error_msg = response.string;
+            self.logger.err("updateLeverage failed: {s}", .{error_msg}) catch {};
+            return error.UpdateLeverageFailed;
+        }
+
+        self.logger.info("Leverage updated successfully", .{}) catch {};
+    }
 };
 
 // ============================================================================

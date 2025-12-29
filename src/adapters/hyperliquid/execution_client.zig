@@ -232,14 +232,32 @@ pub const HyperliquidExecutionClient = struct {
 
     const Self = @This();
 
-    /// 初始化
-    pub fn init(
+    /// Create and allocate on heap - use this when you need to pass the client around
+    /// This is the RECOMMENDED way to create a HyperliquidExecutionClient
+    pub fn create(
         allocator: Allocator,
         config: Config,
         logger: Logger,
         message_bus: ?*MessageBus,
-    ) !Self {
-        var http_client = HttpClient.init(allocator, config.testnet, logger);
+    ) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
+        try self.initInPlace(allocator, config, logger, message_bus);
+        return self;
+    }
+
+    /// Initialize in place - called on an already-allocated struct
+    /// This avoids the dangling pointer problem by initializing APIs after
+    /// the struct is in its final memory location
+    pub fn initInPlace(
+        self: *Self,
+        allocator: Allocator,
+        config: Config,
+        logger: Logger,
+        message_bus: ?*MessageBus,
+    ) !void {
+        const http_client = HttpClient.init(allocator, config.testnet, logger);
 
         // 初始化签名器 (如果提供了私钥)
         var signer: ?Signer = null;
@@ -247,26 +265,72 @@ pub const HyperliquidExecutionClient = struct {
             signer = try Signer.init(allocator, pk, config.testnet);
         }
 
-        var signer_ptr: ?*Signer = null;
-        if (signer != null) {
-            signer_ptr = &signer.?;
-        }
-
-        const exchange_api = ExchangeAPI.init(allocator, &http_client, signer_ptr, logger);
-        const info_api = InfoAPI.init(allocator, &http_client, logger);
-
-        return .{
+        // Initialize the struct fields first (without APIs)
+        self.* = Self{
             .allocator = allocator,
             .config = config,
             .logger = logger,
             .http_client = http_client,
-            .exchange_api = exchange_api,
-            .info_api = info_api,
+            .exchange_api = undefined,
+            .info_api = undefined,
             .signer = signer,
             .order_tracker = OrderTracker.init(allocator),
             .asset_cache = AssetIndexCache.init(allocator),
             .message_bus = message_bus,
         };
+
+        // Now initialize APIs with pointers to self's own http_client and signer
+        // These pointers are now stable because self is in its final memory location
+        var signer_ptr: ?*Signer = null;
+        if (self.signer != null) {
+            signer_ptr = &self.signer.?;
+        }
+
+        self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, signer_ptr, logger);
+        self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
+    }
+
+    /// 初始化 - DEPRECATED: Use create() instead to avoid dangling pointer issues
+    /// This function is kept for backwards compatibility but should not be used
+    /// for heap allocation patterns (allocator.create + assignment)
+    pub fn init(
+        allocator: Allocator,
+        config: Config,
+        logger: Logger,
+        message_bus: ?*MessageBus,
+    ) !Self {
+        const http_client = HttpClient.init(allocator, config.testnet, logger);
+
+        // 初始化签名器 (如果提供了私钥)
+        var signer: ?Signer = null;
+        if (config.private_key) |pk| {
+            signer = try Signer.init(allocator, pk, config.testnet);
+        }
+
+        // First create the struct with placeholder APIs (will be fixed up after)
+        var self = Self{
+            .allocator = allocator,
+            .config = config,
+            .logger = logger,
+            .http_client = http_client,
+            .exchange_api = undefined,
+            .info_api = undefined,
+            .signer = signer,
+            .order_tracker = OrderTracker.init(allocator),
+            .asset_cache = AssetIndexCache.init(allocator),
+            .message_bus = message_bus,
+        };
+
+        // Now initialize APIs with pointers to the struct's own http_client and signer
+        var signer_ptr: ?*Signer = null;
+        if (self.signer != null) {
+            signer_ptr = &self.signer.?;
+        }
+
+        self.exchange_api = ExchangeAPI.init(allocator, &self.http_client, signer_ptr, logger);
+        self.info_api = InfoAPI.init(allocator, &self.http_client, logger);
+
+        return self;
     }
 
     /// 释放资源
@@ -277,6 +341,28 @@ pub const HyperliquidExecutionClient = struct {
             s.deinit();
         }
         self.http_client.deinit();
+    }
+
+    /// 设置杠杆倍数
+    /// @param symbol: 交易对符号 (如 "BTC")
+    /// @param leverage: 杠杆倍数 (1-100)
+    /// @param is_cross: true 为全仓模式, false 为逐仓模式
+    pub fn setLeverage(self: *Self, symbol: []const u8, leverage: u32, is_cross: bool) !void {
+        // 获取资产索引
+        var asset_index = self.asset_cache.getIndex(symbol);
+
+        if (asset_index == null) {
+            // 尝试加载资产元数据
+            try self.loadAssetMeta();
+            asset_index = self.asset_cache.getIndex(symbol);
+            if (asset_index == null) {
+                self.logger.err("Unknown asset symbol for leverage: {s}", .{symbol}) catch {};
+                return error.UnknownAsset;
+            }
+        }
+
+        // 调用 exchange_api 设置杠杆
+        try self.exchange_api.updateLeverage(asset_index.?, leverage, is_cross);
     }
 
     /// 获取 IExecutionClient 接口
@@ -347,18 +433,111 @@ pub const HyperliquidExecutionClient = struct {
         const final_asset_index = asset_index.?;
 
         // 构建 Hyperliquid 订单请求
-        const price_str = if (request.price) |p|
-            p.toString(self.allocator) catch "0"
-        else
-            "0";
-        defer if (request.price != null) self.allocator.free(price_str);
+        // For market orders, we need to fetch current price and use IOC limit order
+        // Hyperliquid doesn't support true market orders
+        var price_str_owned: ?[]const u8 = null;
+        defer if (price_str_owned) |p| self.allocator.free(p);
 
-        const size_str = request.quantity.toString(self.allocator) catch "0";
+        const price_str: []const u8 = if (request.order_type == .market) blk: {
+            // Fetch current mid price
+            var mids = self.info_api.getAllMids() catch {
+                return OrderResult{
+                    .success = false,
+                    .error_code = 4010,
+                    .error_message = "Failed to fetch market price",
+                    .timestamp = Timestamp.now(),
+                };
+            };
+            defer {
+                var iter = mids.iterator();
+                while (iter.next()) |entry| {
+                    self.allocator.free(entry.key_ptr.*);
+                    self.allocator.free(entry.value_ptr.*);
+                }
+                mids.deinit();
+            }
+
+            const mid_str = mids.get(request.symbol) orelse {
+                return OrderResult{
+                    .success = false,
+                    .error_code = 4011,
+                    .error_message = "Symbol not found in market data",
+                    .timestamp = Timestamp.now(),
+                };
+            };
+
+            // Parse current price
+            const current_price = hl_types.parsePrice(mid_str) catch {
+                return OrderResult{
+                    .success = false,
+                    .error_code = 4012,
+                    .error_message = "Failed to parse market price",
+                    .timestamp = Timestamp.now(),
+                };
+            };
+
+            // Apply 5% slippage for aggressive execution
+            const slippage = Decimal.fromFloat(0.05);
+            const one = Decimal.ONE;
+            const aggressive_price_raw = if (request.side == .buy)
+                current_price.mul(one.add(slippage)) // Buy: +5%
+            else
+                current_price.mul(one.sub(slippage)); // Sell: -5%
+
+            // Round price (up for buy, down for sell)
+            const price_float = aggressive_price_raw.toFloat();
+            const price_rounded: i64 = if (request.side == .buy)
+                @intFromFloat(@ceil(price_float))
+            else
+                @intFromFloat(@floor(price_float));
+
+            self.logger.debug("Market order → IOC limit: mid={s}, aggressive={d}", .{
+                mid_str, price_rounded,
+            }) catch {};
+
+            // Format price string
+            price_str_owned = std.fmt.allocPrint(self.allocator, "{d}", .{price_rounded}) catch {
+                return OrderResult{
+                    .success = false,
+                    .error_code = 4013,
+                    .error_message = "Failed to format price",
+                    .timestamp = Timestamp.now(),
+                };
+            };
+            break :blk price_str_owned.?;
+        } else if (request.price) |p| blk: {
+            price_str_owned = p.toString(self.allocator) catch {
+                return OrderResult{
+                    .success = false,
+                    .error_code = 4014,
+                    .error_message = "Failed to format limit price",
+                    .timestamp = Timestamp.now(),
+                };
+            };
+            break :blk price_str_owned.?;
+        } else {
+            return OrderResult{
+                .success = false,
+                .error_code = 4015,
+                .error_message = "Limit order requires price",
+                .timestamp = Timestamp.now(),
+            };
+        };
+
+        const size_str = request.quantity.toString(self.allocator) catch {
+            return OrderResult{
+                .success = false,
+                .error_code = 4016,
+                .error_message = "Failed to format size",
+                .timestamp = Timestamp.now(),
+            };
+        };
         defer self.allocator.free(size_str);
 
+        // Market orders become IOC limit orders (Hyperliquid doesn't support true market)
         const hl_order_type: hl_types.HyperliquidOrderType = switch (request.order_type) {
             .limit => .{ .limit = .{ .tif = "Gtc" } },
-            .market => .{ .market = .{} },
+            .market => .{ .limit = .{ .tif = "Ioc" } }, // IOC limit for market orders
         };
 
         const hl_request = hl_types.OrderRequest{

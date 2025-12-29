@@ -237,6 +237,51 @@ pub const InfoAPI = struct {
         return parsed;
     }
 
+    /// Get candle (kline) snapshot
+    ///
+    /// Fetches historical OHLCV candle data for a given symbol and interval.
+    /// Only the most recent 5000 candles are available from the API.
+    ///
+    /// @param coin: Symbol (e.g., "BTC", "ETH")
+    /// @param interval: Candle interval ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M")
+    /// @param startTime: Start time in epoch milliseconds
+    /// @param endTime: End time in epoch milliseconds
+    /// @return Parsed CandleSnapshotResponse (array of CandleData)
+    pub fn getCandleSnapshot(
+        self: *InfoAPI,
+        coin: []const u8,
+        interval: []const u8,
+        startTime: u64,
+        endTime: u64,
+    ) !std.json.Parsed(types.CandleSnapshotResponse) {
+        self.logger.debug("Fetching candle snapshot for {s} interval={s}", .{ coin, interval }) catch {};
+
+        // Prepare request
+        // Format: {"type":"candleSnapshot","req":{"coin":"BTC","interval":"15m","startTime":1681923600000,"endTime":1681924499999}}
+        const request_json = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"type\":\"candleSnapshot\",\"req\":{{\"coin\":\"{s}\",\"interval\":\"{s}\",\"startTime\":{d},\"endTime\":{d}}}}}",
+            .{ coin, interval, startTime, endTime },
+        );
+        defer self.allocator.free(request_json);
+
+        // Send request
+        const response_body = try self.http_client.postInfo(request_json);
+        defer self.allocator.free(response_body);
+
+        // Parse response
+        const parsed = try std.json.parseFromSlice(
+            types.CandleSnapshotResponse,
+            self.allocator,
+            response_body,
+            .{ .allocate = .alloc_always, .ignore_unknown_fields = true },
+        );
+
+        self.logger.debug("Retrieved {} candles for {s}", .{ parsed.value.len, coin }) catch {};
+
+        return parsed;
+    }
+
     /// Free AllMids result
     pub fn freeAllMids(self: *InfoAPI, mids: *std.StringHashMap([]const u8)) void {
         var iter = mids.iterator();
