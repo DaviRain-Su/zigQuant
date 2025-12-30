@@ -139,6 +139,7 @@ pub const ExchangeAPI = struct {
         defer self.allocator.free(request_json);
 
         // Debug: Log the request being sent
+        std.debug.print("[DEBUG] Sending placeOrder request:\n{s}\n", .{request_json});
         self.logger.debug("Sending placeOrder request: {s}", .{request_json}) catch {};
 
         // Send request
@@ -146,6 +147,7 @@ pub const ExchangeAPI = struct {
         defer self.allocator.free(response_body);
 
         // Debug: Log the raw response
+        std.debug.print("[DEBUG] Raw placeOrder response:\n{s}\n", .{response_body});
         self.logger.debug("Raw placeOrder response: {s}", .{response_body}) catch {};
 
         // Parse response as dynamic JSON first

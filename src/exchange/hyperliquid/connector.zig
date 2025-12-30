@@ -552,7 +552,8 @@ pub const HyperliquidConnector = struct {
         self.rate_limiter.wait();
 
         // Get count of open orders before cancellation
-        const user_address = self.signer.?.address;
+        // IMPORTANT: Use api_key (main account), not signer address (API wallet)
+        const user_address = self.config.api_key;
         const before_orders = try self.info_api.getOpenOrders(user_address);
         defer before_orders.deinit();
 

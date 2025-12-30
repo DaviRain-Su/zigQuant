@@ -195,10 +195,10 @@ pub const Signer = struct {
         action_data: []const u8,
         nonce: u64,
     ) !Signature {
-        // std.debug.print("[DEBUG] Signing msgpack action ({d} bytes)\n", .{action_data.len});
-        // std.debug.print("[DEBUG] Signer address: {s}\n", .{self.address});
-        // std.debug.print("[DEBUG] Is testnet: {}\n", .{self.is_testnet});
-        // std.debug.print("[DEBUG] Nonce: {d}\n", .{nonce});
+        std.debug.print("[DEBUG] Signing msgpack action ({d} bytes)\n", .{action_data.len});
+        std.debug.print("[DEBUG] Signer address: {s}\n", .{self.address});
+        std.debug.print("[DEBUG] Is testnet: {}\n", .{self.is_testnet});
+        std.debug.print("[DEBUG] Nonce: {d}\n", .{nonce});
 
         // 1. Construct phantom agent
         const agent = try constructPhantomAgent(
@@ -207,8 +207,8 @@ pub const Signer = struct {
             nonce,
             self.is_testnet,
         );
-        // std.debug.print("[DEBUG] Phantom agent source: {s}\n", .{agent.source});
-        // std.debug.print("[DEBUG] Connection ID: {s}\n", .{std.fmt.bytesToHex(&agent.connectionId, .lower)});
+        std.debug.print("[DEBUG] Phantom agent source: {s}\n", .{agent.source});
+        std.debug.print("[DEBUG] Connection ID: {s}\n", .{std.fmt.bytesToHex(&agent.connectionId, .lower)});
 
         // 2. Encode Agent type for EIP-712
         const agent_hash = try encodeAgentType(self.allocator, agent);
@@ -242,19 +242,19 @@ pub const Signer = struct {
         const Hash = zigeth.primitives.Hash;
         const hash = Hash.fromBytes(digest);
         const sig = try self.wallet.signer.signHash(hash);
-        // std.debug.print("[DEBUG] Signature v: {d}\n", .{sig.v});
+        std.debug.print("[DEBUG] Signature v: {d}\n", .{sig.v});
 
         // 6. Verify signature by recovering address (for debugging)
         const ecdsa = @import("../../zigeth_deps.zig").ecdsa;
         const recovered_addr = try ecdsa.recoverAddress(hash, sig);
         const recovered_hex = try recovered_addr.toHex(self.allocator);
         defer self.allocator.free(recovered_hex);
-        // std.debug.print("[VERIFY] Recovered address: {s}\n", .{recovered_hex});
-        // std.debug.print("[VERIFY] Expected address:  {s}\n", .{self.address});
+        std.debug.print("[VERIFY] Recovered address: {s}\n", .{recovered_hex});
+        std.debug.print("[VERIFY] Expected address:  {s}\n", .{self.address});
         if (std.mem.eql(u8, recovered_hex, self.address)) {
-            // std.debug.print("[VERIFY] ✅ Local signature verification passed!\n", .{});
+            std.debug.print("[VERIFY] ✅ Local signature verification passed!\n", .{});
         } else {
-            std.debug.print("[WARN] Local address mismatch - may indicate signing issue\n", .{});
+            std.debug.print("[WARN] ❌ Local address mismatch - signing issue!\n", .{});
         }
 
         // 7. Convert signature components to hex strings with 0x prefix

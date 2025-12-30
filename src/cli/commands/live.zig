@@ -19,6 +19,14 @@
 const std = @import("std");
 const zigQuant = @import("zigQuant");
 
+// Global flag for graceful shutdown (set by signal handler)
+var shutdown_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+
+/// Signal handler for SIGINT (Ctrl+C)
+fn handleSigint(_: c_int) callconv(.c) void {
+    shutdown_requested.store(true, .release);
+}
+
 const Decimal = zigQuant.Decimal;
 const TradingPair = zigQuant.TradingPair;
 const Timestamp = zigQuant.Timestamp;
@@ -57,6 +65,10 @@ const AlertCategory = zigQuant.AlertCategory;
 const AlertDetails = zigQuant.AlertDetails;
 const ConsoleChannel = zigQuant.ConsoleChannel;
 const Account = zigQuant.Account;
+
+// Stop Loss Management
+const StopLossManager = zigQuant.StopLossManager;
+const StopTrigger = zigQuant.StopTrigger;
 
 // ============================================================================
 // Strategy Type
@@ -181,9 +193,31 @@ const LiveStrategyRunner = struct {
     // Risk Management
     risk_engine: ?*RiskEngine = null,
     alert_manager: ?*AlertManager = null,
+    console_channel: ?*ConsoleChannel = null, // For cleanup
+    stop_loss_manager: ?*StopLossManager = null,
     account: Account,
     risk_enabled: bool = true,
     orders_rejected_by_risk: u32 = 0,
+
+    // Stop loss statistics
+    stop_loss_triggered: u32 = 0,
+    trailing_stop_triggered: u32 = 0,
+    max_drawdown_hit: bool = false,
+    peak_equity: Decimal = Decimal.ZERO,
+    current_drawdown_pct: f64 = 0.0,
+
+    // Status display tracking for in-place refresh
+    last_status_lines: u32 = 0,
+    status_printed_once: bool = false,
+
+    // Account information for display
+    wallet_address: []const u8 = "",
+    account_value: Decimal = Decimal.ZERO,
+    available_balance: Decimal = Decimal.ZERO,
+    margin_used: Decimal = Decimal.ZERO,
+    unrealized_pnl_total: Decimal = Decimal.ZERO,
+    last_account_update: i64 = 0,
+    is_testnet: bool = true,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -241,7 +275,25 @@ const LiveStrategyRunner = struct {
             am.deinit();
             self.allocator.destroy(am);
         }
+        // Clean up console channel after alert manager
+        if (self.console_channel) |cc| {
+            self.allocator.destroy(cc);
+        }
+        if (self.stop_loss_manager) |slm| {
+            slm.deinit();
+            self.allocator.destroy(slm);
+        }
         self.allocator.destroy(self);
+    }
+
+    /// Round price to tick size (BTC tick size is 0.1 on Hyperliquid)
+    fn roundToTickSize(self: *LiveStrategyRunner, price: Decimal) Decimal {
+        _ = self;
+        // BTC on Hyperliquid has tick size of 0.1 (10 cents)
+        // Round to 1 decimal place
+        const float_price = price.toFloat();
+        const rounded = @round(float_price * 10.0) / 10.0;
+        return Decimal.fromFloat(rounded);
     }
 
     /// Initialize grid strategy specific state
@@ -287,6 +339,14 @@ const LiveStrategyRunner = struct {
         }
         self.grid_level_states = level_states;
 
+        // Initialize stop loss manager
+        const slm = try self.allocator.create(StopLossManager);
+        slm.* = StopLossManager.init(self.allocator);
+        self.stop_loss_manager = slm;
+
+        // Initialize peak equity for drawdown tracking
+        self.peak_equity = Decimal.fromFloat(10000); // Initial capital
+
         try self.logger.info("[GRID] Bidirectional grid initialized", .{});
         try self.logger.info("[GRID] Price range: {d:.2} - {d:.2}", .{
             grid.lower_price,
@@ -297,6 +357,13 @@ const LiveStrategyRunner = struct {
             self.live_config.order_size,
         });
         try self.logger.info("[GRID] Take profit: {d:.2}%", .{grid.take_profit_pct});
+        try self.logger.info("[GRID] Stop loss: {d:.2}%", .{grid.stop_loss_pct});
+        if (grid.trailing_stop_pct > 0) {
+            try self.logger.info("[GRID] Trailing stop: {d:.2}%", .{grid.trailing_stop_pct});
+        }
+        if (grid.max_drawdown_pct > 0) {
+            try self.logger.info("[GRID] Max drawdown limit: {d:.2}%", .{grid.max_drawdown_pct});
+        }
         try self.logger.info("[GRID] Enable Long: {}, Enable Short: {}", .{
             grid.enable_long,
             grid.enable_short,
@@ -745,12 +812,13 @@ const LiveStrategyRunner = struct {
         alert_manager.* = AlertManager.init(self.allocator, AlertConfig.default());
         self.alert_manager = alert_manager;
 
-        var console = try self.allocator.create(ConsoleChannel);
+        const console = try self.allocator.create(ConsoleChannel);
         console.* = ConsoleChannel.init(.{
             .colorize = true,
             .show_details = true,
             .show_timestamp = true,
         });
+        self.console_channel = console; // Save for cleanup
         try alert_manager.addChannel(console.asChannel());
 
         try self.logger.info("[RISK] Risk management initialized", .{});
@@ -808,9 +876,53 @@ const LiveStrategyRunner = struct {
             self.logger.*,
         );
 
+        // Store wallet address and testnet info for display
+        self.wallet_address = wallet;
+        self.is_testnet = testnet;
+
+        // Fetch initial account info
+        self.updateAccountInfo() catch |err| {
+            try self.logger.warn("Failed to fetch initial account info: {s}", .{@errorName(err)});
+        };
+
         try self.logger.info("Connected to Hyperliquid {s}", .{
             if (testnet) "Testnet" else "Mainnet",
         });
+    }
+
+    /// Update account information from exchange
+    pub fn updateAccountInfo(self: *LiveStrategyRunner) !void {
+        if (self.connector == null) return;
+
+        const exchange = self.connector.?.interface();
+
+        // Get balances
+        const balances = exchange.getBalance() catch |err| {
+            try self.logger.debug("Failed to get balances: {s}", .{@errorName(err)});
+            return;
+        };
+        defer self.allocator.free(balances);
+
+        if (balances.len > 0) {
+            self.account_value = balances[0].total;
+            self.available_balance = balances[0].available;
+            self.margin_used = balances[0].locked;
+        }
+
+        // Get positions for unrealized PnL
+        const positions = exchange.getPositions() catch |err| {
+            try self.logger.debug("Failed to get positions: {s}", .{@errorName(err)});
+            return;
+        };
+        defer self.allocator.free(positions);
+
+        var total_unrealized = Decimal.ZERO;
+        for (positions) |pos| {
+            total_unrealized = total_unrealized.add(pos.unrealized_pnl);
+        }
+        self.unrealized_pnl_total = total_unrealized;
+
+        self.last_account_update = std.time.milliTimestamp();
     }
 
     /// Get current market price
@@ -976,11 +1088,12 @@ const LiveStrategyRunner = struct {
         if (self.connector) |conn| {
             const exchange = conn.interface();
 
-            // Calculate exit price based on direction
-            const exit_price = switch (state.direction) {
+            // Calculate exit price based on direction and round to tick size
+            const raw_exit_price = switch (state.direction) {
                 .long => state.entry_price.mul(Decimal.fromFloat(1.0 + config.take_profit_pct / 100.0)),
                 .short => state.entry_price.mul(Decimal.fromFloat(1.0 - config.take_profit_pct / 100.0)),
             };
+            const exit_price = self.roundToTickSize(raw_exit_price);
 
             const side: Side = switch (state.direction) {
                 .long => .sell, // Long: sell to close
@@ -1054,7 +1167,8 @@ const LiveStrategyRunner = struct {
 
     fn placeSellOrder(self: *LiveStrategyRunner, level: *GridLevel, entry_price: Decimal) !void {
         const config = self.grid_config orelse return error.GridNotInitialized;
-        const tp_price = entry_price.mul(Decimal.fromFloat(1.0 + config.take_profit_pct / 100.0));
+        const raw_tp_price = entry_price.mul(Decimal.fromFloat(1.0 + config.take_profit_pct / 100.0));
+        const tp_price = self.roundToTickSize(raw_tp_price);
 
         if (self.connector) |conn| {
             const exchange = conn.interface();
@@ -1098,6 +1212,12 @@ const LiveStrategyRunner = struct {
     pub fn tick(self: *LiveStrategyRunner) !void {
         _ = try self.getCurrentPrice();
 
+        // Update account info every 5 seconds
+        const now = std.time.milliTimestamp();
+        if (now - self.last_account_update >= 5000) {
+            self.updateAccountInfo() catch {};
+        }
+
         switch (self.strategy_type) {
             .grid => try self.checkRealFills(),
             .ai => try self.aiStrategyTick(),
@@ -1133,6 +1253,16 @@ const LiveStrategyRunner = struct {
         const conn = self.connector.?;
         const config = self.grid_config orelse return;
         const level_states = self.grid_level_states orelse return;
+        const grid_config = self.live_config.grid;
+
+        // Check max drawdown first
+        if (grid_config.max_drawdown_pct > 0 and !self.max_drawdown_hit) {
+            try self.checkMaxDrawdown();
+            if (self.max_drawdown_hit) {
+                try self.logger.err("[GRID] MAX DRAWDOWN HIT! Stopping all trading.", .{});
+                return; // Stop processing
+            }
+        }
 
         // Get current open orders from exchange
         const exchange = conn.interface();
@@ -1164,6 +1294,14 @@ const LiveStrategyRunner = struct {
                     }
                 },
                 .in_position => {
+                    // Check stop loss first
+                    if (grid_config.stop_loss_pct > 0) {
+                        const stop_triggered = try self.checkGridStopLoss(state);
+                        if (stop_triggered) {
+                            continue; // Skip normal exit check
+                        }
+                    }
+
                     // Check if exit order was filled
                     if (state.exit_order_id) |exit_id| {
                         if (!open_order_ids.contains(exit_id)) {
@@ -1181,6 +1319,215 @@ const LiveStrategyRunner = struct {
         }
     }
 
+    /// Check if stop loss should trigger for a grid level
+    fn checkGridStopLoss(self: *LiveStrategyRunner, state: *GridLevelState) !bool {
+        if (self.stop_loss_manager == null) return false;
+        if (state.status != .in_position) return false;
+
+        const slm = self.stop_loss_manager.?;
+        const current_price = self.last_price;
+
+        var position_id_buf: [32]u8 = undefined;
+        const position_id = std.fmt.bufPrint(&position_id_buf, "grid_L{}", .{state.level}) catch return false;
+
+        const side: Side = if (state.direction == .long) .buy else .sell;
+
+        // Check if stop loss triggered
+        if (slm.checkStopLoss(position_id, side, current_price)) |trigger| {
+            try self.handleGridStopLossTriggered(state, trigger);
+            return true;
+        }
+
+        // Update trailing stop if applicable
+        const grid_config = self.live_config.grid;
+        if (grid_config.trailing_stop_pct > 0) {
+            slm.updateTrailingStop(position_id, side, current_price);
+        }
+
+        return false;
+    }
+
+    /// Handle stop loss triggered for a grid level
+    fn handleGridStopLossTriggered(self: *LiveStrategyRunner, state: *GridLevelState, trigger: StopTrigger) !void {
+        if (self.connector == null) return;
+
+        const exchange = self.connector.?.interface();
+
+        // Cancel the existing take profit order
+        if (state.exit_order_id) |exit_id| {
+            _ = exchange.cancelOrder(exit_id) catch {};
+        }
+
+        // Place market order to close position
+        const close_side: Side = if (state.direction == .long) .sell else .buy;
+        const order_request = OrderRequest{
+            .pair = self.pair,
+            .side = close_side,
+            .order_type = .market,
+            .amount = state.position_size,
+            .price = null,
+            .time_in_force = .ioc,
+            .reduce_only = true,
+        };
+
+        const order = exchange.createOrder(order_request) catch |err| {
+            try self.logger.err("[GRID] Failed to execute stop loss: {s}", .{@errorName(err)});
+            return;
+        };
+
+        // Calculate PnL
+        const exit_price = order.avg_fill_price orelse self.last_price;
+        const pnl = switch (state.direction) {
+            .long => exit_price.sub(state.entry_price).mul(state.position_size),
+            .short => state.entry_price.sub(exit_price).mul(state.position_size),
+        };
+
+        // Update statistics
+        self.realized_pnl = self.realized_pnl.add(pnl);
+        self.grid_total_pnl = self.grid_total_pnl.add(pnl);
+        self.trades_count += 1;
+
+        switch (trigger) {
+            .stop_loss => self.stop_loss_triggered += 1,
+            .trailing_stop => self.trailing_stop_triggered += 1,
+            else => {},
+        }
+
+        // Update position
+        switch (state.direction) {
+            .long => {
+                self.current_position = self.current_position.sub(state.position_size);
+                self.total_sold = self.total_sold.add(state.position_size);
+                self.grid_long_exits += 1;
+            },
+            .short => {
+                self.current_position = self.current_position.add(state.position_size);
+                self.total_bought = self.total_bought.add(state.position_size);
+                self.grid_short_exits += 1;
+            },
+        }
+
+        const dir_str = if (state.direction == .long) "LONG" else "SHORT";
+        const trigger_str = switch (trigger) {
+            .stop_loss => "STOP LOSS",
+            .trailing_stop => "TRAILING STOP",
+            .take_profit => "TAKE PROFIT",
+            .time_stop => "TIME STOP",
+        };
+
+        try self.logger.warn("[GRID] {s} {s} TRIGGERED L{} @ {d:.2} | PnL: {d:.4}", .{
+            dir_str,
+            trigger_str,
+            state.level,
+            exit_price.toFloat(),
+            pnl.toFloat(),
+        });
+
+        self.sendTradeAlert(.risk_kill_switch, self.pair.base, exit_price, state.position_size, pnl);
+
+        // Reset state for re-entry
+        state.position_size = Decimal.ZERO;
+        state.entry_price = Decimal.ZERO;
+        state.exit_order_id = null;
+        state.status = .waiting_reentry;
+
+        // Remove stop loss config
+        if (self.stop_loss_manager) |slm| {
+            var position_id_buf: [32]u8 = undefined;
+            const position_id = std.fmt.bufPrint(&position_id_buf, "grid_L{}", .{state.level}) catch return;
+            slm.removeAll(position_id);
+        }
+    }
+
+    /// Check maximum drawdown
+    fn checkMaxDrawdown(self: *LiveStrategyRunner) !void {
+        const grid_config = self.live_config.grid;
+        if (grid_config.max_drawdown_pct <= 0) return;
+
+        // Calculate current equity (initial + realized PnL + unrealized PnL)
+        const unrealized_pnl = self.calculateUnrealizedPnL();
+        const current_equity = self.peak_equity.add(self.realized_pnl).add(unrealized_pnl);
+
+        // Update peak equity
+        if (current_equity.cmp(self.peak_equity) == .gt) {
+            self.peak_equity = current_equity;
+        }
+
+        // Calculate drawdown
+        if (self.peak_equity.toFloat() > 0) {
+            const drawdown = self.peak_equity.sub(current_equity);
+            self.current_drawdown_pct = (drawdown.toFloat() / self.peak_equity.toFloat()) * 100.0;
+
+            if (self.current_drawdown_pct >= grid_config.max_drawdown_pct) {
+                self.max_drawdown_hit = true;
+                try self.logger.err("[GRID] Max drawdown limit reached: {d:.2}% >= {d:.2}%", .{
+                    self.current_drawdown_pct,
+                    grid_config.max_drawdown_pct,
+                });
+                // Close all positions
+                try self.closeAllGridPositions();
+            }
+        }
+    }
+
+    /// Calculate unrealized PnL for all open grid positions
+    fn calculateUnrealizedPnL(self: *LiveStrategyRunner) Decimal {
+        var unrealized = Decimal.ZERO;
+        const level_states = self.grid_level_states orelse return unrealized;
+        const current_price = self.last_price;
+
+        for (level_states) |state| {
+            if (state.status == .in_position and !state.position_size.isZero()) {
+                const pnl = switch (state.direction) {
+                    .long => current_price.sub(state.entry_price).mul(state.position_size),
+                    .short => state.entry_price.sub(current_price).mul(state.position_size),
+                };
+                unrealized = unrealized.add(pnl);
+            }
+        }
+
+        return unrealized;
+    }
+
+    /// Close all open grid positions (emergency shutdown)
+    fn closeAllGridPositions(self: *LiveStrategyRunner) !void {
+        if (self.connector == null) return;
+
+        const exchange = self.connector.?.interface();
+        const level_states = self.grid_level_states orelse return;
+
+        // Cancel all open orders first
+        _ = exchange.cancelAllOrders(self.pair) catch {};
+
+        // Close all positions
+        for (level_states) |*state| {
+            if (state.status == .in_position and !state.position_size.isZero()) {
+                const close_side: Side = if (state.direction == .long) .sell else .buy;
+                const order_request = OrderRequest{
+                    .pair = self.pair,
+                    .side = close_side,
+                    .order_type = .market,
+                    .amount = state.position_size,
+                    .price = null,
+                    .time_in_force = .ioc,
+                    .reduce_only = true,
+                };
+
+                _ = exchange.createOrder(order_request) catch |err| {
+                    try self.logger.err("[GRID] Failed to close position L{}: {s}", .{
+                        state.level,
+                        @errorName(err),
+                    });
+                    continue;
+                };
+
+                try self.logger.warn("[GRID] Emergency close L{}", .{state.level});
+                state.status = .disabled;
+                state.position_size = Decimal.ZERO;
+            }
+        }
+    }
+
     /// Handle grid entry order filled
     fn handleGridEntryFilled(self: *LiveStrategyRunner, state: *GridLevelState, config: GridConfig) !void {
         state.entry_price = state.grid_price;
@@ -1188,18 +1535,20 @@ const LiveStrategyRunner = struct {
         state.entry_order_id = null;
 
         // Update position tracking
-        switch (state.direction) {
-            .long => {
+        const side: Side = switch (state.direction) {
+            .long => blk: {
                 self.current_position = self.current_position.add(config.order_size);
                 self.total_bought = self.total_bought.add(config.order_size);
                 self.grid_long_entries += 1;
+                break :blk .buy;
             },
-            .short => {
+            .short => blk: {
                 self.current_position = self.current_position.sub(config.order_size);
                 self.total_sold = self.total_sold.add(config.order_size);
                 self.grid_short_entries += 1;
+                break :blk .sell;
             },
-        }
+        };
         self.trades_count += 1;
 
         const dir_str = if (state.direction == .long) "LONG" else "SHORT";
@@ -1211,17 +1560,50 @@ const LiveStrategyRunner = struct {
 
         self.sendTradeAlert(.trade_executed, self.pair.base, state.entry_price, config.order_size, null);
 
+        // Set stop loss for this position
+        const grid_config = self.live_config.grid;
+        if (grid_config.stop_loss_pct > 0 and self.stop_loss_manager != null) {
+            const slm = self.stop_loss_manager.?;
+            var position_id_buf: [32]u8 = undefined;
+            const position_id = std.fmt.bufPrint(&position_id_buf, "grid_L{}", .{state.level}) catch "grid_unknown";
+
+            // Calculate stop loss price and round to tick size
+            const raw_stop_price = switch (state.direction) {
+                .long => state.entry_price.mul(Decimal.fromFloat(1.0 - grid_config.stop_loss_pct / 100.0)),
+                .short => state.entry_price.mul(Decimal.fromFloat(1.0 + grid_config.stop_loss_pct / 100.0)),
+            };
+            const stop_price = self.roundToTickSize(raw_stop_price);
+
+            slm.setStopLoss(position_id, state.entry_price, side, stop_price, .market) catch |err| {
+                try self.logger.warn("[GRID] Failed to set stop loss: {s}", .{@errorName(err)});
+            };
+
+            try self.logger.debug("[GRID] Stop loss set L{} @ {d:.2} ({d:.2}% from entry)", .{
+                state.level,
+                stop_price.toFloat(),
+                grid_config.stop_loss_pct,
+            });
+
+            // Set trailing stop if configured
+            if (grid_config.trailing_stop_pct > 0) {
+                slm.setTrailingStopPct(position_id, state.entry_price, side, grid_config.trailing_stop_pct / 100.0) catch |err| {
+                    try self.logger.warn("[GRID] Failed to set trailing stop: {s}", .{@errorName(err)});
+                };
+            }
+        }
+
         // Place exit order
         try self.placeGridExitOrder(state);
     }
 
     /// Handle grid exit order filled
     fn handleGridExitFilled(self: *LiveStrategyRunner, state: *GridLevelState, config: GridConfig) !void {
-        // Calculate exit price and PnL
-        const exit_price = switch (state.direction) {
+        // Calculate exit price and PnL (round to tick size)
+        const raw_exit_price = switch (state.direction) {
             .long => state.entry_price.mul(Decimal.fromFloat(1.0 + config.take_profit_pct / 100.0)),
             .short => state.entry_price.mul(Decimal.fromFloat(1.0 - config.take_profit_pct / 100.0)),
         };
+        const exit_price = self.roundToTickSize(raw_exit_price);
 
         const pnl = switch (state.direction) {
             .long => exit_price.sub(state.entry_price).mul(state.position_size),
@@ -1264,70 +1646,170 @@ const LiveStrategyRunner = struct {
         state.status = .waiting_reentry;
     }
 
-    /// Print status
+    /// Print status with in-place refresh (uses ANSI escape sequences)
     pub fn printStatus(self: *LiveStrategyRunner) !void {
-        try self.logger.info("", .{});
-        try self.logger.info("===========================================", .{});
-        try self.logger.info("      Live Strategy Runner Status", .{});
-        try self.logger.info("===========================================", .{});
-        try self.logger.info("Strategy:         {s}", .{self.strategy_type.toString()});
-        try self.logger.info("Current Price:    {d:.2}", .{self.last_price.toFloat()});
-        try self.logger.info("Position:         {d:.6}", .{self.current_position.toFloat()});
+        const stdout_file = std.fs.File.stdout();
+        var stdout_buffer: [8192]u8 = undefined;
+        var stdout_writer = stdout_file.writer(&stdout_buffer);
+        const stdout = &stdout_writer.interface;
+
+        // If we've printed before, move cursor up and clear lines
+        if (self.status_printed_once and self.last_status_lines > 0) {
+            // Move cursor up N lines and clear from cursor to end of screen
+            try stdout.print("\x1B[{}A\x1B[J", .{self.last_status_lines});
+        }
+
+        var line_count: u32 = 0;
+
+        // Helper to print a line and count it
+        const printLine = struct {
+            fn print(w: anytype, count: *u32, comptime fmt: []const u8, args: anytype) !void {
+                try w.print(fmt ++ "\n", args);
+                count.* += 1;
+            }
+        }.print;
+
+        // Get current time for display
+        const now = std.time.timestamp();
+        const hours = @mod(@divTrunc(now, 3600), 24);
+        const minutes = @mod(@divTrunc(now, 60), 60);
+        const seconds = @mod(now, 60);
+
+        try printLine(stdout, &line_count, "", .{});
+        try printLine(stdout, &line_count, "\x1B[36m╔═══════════════════════════════════════════════════════════╗\x1B[0m", .{});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m         \x1B[1;33mLive Trading Status\x1B[0m   [{:0>2}:{:0>2}:{:0>2}]             \x1B[36m║\x1B[0m", .{ hours, minutes, seconds });
+        try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+
+        // Account Information Section
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[1;35mAccount Information\x1B[0m                                      \x1B[36m║\x1B[0m", .{});
+
+        // Format wallet address (show first 6 and last 4 chars)
+        const wallet_display: []const u8 = if (self.wallet_address.len >= 10)
+            self.wallet_address
+        else
+            "Not connected";
+
+        if (self.wallet_address.len >= 10) {
+            try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Wallet:     \x1B[37m{s}...{s:<28}\x1B[0m\x1B[36m║\x1B[0m", .{
+                wallet_display[0..6],
+                wallet_display[wallet_display.len - 4 ..],
+            });
+        } else {
+            try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Wallet:     \x1B[37m{s:<41}\x1B[0m\x1B[36m║\x1B[0m", .{wallet_display});
+        }
+
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Network:    {s:<42}\x1B[0m\x1B[36m║\x1B[0m", .{
+            if (self.is_testnet) "\x1B[33mTestnet\x1B[0m                                  " else "\x1B[32mMainnet\x1B[0m                                  ",
+        });
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Balance:    \x1B[1;32m{d:<38.2} USDC\x1B[0m\x1B[36m║\x1B[0m", .{self.account_value.toFloat()});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Available:  \x1B[32m{d:<38.2} USDC\x1B[0m\x1B[36m║\x1B[0m", .{self.available_balance.toFloat()});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Margin:     \x1B[33m{d:<38.2} USDC\x1B[0m\x1B[36m║\x1B[0m", .{self.margin_used.toFloat()});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Unrealized: {s}{d:<37.4} USDC\x1B[0m\x1B[36m║\x1B[0m", .{
+            if (self.unrealized_pnl_total.isPositive()) "\x1B[32m" else if (self.unrealized_pnl_total.isNegative()) "\x1B[31m" else "\x1B[37m",
+            self.unrealized_pnl_total.toFloat(),
+        });
+        try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+
+        // Trading Status Section
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[1;36mTrading Status\x1B[0m                                           \x1B[36m║\x1B[0m", .{});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Strategy:   \x1B[1;32m{s:<41}\x1B[0m\x1B[36m║\x1B[0m", .{self.strategy_type.toString()});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Pair:       \x1B[37m{s}-{s:<36}\x1B[0m\x1B[36m║\x1B[0m", .{ self.pair.base, self.pair.quote });
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Price:      \x1B[1;37m{d:<41.2}\x1B[0m\x1B[36m║\x1B[0m", .{self.last_price.toFloat()});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Position:   {s}{d:<40.6}\x1B[0m\x1B[36m║\x1B[0m", .{
+            if (self.current_position.isPositive()) "\x1B[32m" else if (self.current_position.isNegative()) "\x1B[31m" else "\x1B[37m",
+            self.current_position.toFloat(),
+        });
+        try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
 
         switch (self.strategy_type) {
             .grid => {
-                // Grid statistics
                 const grid_stats = self.countGridLevelsByStatus();
-                try self.logger.info("-------------------------------------------", .{});
-                try self.logger.info("Grid Level Status:", .{});
-                try self.logger.info("  Waiting Entry:    {}", .{grid_stats.waiting_entry});
-                try self.logger.info("  In Position:      {}", .{grid_stats.in_position});
-                try self.logger.info("  Waiting Reentry:  {}", .{grid_stats.waiting_reentry});
-                try self.logger.info("-------------------------------------------", .{});
-                try self.logger.info("Long Trades:", .{});
-                try self.logger.info("  Entries:          {}", .{self.grid_long_entries});
-                try self.logger.info("  Exits:            {}", .{self.grid_long_exits});
-                try self.logger.info("Short Trades:", .{});
-                try self.logger.info("  Entries:          {}", .{self.grid_short_entries});
-                try self.logger.info("  Exits:            {}", .{self.grid_short_exits});
-                try self.logger.info("Grid Total PnL:   {d:.4}", .{self.grid_total_pnl.toFloat()});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[33mGrid Levels:\x1B[0m                                              \x1B[36m║\x1B[0m", .{});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Waiting Entry:  \x1B[33m{:<39}\x1B[0m\x1B[36m║\x1B[0m", .{grid_stats.waiting_entry});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   In Position:    \x1B[32m{:<39}\x1B[0m\x1B[36m║\x1B[0m", .{grid_stats.in_position});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Waiting Reentry:\x1B[34m{:<39}\x1B[0m\x1B[36m║\x1B[0m", .{grid_stats.waiting_reentry});
+                try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[32mLong:\x1B[0m  Entry {:<4} Exit {:<4}                              \x1B[36m║\x1B[0m", .{ self.grid_long_entries, self.grid_long_exits });
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[31mShort:\x1B[0m Entry {:<4} Exit {:<4}                              \x1B[36m║\x1B[0m", .{ self.grid_short_entries, self.grid_short_exits });
+                try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[33mRisk Management:\x1B[0m                                          \x1B[36m║\x1B[0m", .{});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Stop Loss Hits: \x1B[31m{:<39}\x1B[0m\x1B[36m║\x1B[0m", .{self.stop_loss_triggered});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Trailing Stops: \x1B[33m{:<39}\x1B[0m\x1B[36m║\x1B[0m", .{self.trailing_stop_triggered});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Drawdown:       {s}{d:<38.2}%\x1B[0m\x1B[36m║\x1B[0m", .{
+                    if (self.current_drawdown_pct > 3.0) "\x1B[31m" else if (self.current_drawdown_pct > 1.0) "\x1B[33m" else "\x1B[32m",
+                    self.current_drawdown_pct,
+                });
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Max DD Hit:     {s:<40}\x1B[0m\x1B[36m║\x1B[0m", .{
+                    if (self.max_drawdown_hit) "\x1B[1;31mYES - STOPPED\x1B[0m                           " else "\x1B[32mno\x1B[0m                                       ",
+                });
+                const unrealized = self.calculateUnrealizedPnL();
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Grid PnL:       {s}{d:<38.4}\x1B[0m\x1B[36m║\x1B[0m", .{
+                    if (unrealized.isPositive()) "\x1B[32m" else if (unrealized.isNegative()) "\x1B[31m" else "\x1B[37m",
+                    unrealized.toFloat(),
+                });
             },
             .ai => {
-                // Show AI-specific stats
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[33mAI Indicators:\x1B[0m                                            \x1B[36m║\x1B[0m", .{});
                 if (self.candle_history) |candles| {
                     const last_idx = candles.len() - 1;
                     if (candles.getIndicator("rsi")) |rsi| {
-                        try self.logger.info("RSI:              {d:.2}", .{rsi.values[last_idx].toFloat()});
+                        const rsi_val = rsi.values[last_idx].toFloat();
+                        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   RSI:          {s}{d:<40.2}\x1B[0m\x1B[36m║\x1B[0m", .{
+                            if (rsi_val < 30) "\x1B[32m" else if (rsi_val > 70) "\x1B[31m" else "\x1B[33m",
+                            rsi_val,
+                        });
                     }
                     if (candles.getIndicator("sma")) |sma| {
-                        try self.logger.info("SMA:              {d:.2}", .{sma.values[last_idx].toFloat()});
+                        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   SMA:          \x1B[37m{d:<40.2}\x1B[0m\x1B[36m║\x1B[0m", .{sma.values[last_idx].toFloat()});
                     }
                 }
                 if (self.calculateTechnicalScore()) |score| {
-                    try self.logger.info("Technical Score:  {d:.3}", .{score});
+                    try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Tech Score:   {s}{d:<40.3}\x1B[0m\x1B[36m║\x1B[0m", .{
+                        if (score >= 0.65) "\x1B[32m" else if (score <= 0.35) "\x1B[31m" else "\x1B[33m",
+                        score,
+                    });
                 }
-                try self.logger.info("Signals Generated:  {}", .{self.ai_total_signals});
-                try self.logger.info("Entry Signals:      {}", .{self.ai_entry_signals});
-                try self.logger.info("Exit Signals:       {}", .{self.ai_exit_signals});
+                try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Signals:      {:<41}\x1B[36m║\x1B[0m", .{self.ai_total_signals});
+                try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Entry/Exit:   \x1B[32m{}\x1B[0m / \x1B[31m{}\x1B[0m                                   \x1B[36m║\x1B[0m", .{ self.ai_entry_signals, self.ai_exit_signals });
                 if (!self.entry_price.isZero()) {
-                    try self.logger.info("Entry Price:      {d:.2}", .{self.entry_price.toFloat()});
+                    try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Entry Price:  \x1B[37m{d:<40.2}\x1B[0m\x1B[36m║\x1B[0m", .{self.entry_price.toFloat()});
                 }
             },
         }
 
-        try self.logger.info("Total Trades:     {}", .{self.trades_count});
-        try self.logger.info("Realized PnL:     {d:.4}", .{self.realized_pnl.toFloat()});
+        // Performance Section
+        try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[1;32mPerformance\x1B[0m                                               \x1B[36m║\x1B[0m", .{});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Total Trades: \x1B[1;37m{:<40}\x1B[0m\x1B[36m║\x1B[0m", .{self.trades_count});
+        try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Realized PnL: {s}{d:<39.4}\x1B[0m\x1B[36m║\x1B[0m", .{
+            if (self.realized_pnl.isPositive()) "\x1B[1;32m" else if (self.realized_pnl.isNegative()) "\x1B[1;31m" else "\x1B[37m",
+            self.realized_pnl.toFloat(),
+        });
 
         if (self.risk_engine) |re| {
             const stats = re.getStats();
-            try self.logger.info("-------------------------------------------", .{});
-            try self.logger.info("Risk Checks:      {}", .{stats.total_checks});
-            try self.logger.info("Orders Rejected:  {}", .{stats.rejected_orders});
-            try self.logger.info("Kill Switch:      {s}", .{if (stats.kill_switch_active) "ACTIVE" else "off"});
+            try printLine(stdout, &line_count, "\x1B[36m╠═══════════════════════════════════════════════════════════╣\x1B[0m", .{});
+            try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m \x1B[1;31mRisk Engine\x1B[0m                                               \x1B[36m║\x1B[0m", .{});
+            try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Risk Checks:  {:<41}\x1B[36m║\x1B[0m", .{stats.total_checks});
+            try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Rejected:     {s}{:<40}\x1B[0m\x1B[36m║\x1B[0m", .{
+                if (stats.rejected_orders > 0) "\x1B[31m" else "\x1B[32m",
+                stats.rejected_orders,
+            });
+            try printLine(stdout, &line_count, "\x1B[36m║\x1B[0m   Kill Switch:  {s:<41}\x1B[0m\x1B[36m║\x1B[0m", .{
+                if (stats.kill_switch_active) "\x1B[1;31mACTIVE\x1B[0m                                  " else "\x1B[32moff\x1B[0m                                     ",
+            });
         }
 
-        try self.logger.info("===========================================", .{});
-        try self.logger.info("", .{});
+        try printLine(stdout, &line_count, "\x1B[36m╚═══════════════════════════════════════════════════════════╝\x1B[0m", .{});
+        try printLine(stdout, &line_count, "", .{});
+
+        // Flush the buffered output
+        try stdout.flush();
+
+        // Remember how many lines we printed for next refresh
+        self.last_status_lines = line_count;
+        self.status_printed_once = true;
     }
 
     fn countActiveOrders(self: *LiveStrategyRunner, side: Side) usize {
@@ -1378,11 +1860,141 @@ const LiveStrategyRunner = struct {
     pub fn cancelAllOrders(self: *LiveStrategyRunner) !void {
         if (self.connector) |conn| {
             const exchange = conn.interface();
-            const cancelled = try exchange.cancelAllOrders(self.pair);
-            try self.logger.info("Cancelled {} orders", .{cancelled});
+            // First check if there are any open orders
+            const open_orders = exchange.getOpenOrders(self.pair) catch |err| {
+                try self.logger.debug("Failed to get open orders: {s}", .{@errorName(err)});
+                self.buy_orders.clearRetainingCapacity();
+                self.sell_orders.clearRetainingCapacity();
+                return;
+            };
+            defer self.allocator.free(open_orders);
+
+            if (open_orders.len == 0) {
+                try self.logger.info("No open orders to cancel", .{});
+            } else {
+                const cancelled = exchange.cancelAllOrders(self.pair) catch |err| {
+                    try self.logger.warn("Failed to cancel orders: {s}", .{@errorName(err)});
+                    // Try to cancel individually
+                    var cancel_count: u32 = 0;
+                    for (open_orders) |order| {
+                        if (order.exchange_order_id) |oid| {
+                            exchange.cancelOrder(oid) catch continue;
+                            cancel_count += 1;
+                        }
+                    }
+                    try self.logger.info("Individually cancelled {} orders", .{cancel_count});
+                    self.buy_orders.clearRetainingCapacity();
+                    self.sell_orders.clearRetainingCapacity();
+                    return;
+                };
+                try self.logger.info("Cancelled {} orders", .{cancelled});
+            }
         }
         self.buy_orders.clearRetainingCapacity();
         self.sell_orders.clearRetainingCapacity();
+    }
+
+    /// Graceful shutdown - cancel orders and check positions
+    pub fn gracefulShutdown(self: *LiveStrategyRunner) !void {
+        const stdout_file = std.fs.File.stdout();
+        var stdout_buffer: [4096]u8 = undefined;
+        var stdout_writer = stdout_file.writer(&stdout_buffer);
+        const stdout = &stdout_writer.interface;
+
+        try stdout.print("\n", .{});
+        try stdout.print("\x1B[33m╔═══════════════════════════════════════════════════════════╗\x1B[0m\n", .{});
+        try stdout.print("\x1B[33m║               Graceful Shutdown Initiated                  ║\x1B[0m\n", .{});
+        try stdout.print("\x1B[33m╚═══════════════════════════════════════════════════════════╝\x1B[0m\n", .{});
+        try stdout.print("\n", .{});
+        try stdout.flush();
+
+        // Step 1: Cancel all pending orders
+        try self.logger.info("[SHUTDOWN] Cancelling all pending orders...", .{});
+        self.cancelAllOrders() catch |err| {
+            try self.logger.err("[SHUTDOWN] Failed to cancel orders: {s}", .{@errorName(err)});
+        };
+        try self.logger.info("[SHUTDOWN] All orders cancelled", .{});
+
+        // Step 2: Update account info one last time
+        self.updateAccountInfo() catch {};
+
+        // Step 3: Check for open positions
+        var has_position = false;
+        var position_value = Decimal.ZERO;
+
+        if (self.connector) |conn| {
+            const exchange = conn.interface();
+            const positions = exchange.getPositions() catch |err| {
+                try self.logger.warn("[SHUTDOWN] Failed to get positions: {s}", .{@errorName(err)});
+                // Fall back to local tracking
+                has_position = !self.current_position.isZero();
+                position_value = self.current_position;
+                if (has_position) {
+                    try self.printPositionWarning(position_value);
+                }
+                return;
+            };
+            defer self.allocator.free(positions);
+
+            for (positions) |pos| {
+                if (std.mem.eql(u8, pos.pair.base, self.pair.base) and
+                    std.mem.eql(u8, pos.pair.quote, self.pair.quote))
+                {
+                    if (!pos.size.isZero()) {
+                        has_position = true;
+                        position_value = if (pos.side == .buy) pos.size else pos.size.negate();
+                        break;
+                    }
+                }
+            }
+        } else {
+            // No connector, use local tracking
+            has_position = !self.current_position.isZero();
+            position_value = self.current_position;
+        }
+
+        if (has_position) {
+            try self.printPositionWarning(position_value);
+        } else {
+            try stdout.print("\x1B[32m[SHUTDOWN] No open positions. Clean exit.\x1B[0m\n", .{});
+            try stdout.flush();
+        }
+    }
+
+    /// Print position warning with details
+    fn printPositionWarning(self: *LiveStrategyRunner, position: Decimal) !void {
+        const stdout_file = std.fs.File.stdout();
+        var stdout_buffer: [4096]u8 = undefined;
+        var stdout_writer = stdout_file.writer(&stdout_buffer);
+        const stdout = &stdout_writer.interface;
+
+        try stdout.print("\n", .{});
+        try stdout.print("\x1B[1;31m╔═══════════════════════════════════════════════════════════╗\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║                  ⚠️  WARNING: OPEN POSITION  ⚠️              ║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m╠═══════════════════════════════════════════════════════════╣\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m                                                           \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m   Pair:       \x1B[1;37m{s}-{s:<40}\x1B[0m\x1B[1;31m║\x1B[0m\n", .{ self.pair.base, self.pair.quote });
+        try stdout.print("\x1B[1;31m║\x1B[0m   Position:   {s}{d:<40.6}\x1B[0m\x1B[1;31m║\x1B[0m\n", .{
+            if (position.isPositive()) "\x1B[32mLONG  " else "\x1B[31mSHORT ",
+            position.abs().toFloat(),
+        });
+        try stdout.print("\x1B[1;31m║\x1B[0m   Price:      \x1B[37m{d:<42.2}\x1B[0m\x1B[1;31m║\x1B[0m\n", .{self.last_price.toFloat()});
+
+        // Calculate approximate value
+        const value = position.abs().mul(self.last_price);
+        try stdout.print("\x1B[1;31m║\x1B[0m   Value:      \x1B[33m~${d:<39.2}\x1B[0m\x1B[1;31m║\x1B[0m\n", .{value.toFloat()});
+
+        try stdout.print("\x1B[1;31m║\x1B[0m                                                           \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m╠═══════════════════════════════════════════════════════════╣\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m  \x1B[1;33mYou must manually close this position!\x1B[0m                  \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m                                                           \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m  Options:                                                 \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m    1. Use Hyperliquid Web UI: https://app.hyperliquid.xyz \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m║\x1B[0m    2. Use CLI: zigquant sell/buy {s} <size>              \x1B[1;31m║\x1B[0m\n", .{self.pair.base});
+        try stdout.print("\x1B[1;31m║\x1B[0m                                                           \x1B[1;31m║\x1B[0m\n", .{});
+        try stdout.print("\x1B[1;31m╚═══════════════════════════════════════════════════════════╝\x1B[0m\n", .{});
+        try stdout.print("\n", .{});
+        try stdout.flush();
     }
 };
 
@@ -1560,9 +2172,20 @@ pub fn cmdLive(
     try runner.placeInitialOrders();
     try runner.printStatus();
 
+    // Setup signal handler for graceful shutdown (Ctrl+C)
+    const sigint_action = std.os.linux.Sigaction{
+        .handler = .{ .handler = handleSigint },
+        .mask = .{0}, // Empty signal mask
+        .flags = 0,
+    };
+    _ = std.os.linux.sigaction(std.os.linux.SIG.INT, &sigint_action, null);
+
+    // Reset shutdown flag
+    shutdown_requested.store(false, .release);
+
     // Main loop
     try logger.info("Starting live trading main loop...", .{});
-    try logger.info("Press Ctrl+C to stop", .{});
+    try logger.info("Press Ctrl+C to stop gracefully", .{});
     try logger.info("", .{});
 
     const start_time = std.time.milliTimestamp();
@@ -1573,6 +2196,13 @@ pub fn cmdLive(
 
     var iteration: u64 = 0;
     while (std.time.milliTimestamp() < end_time) {
+        // Check for shutdown signal
+        if (shutdown_requested.load(.acquire)) {
+            try logger.info("", .{});
+            try logger.info("Shutdown signal received (Ctrl+C)...", .{});
+            break;
+        }
+
         iteration += 1;
 
         try runner.tick();
@@ -1584,10 +2214,8 @@ pub fn cmdLive(
         std.Thread.sleep(live_config.interval_ms * std.time.ns_per_ms);
     }
 
-    // Cleanup
-    try logger.info("", .{});
-    try logger.info("Live trading stopped. Cancelling remaining orders...", .{});
-    try runner.cancelAllOrders();
+    // Graceful shutdown - cancel orders and check positions
+    try runner.gracefulShutdown();
 
     // Final summary
     try logger.info("", .{});

@@ -112,6 +112,15 @@ pub const GridStrategyConfig = struct {
     /// Take profit percentage per grid
     take_profit_pct: f64 = 0.5,
 
+    /// Stop loss percentage per grid level (0 = disabled)
+    stop_loss_pct: f64 = 1.0,
+
+    /// Trailing stop percentage (0 = disabled, uses fixed stop loss)
+    trailing_stop_pct: f64 = 0.0,
+
+    /// Maximum total drawdown percentage before stopping (0 = disabled)
+    max_drawdown_pct: f64 = 5.0,
+
     /// Enable long (buy) orders
     enable_long: bool = true,
 

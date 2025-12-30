@@ -297,15 +297,42 @@ pub fn parsePrice(price_str: []const u8) !Decimal {
     return Decimal.fromString(price_str);
 }
 
-/// Format Decimal to price string
-/// Rounds to 1 decimal place for Hyperliquid (BTC tick size is 1)
+/// Format Decimal to price string (Hyperliquid wire format)
+/// - Rounds to appropriate precision
+/// - Removes trailing zeros (like Python SDK's Decimal.normalize())
+/// Example: 87000.0 -> "87000", 87736.5 -> "87736.5"
 pub fn formatPrice(allocator: std.mem.Allocator, price: Decimal) ![]const u8 {
-    // Round to 1 decimal place (multiply by 10, round, divide by 10)
-    const multiplier = Decimal.fromInt(10);
-    const scaled = price.mul(multiplier);
-    const rounded_value = @divTrunc(scaled.value + 500000000000000000, 1000000000000000000) * 1000000000000000000;
-    const rounded = Decimal{ .value = @divTrunc(rounded_value, 10), .scale = price.scale };
-    return rounded.toString(allocator);
+    // Round to 8 decimal places first (matching Python SDK)
+    const float_price = price.toFloat();
+
+    // Format with enough precision, then normalize
+    var buf: [64]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&buf, "{d:.8}", .{float_price}) catch return error.FormatError;
+
+    // Find the decimal point and remove trailing zeros
+    var end: usize = formatted.len;
+
+    // Check if there's a decimal point
+    var has_decimal = false;
+    for (formatted) |c| {
+        if (c == '.') {
+            has_decimal = true;
+            break;
+        }
+    }
+
+    if (has_decimal) {
+        // Remove trailing zeros
+        while (end > 0 and formatted[end - 1] == '0') {
+            end -= 1;
+        }
+        // Remove trailing decimal point if no decimals left
+        if (end > 0 and formatted[end - 1] == '.') {
+            end -= 1;
+        }
+    }
+
+    return allocator.dupe(u8, formatted[0..end]);
 }
 
 /// Parse size string to Decimal
@@ -313,14 +340,42 @@ pub fn parseSize(size_str: []const u8) !Decimal {
     return Decimal.fromString(size_str);
 }
 
-/// Format Decimal to size string
-/// Rounds to 4 decimal places for Hyperliquid (minimum order size precision)
+/// Format Decimal to size string (Hyperliquid wire format)
+/// - Rounds to 8 decimal places (matching Python SDK)
+/// - Removes trailing zeros (like Python SDK's Decimal.normalize())
+/// Example: 0.0010 -> "0.001", 1.0 -> "1"
 pub fn formatSize(allocator: std.mem.Allocator, size: Decimal) ![]const u8 {
-    // Round to 4 decimal places
-    const scale_factor: i128 = 100000000000000; // 10^14 (18 - 4 = 14)
-    const rounded_value = @divTrunc(size.value + @divTrunc(scale_factor, 2), scale_factor) * scale_factor;
-    const rounded = Decimal{ .value = rounded_value, .scale = size.scale };
-    return rounded.toString(allocator);
+    // Use same normalization as formatPrice
+    const float_size = size.toFloat();
+
+    // Format with 8 decimal places, then normalize
+    var buf: [64]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&buf, "{d:.8}", .{float_size}) catch return error.FormatError;
+
+    // Find the decimal point and remove trailing zeros
+    var end: usize = formatted.len;
+
+    // Check if there's a decimal point
+    var has_decimal = false;
+    for (formatted) |c| {
+        if (c == '.') {
+            has_decimal = true;
+            break;
+        }
+    }
+
+    if (has_decimal) {
+        // Remove trailing zeros
+        while (end > 0 and formatted[end - 1] == '0') {
+            end -= 1;
+        }
+        // Remove trailing decimal point if no decimals left
+        if (end > 0 and formatted[end - 1] == '.') {
+            end -= 1;
+        }
+    }
+
+    return allocator.dupe(u8, formatted[0..end]);
 }
 
 // ============================================================================
