@@ -232,30 +232,49 @@ pub const BacktestResult = struct {
 
     /// Calculate backtest duration in days based on actual trades
     pub fn calculateDays(self: *const BacktestResult) u32 {
-        // If no trades, use config time range (with overflow protection)
-        if (self.trades.len == 0) {
-            const duration_ms = self.config.end_time.millis - self.config.start_time.millis;
+        // First try to use actual trade time range
+        if (self.trades.len > 0) {
+            var min_time: i64 = std.math.maxInt(i64);
+            var max_time: i64 = std.math.minInt(i64);
+
+            for (self.trades) |trade| {
+                if (trade.entry_time.millis < min_time) min_time = trade.entry_time.millis;
+                if (trade.exit_time.millis > max_time) max_time = trade.exit_time.millis;
+            }
+
+            const duration_ms = max_time - min_time;
             const days_i64 = @divTrunc(duration_ms, 24 * 60 * 60 * 1000);
-            // Cap at u32 max to prevent overflow
-            return if (days_i64 > std.math.maxInt(u32))
-                std.math.maxInt(u32)
+            return if (days_i64 > std.math.maxInt(u32) or days_i64 < 0)
+                0
             else
                 @intCast(days_i64);
         }
 
-        // Use actual trade time range
-        var min_time: i64 = std.math.maxInt(i64);
-        var max_time: i64 = std.math.minInt(i64);
-
-        for (self.trades) |trade| {
-            if (trade.entry_time.millis < min_time) min_time = trade.entry_time.millis;
-            if (trade.exit_time.millis > max_time) max_time = trade.exit_time.millis;
+        // If no trades, try to use equity curve time range
+        if (self.equity_curve.len >= 2) {
+            const first_ts = self.equity_curve[0].timestamp.millis;
+            const last_ts = self.equity_curve[self.equity_curve.len - 1].timestamp.millis;
+            const duration_ms = last_ts - first_ts;
+            const days_i64 = @divTrunc(duration_ms, 24 * 60 * 60 * 1000);
+            return if (days_i64 > std.math.maxInt(u32) or days_i64 < 0)
+                0
+            else
+                @intCast(days_i64);
         }
 
-        const duration_ms = max_time - min_time;
+        // Fallback: use config time range, but check for maxInt
+        const end_millis = self.config.end_time.millis;
+        const start_millis = self.config.start_time.millis;
+
+        // If end time is maxInt, return 0 (unknown duration)
+        if (end_millis >= std.math.maxInt(i64) - 1000 or start_millis <= 0) {
+            return 0;
+        }
+
+        const duration_ms = end_millis - start_millis;
         const days_i64 = @divTrunc(duration_ms, 24 * 60 * 60 * 1000);
-        return if (days_i64 > std.math.maxInt(u32))
-            std.math.maxInt(u32)
+        return if (days_i64 > std.math.maxInt(u32) or days_i64 < 0)
+            0
         else
             @intCast(days_i64);
     }

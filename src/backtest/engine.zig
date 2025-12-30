@@ -275,10 +275,10 @@ pub const BacktestEngine = struct {
         );
         try position_mgr.openPosition(position);
 
-        try self.logger.info("Opened {s} position: {} @ {}", .{
+        try self.logger.info("Opened {s} position: {d:.6} @ {d:.2}", .{
             @tagName(pos_side),
-            fill.fill_size,
-            fill.fill_price,
+            fill.fill_size.toFloat(),
+            fill.fill_price.toFloat(),
         });
     }
 
@@ -322,7 +322,10 @@ pub const BacktestEngine = struct {
 
         // 5. Calculate trade metrics
         const duration_ms = signal.timestamp.millis - position.entry_time.millis;
-        const duration_minutes: u64 = @intCast(@divTrunc(duration_ms, 60000));
+        const duration_minutes: u64 = if (duration_ms > 0)
+            @intCast(@divTrunc(duration_ms, 60000))
+        else
+            0; // Prevent negative duration
 
         const entry_cost = position.entry_price.mul(position.size);
         const pnl_percent = try net_pnl.div(entry_cost);
@@ -343,8 +346,8 @@ pub const BacktestEngine = struct {
             .duration_minutes = duration_minutes,
         });
 
-        try self.logger.info("Closed position: PnL={}, Return={d:.2}%", .{
-            net_pnl,
+        try self.logger.info("Closed position: PnL={d:.2}, Return={d:.2}%", .{
+            net_pnl.toFloat(),
             pnl_percent.toFloat() * 100,
         });
 

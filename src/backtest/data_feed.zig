@@ -120,9 +120,16 @@ pub const HistoricalDataFeed = struct {
         const close_trimmed = std.mem.trim(u8, close_str, " \t\r");
         const volume_trimmed = std.mem.trim(u8, volume_str, " \t\r");
 
+        // Parse and normalize timestamp (handle both milliseconds and microseconds)
+        var timestamp_value = try std.fmt.parseInt(i64, timestamp_trimmed, 10);
+        // If timestamp is in microseconds (> 10^15), convert to milliseconds
+        if (timestamp_value > 1_000_000_000_000_000) {
+            timestamp_value = @divTrunc(timestamp_value, 1000);
+        }
+
         return Candle{
             .timestamp = Timestamp{
-                .millis = try std.fmt.parseInt(i64, timestamp_trimmed, 10),
+                .millis = timestamp_value,
             },
             .open = try Decimal.fromString(open_trimmed),
             .high = try Decimal.fromString(high_trimmed),

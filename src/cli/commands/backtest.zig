@@ -325,10 +325,10 @@ fn displayResults(
     });
     try logger.info("  Losing Trades:       {d}", .{metrics.losing_trades});
     try logger.info("", .{});
-    try logger.info("  Net Profit:          {}", .{metrics.net_profit});
+    try logger.info("  Net Profit:          {d:.2}", .{metrics.net_profit.toFloat()});
     try logger.info("  Profit Factor:       {d:.2}", .{metrics.profit_factor});
-    try logger.info("  Average Profit:      {}", .{metrics.average_profit});
-    try logger.info("  Average Loss:        {}", .{metrics.average_loss});
+    try logger.info("  Average Profit:      {d:.2}", .{metrics.average_profit.toFloat()});
+    try logger.info("  Average Loss:        {d:.2}", .{metrics.average_loss.toFloat()});
     try logger.info("", .{});
 
     try logger.info("Risk Metrics", .{});
@@ -344,7 +344,7 @@ fn displayResults(
     try logger.info("  Avg Hold Time:       {d:.1} minutes", .{metrics.average_hold_time_minutes});
     try logger.info("  Max Hold Time:       {d} minutes", .{metrics.max_hold_time_minutes});
     try logger.info("  Min Hold Time:       {d} minutes", .{metrics.min_hold_time_minutes});
-    try logger.info("  Total Commission:    {}", .{metrics.total_commission});
+    try logger.info("  Total Commission:    {d:.4}", .{metrics.total_commission.toFloat()});
     try logger.info("", .{});
 }
 
@@ -368,7 +368,7 @@ fn saveResultsToJSON(
         \\  "winning_trades": {d},
         \\  "losing_trades": {d},
         \\  "win_rate": {d},
-        \\  "net_profit": "{}",
+        \\  "net_profit": {d},
         \\  "profit_factor": {d},
         \\  "max_drawdown": {d},
         \\  "sharpe_ratio": {d},
@@ -384,7 +384,7 @@ fn saveResultsToJSON(
         metrics.winning_trades,
         metrics.losing_trades,
         metrics.win_rate,
-        metrics.net_profit,
+        metrics.net_profit.toFloat(),
         metrics.profit_factor,
         metrics.max_drawdown,
         metrics.sharpe_ratio,
