@@ -4,6 +4,14 @@
 
 ## 目录
 
+### Hyperliquid API 问题
+
+- **[Hyperliquid 签名问题排查指南](./hyperliquid-signing-issues.md)** ⭐⭐ **新增**
+  - 问题：签名验证失败、地址不存在、价格 tick size 错误
+  - 解决方案：移除尾部零、区分双地址、对齐 tick size
+  - 难度：⭐⭐⭐⭐ (隐蔽性极强)
+  - 状态：✅ 已解决
+
 ### Zig 版本兼容性问题
 
 - **[Zig 0.15.2 Logger 模块兼容性问题](./zig-0.15.2-logger-compatibility.md)** ⭐
@@ -19,6 +27,9 @@
   - 状态：✅ 已解决
 
 ## 问题分类
+
+### 交易所 API
+- [Hyperliquid 签名问题排查指南](./hyperliquid-signing-issues.md) ⭐⭐ **签名验证失败**
 
 ### 类型系统
 - [Zig 0.15.2 Logger 模块兼容性问题](./zig-0.15.2-logger-compatibility.md)

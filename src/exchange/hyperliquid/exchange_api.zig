@@ -200,11 +200,12 @@ pub const ExchangeAPI = struct {
     ///
     /// @param asset_index: Asset index from meta (e.g., 0 for ETH)
     /// @param order_id: Order ID to cancel
+    /// @return void on success, error on failure
     pub fn cancelOrder(
         self: *ExchangeAPI,
         asset_index: u64,
         order_id: u64,
-    ) !types.CancelResponse {
+    ) !void {
         if (self.signer == null) {
             return error.SignerRequired;
         }
@@ -265,25 +266,45 @@ pub const ExchangeAPI = struct {
         const response_body = try self.http_client.postExchange(request_json);
         defer self.allocator.free(response_body);
 
-        // Parse response
-        const parsed = try std.json.parseFromSlice(
-            types.CancelResponse,
+        // Debug: Log the raw response
+        self.logger.debug("Raw cancelOrder response: {s}", .{response_body}) catch {};
+
+        // Parse response as dynamic JSON first to check status
+        const parsed_raw = try std.json.parseFromSlice(
+            std.json.Value,
             self.allocator,
             response_body,
             .{ .allocate = .alloc_always },
         );
-        defer parsed.deinit();
+        defer parsed_raw.deinit();
 
-        return parsed.value;
+        const root = parsed_raw.value.object;
+
+        // Check status field
+        const status = root.get("status") orelse return error.MissingStatus;
+        const status_str = status.string;
+
+        // Handle error response
+        if (std.mem.eql(u8, status_str, "err")) {
+            const response = root.get("response") orelse return error.MissingResponse;
+            const error_msg = response.string;
+            self.logger.err("Cancel order failed: {s}", .{error_msg}) catch {};
+            return error.CancelOrderFailed;
+        }
+
+        // Return success - no need to return the full response
+        // The caller only cares about success/failure
+        self.logger.debug("Cancel order succeeded", .{}) catch {};
     }
 
     /// Cancel all orders for a coin
     ///
     /// @param asset_index: Asset index from meta (e.g., 0 for ETH), or null for all
+    /// @return void on success, error on failure
     pub fn cancelAllOrders(
         self: *ExchangeAPI,
         asset_index: ?u64,
-    ) !types.CancelResponse {
+    ) !void {
         if (self.signer == null) {
             return error.SignerRequired;
         }
@@ -349,16 +370,34 @@ pub const ExchangeAPI = struct {
         const response_body = try self.http_client.postExchange(request_json);
         defer self.allocator.free(response_body);
 
-        // Parse response
-        const parsed = try std.json.parseFromSlice(
-            types.CancelResponse,
+        // Debug: Log the raw response
+        self.logger.debug("Raw cancelAllOrders response: {s}", .{response_body}) catch {};
+
+        // Parse response as dynamic JSON first to check status
+        const parsed_raw = try std.json.parseFromSlice(
+            std.json.Value,
             self.allocator,
             response_body,
             .{ .allocate = .alloc_always },
         );
-        defer parsed.deinit();
+        defer parsed_raw.deinit();
 
-        return parsed.value;
+        const root = parsed_raw.value.object;
+
+        // Check status field
+        const status = root.get("status") orelse return error.MissingStatus;
+        const status_str = status.string;
+
+        // Handle error response
+        if (std.mem.eql(u8, status_str, "err")) {
+            const response = root.get("response") orelse return error.MissingResponse;
+            const error_msg = response.string;
+            self.logger.err("Cancel all orders failed: {s}", .{error_msg}) catch {};
+            return error.CancelAllOrdersFailed;
+        }
+
+        // Return success
+        self.logger.debug("Cancel all orders succeeded", .{}) catch {};
     }
 
     /// Update leverage for a specific asset

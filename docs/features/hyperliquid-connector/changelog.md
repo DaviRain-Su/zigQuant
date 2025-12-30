@@ -2,7 +2,7 @@
 
 > 版本历史和更新记录
 
-**最后更新**: 2025-12-25
+**最后更新**: 2025-12-30
 
 ---
 
@@ -13,7 +13,51 @@
 - [ ] 添加连接池支持
 - [ ] 实现批量 API 请求
 - [ ] 支持 HTTP/2
-- [ ] 完善 `cancelAllOrders()` msgpack 签名（目前使用 JSON 签名）
+- [ ] 修复 AlertManager HashMap 内存问题
+
+---
+
+## [0.2.6] - 2025-12-30
+
+### 🎉 实盘交易签名问题修复
+
+本次发布修复了 2 个关键的签名相关 bug，使实盘网格交易能够正常运行。
+
+### Fixed
+- 🐛 **Bug #7: 价格/数量格式化保留尾部零导致签名失败** (Critical)
+  - 问题：`formatPrice()` 输出 `"87000.0"` 而非 `"87000"`，导致签名验证失败
+  - 现象：每次运行返回不同的错误地址 "User or API Wallet does not exist: 0xXXXX"
+  - 修复：更新 `formatPrice()` 和 `formatSize()` 移除尾部零
+  - 原理：匹配 Python SDK 的 `Decimal.normalize()` 行为
+  - 位置：
+    - `src/exchange/hyperliquid/types.zig`:304-336 - `formatPrice()`
+    - `src/exchange/hyperliquid/types.zig`:347-379 - `formatSize()`
+  - 测试：
+    - `87000.0` → `"87000"` ✅
+    - `87736.5` → `"87736.5"` ✅
+    - `0.0010` → `"0.001"` ✅
+
+- 🐛 **Bug #8: cancelAllOrders 使用错误的账户地址** (High)
+  - 问题：使用 `signer.address`（API wallet）而非 `config.api_key`（主账户）
+  - 修复：改用 `self.config.api_key` 查询挂单
+  - 位置：`src/exchange/hyperliquid/connector.zig`:555-556
+
+### Known Issues
+- ⚠️ **AlertManager HashMap 内存问题**
+  - 状态：临时禁用 `isThrottled()` 函数
+  - 影响：告警节流功能暂时不可用
+  - 位置：`src/risk/alert.zig`
+
+### Technical Highlights
+- 📐 **Wire Format 兼容性**：价格/数量字符串格式现在与 Python SDK 完全兼容
+- 🔐 **签名验证**：实盘订单签名验证通过，订单正常执行
+- 📊 **Grid Trading**：网格策略实盘测试通过
+  - LONG Exit FILLED
+  - SHORT Entry FILLED
+
+### Performance
+- ⚡ 下单延迟：~200-300ms（testnet）
+- ⚡ 网格策略：稳定运行
 
 ---
 

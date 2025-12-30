@@ -17,6 +17,37 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
+// Timestamp Formatting
+// ============================================================================
+
+/// Format a millisecond timestamp to human-readable format
+/// Format: YYYY-MM-DD HH:MM:SS.mmm
+pub fn formatTimestamp(buf: []u8, timestamp_ms: i64) []const u8 {
+    const timestamp_s: i64 = @divTrunc(timestamp_ms, 1000);
+    const millis: u16 = @intCast(@mod(@as(u64, @intCast(timestamp_ms)), 1000));
+
+    // Convert to EpochSeconds and then to DateTime
+    const epoch_secs: u64 = @intCast(if (timestamp_s < 0) 0 else timestamp_s);
+    const epoch = std.time.epoch.EpochSeconds{ .secs = epoch_secs };
+    const day_secs = epoch.getDaySeconds();
+    const epoch_day = epoch.getEpochDay();
+    const year_day = epoch_day.calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+
+    const len = std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{
+        year_day.year,
+        month_day.month.numeric(),
+        month_day.day_index + 1,
+        day_secs.getHoursIntoDay(),
+        day_secs.getMinutesIntoHour(),
+        day_secs.getSecondsIntoMinute(),
+        millis,
+    }) catch return "0000-00-00 00:00:00.000";
+
+    return buf[0..len.len];
+}
+
+// ============================================================================
 // Log Levels
 // ============================================================================
 
@@ -413,22 +444,26 @@ pub fn ConsoleWriter(comptime WriterType: type) type {
             var buf = try std.ArrayList(u8).initCapacity(self.allocator, 256);
             defer buf.deinit(self.allocator);
 
-            // Format: [LEVEL] timestamp message key1=value1 key2=value2
+            // Format: [LEVEL] YYYY-MM-DD HH:MM:SS.mmm message key1=value1 key2=value2
             const w = buf.writer(self.allocator);
+
+            // Format timestamp to human-readable format
+            var ts_buf: [32]u8 = undefined;
+            const ts_str = formatTimestamp(&ts_buf, record.timestamp);
 
             // Apply color to entire log line if colors are enabled
             if (self.use_colors) {
                 const color = AnsiColors.forLevel(record.level);
-                try w.print("{s}[{s}] {} {s}", .{
+                try w.print("{s}[{s}] {s} {s}", .{
                     color,
                     record.level.toString(),
-                    record.timestamp,
+                    ts_str,
                     record.message,
                 });
             } else {
-                try w.print("[{s}] {} {s}", .{
+                try w.print("[{s}] {s} {s}", .{
                     record.level.toString(),
-                    record.timestamp,
+                    ts_str,
                     record.message,
                 });
             }
@@ -524,10 +559,14 @@ pub const FileWriter = struct {
         var buf = try std.ArrayList(u8).initCapacity(self.allocator, 256);
         defer buf.deinit(self.allocator);
 
+        // Format timestamp to human-readable format
+        var ts_buf: [32]u8 = undefined;
+        const ts_str = formatTimestamp(&ts_buf, record.timestamp);
+
         const w = buf.writer(self.allocator);
-        try w.print("[{s}] {} {s}", .{
+        try w.print("[{s}] {s} {s}", .{
             record.level.toString(),
-            record.timestamp,
+            ts_str,
             record.message,
         });
 

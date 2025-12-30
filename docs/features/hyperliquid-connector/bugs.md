@@ -407,6 +407,177 @@ fn getOpenOrders(ptr: *anyopaque, pair: ?TradingPair) anyerror![]Order {
 
 ---
 
+### Bug #7: 价格/数量格式化保留尾部零导致签名失败
+
+**发现日期**: 2025-12-30
+**修复日期**: 2025-12-30
+**严重性**: Critical
+
+**问题描述**:
+- `types.zig` 中的 `formatPrice()` 和 `formatSize()` 函数输出带有尾部零的字符串
+- 例如：`87000.0` 而非 `87000`，`0.0010` 而非 `0.001`
+- 导致签名数据与 Hyperliquid 服务器预期不匹配，每次运行返回不同的错误地址
+
+**复现步骤**:
+1. 尝试下单，价格为整数如 87000
+2. `formatPrice()` 返回 `"87000.0"`
+3. msgpack 编码包含 `"87000.0"`
+4. 签名验证失败，返回 "User or API Wallet does not exist: 0xXXXXXX"
+5. 每次运行返回的地址不同（因为签名数据错误导致恢复出错误的地址）
+
+**根本原因**:
+```zig
+// ❌ 错误代码 (types.zig)
+pub fn formatPrice(allocator: std.mem.Allocator, price: Decimal) ![]const u8 {
+    const float_price = price.toFloat();
+    var buf: [64]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&buf, "{d:.1}", .{float_price}) catch return error.FormatError;
+    return allocator.dupe(u8, formatted);
+}
+// 输出: "87000.0" ❌
+```
+
+Hyperliquid 要求价格和数量格式与 Python SDK 的 `Decimal.normalize()` 一致：
+- Python: `Decimal("87000.0").normalize()` → `"87000"`
+- Python: `Decimal("0.0010").normalize()` → `"0.001"`
+
+**修复方案**:
+更新 `formatPrice()` 和 `formatSize()` 移除尾部零：
+
+```zig
+// ✅ 正确代码 (types.zig)
+pub fn formatPrice(allocator: std.mem.Allocator, price: Decimal) ![]const u8 {
+    const float_price = price.toFloat();
+    var buf: [64]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&buf, "{d:.8}", .{float_price}) catch return error.FormatError;
+
+    // 移除尾部零（模拟 Python Decimal.normalize()）
+    var end: usize = formatted.len;
+    var has_decimal = false;
+    for (formatted) |c| {
+        if (c == '.') { has_decimal = true; break; }
+    }
+    if (has_decimal) {
+        while (end > 0 and formatted[end - 1] == '0') { end -= 1; }
+        if (end > 0 and formatted[end - 1] == '.') { end -= 1; }
+    }
+
+    return allocator.dupe(u8, formatted[0..end]);
+}
+// 输出: "87000" ✅
+```
+
+**修改位置**:
+- `src/exchange/hyperliquid/types.zig`:304-336 - `formatPrice()` 函数
+- `src/exchange/hyperliquid/types.zig`:347-379 - `formatSize()` 函数
+
+**影响范围**:
+- 所有下单操作（`placeOrder`）
+- 所有撤单操作（`cancelOrder`）
+- 任何涉及价格/数量签名的操作
+
+**测试验证**:
+- ✅ 下单成功，签名验证通过
+- ✅ 格式化输出匹配 Python SDK 行为
+  - `87000.0` → `"87000"`
+  - `87736.5` → `"87736.5"`
+  - `0.0010` → `"0.001"`
+  - `1.0` → `"1"`
+
+**关键教训**:
+Hyperliquid 签名对数据格式**字节级敏感**。必须确保：
+1. 价格/数量使用字符串格式（不是数字）
+2. 移除尾部零（模拟 `Decimal.normalize()`）
+3. msgpack 字段顺序固定
+
+---
+
+### Bug #8: cancelAllOrders 使用错误的账户地址
+
+**发现日期**: 2025-12-30
+**修复日期**: 2025-12-30
+**严重性**: High
+
+**问题描述**:
+- `cancelAllOrders()` 方法在查询挂单时使用 `signer.address`（API wallet 地址）
+- 应该使用 `config.api_key`（主账户地址）
+- 导致查询不到挂单，无法正确取消订单
+
+**复现步骤**:
+1. 有挂单存在
+2. 调用 `cancelAllOrders()`
+3. 方法查询 `signer.address` 的挂单 → 返回空
+4. 取消操作失败或返回 0
+
+**根本原因**:
+```zig
+// ❌ 错误代码 (connector.zig:555)
+const user_address = self.signer.?.address;  // API wallet 地址
+
+// ✅ 正确代码
+const user_address = self.config.api_key;    // 主账户地址
+```
+
+Hyperliquid 双地址系统：
+- **主账户地址** (api_key): 持有资产和订单
+- **API wallet 地址** (signer.address): 仅用于签名操作
+
+**修复方案**:
+```zig
+// connector.zig
+pub fn cancelAllOrders(self: *HyperliquidConnector, pair: ?TradingPair) !u32 {
+    // ...
+    // IMPORTANT: Use api_key (main account), not signer address (API wallet)
+    const user_address = self.config.api_key;
+    // ...
+}
+```
+
+**修改位置**:
+- `src/exchange/hyperliquid/connector.zig`:555-556
+
+**影响范围**:
+- `cancelAllOrders()` - 批量撤单操作
+
+**测试验证**:
+- ✅ `cancelAllOrders()` 正确查询主账户挂单
+- ✅ 撤单操作成功
+
+---
+
+## 已知问题（待修复）
+
+### Issue #1: AlertManager HashMap 内存问题
+
+**发现日期**: 2025-12-30
+**状态**: 临时禁用（workaround）
+**严重性**: Medium
+
+**问题描述**:
+- `AlertManager` 的 `isThrottled()` 方法在访问 `last_alert_time` HashMap 时发生 segfault
+- 可能是 HashMap 内存管理问题或初始化问题
+
+**临时解决方案**:
+```zig
+// src/risk/alert.zig
+fn isThrottled(self: *Self, alert_id: []const u8) bool {
+    _ = self;
+    _ = alert_id;
+    // Temporarily disabled to avoid segfault
+    return false;
+}
+```
+
+**影响**:
+- 告警节流功能暂时禁用
+- 不影响交易功能
+
+**计划**:
+- 需要调查 HashMap 内存管理
+- 可能需要重新设计 AlertManager 初始化逻辑
+
+---
+
 ## 报告 Bug
 
 请包含以下信息：

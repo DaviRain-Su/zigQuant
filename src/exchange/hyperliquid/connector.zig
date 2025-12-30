@@ -531,13 +531,8 @@ pub const HyperliquidConnector = struct {
         const asset_index = try self.getAssetIndex(coin.?);
 
         // Call Exchange API to cancel the order
-        const response = try self.exchange_api.cancelOrder(asset_index, order_id);
-
-        // Check response status
-        if (!std.mem.eql(u8, response.status, "ok")) {
-            self.logger.err("Order cancellation failed: {s}", .{response.status}) catch {};
-            return error.CancelOrderFailed;
-        }
+        // The function returns void on success, throws error on failure
+        try self.exchange_api.cancelOrder(asset_index, order_id);
 
         self.logger.info("Order cancelled successfully: ID={d}", .{order_id}) catch {};
     }
@@ -583,13 +578,8 @@ pub const HyperliquidConnector = struct {
             null;
 
         // Call Exchange API to cancel all orders
-        const response = try self.exchange_api.cancelAllOrders(asset_index);
-
-        // Check response status
-        if (!std.mem.eql(u8, response.status, "ok")) {
-            self.logger.err("Cancel all orders failed: {s}", .{response.status}) catch {};
-            return error.CancelAllOrdersFailed;
-        }
+        // The function returns void on success, throws error on failure
+        try self.exchange_api.cancelAllOrders(asset_index);
 
         // Get count of open orders after cancellation
         self.rate_limiter.wait();

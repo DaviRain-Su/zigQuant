@@ -2,7 +2,7 @@
 
 > 深入了解 HTTP 客户端、WebSocket 客户端、EIP-712 签名等内部实现
 
-**最后更新**: 2025-12-25
+**最后更新**: 2025-12-30
 
 ---
 
@@ -713,6 +713,76 @@ test "pack order action" {
 
 - MessagePack 规范：https://msgpack.org/
 - Hyperliquid API 文档：https://hyperliquid.gitbook.io/hyperliquid-docs/
+
+---
+
+## 价格/数量 Wire Format
+
+Hyperliquid 对价格和数量的字符串格式有严格要求，必须与 Python SDK 的 `Decimal.normalize()` 行为一致。
+
+### 格式要求
+
+| 原始值 | 错误格式 | 正确格式 | 说明 |
+|--------|----------|----------|------|
+| 87000.0 | `"87000.0"` | `"87000"` | 移除尾部 `.0` |
+| 87736.5 | - | `"87736.5"` | 保留有效小数 |
+| 0.0010 | `"0.0010"` | `"0.001"` | 移除尾部零 |
+| 1.0 | `"1.0"` | `"1"` | 移除尾部 `.0` |
+
+### 实现
+
+```zig
+/// Format Decimal to price string (Hyperliquid wire format)
+/// - Rounds to appropriate precision
+/// - Removes trailing zeros (like Python SDK's Decimal.normalize())
+/// Example: 87000.0 -> "87000", 87736.5 -> "87736.5"
+pub fn formatPrice(allocator: std.mem.Allocator, price: Decimal) ![]const u8 {
+    // Round to 8 decimal places first (matching Python SDK)
+    const float_price = price.toFloat();
+
+    // Format with enough precision, then normalize
+    var buf: [64]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&buf, "{d:.8}", .{float_price}) catch return error.FormatError;
+
+    // Find the decimal point and remove trailing zeros
+    var end: usize = formatted.len;
+
+    // Check if there's a decimal point
+    var has_decimal = false;
+    for (formatted) |c| {
+        if (c == '.') {
+            has_decimal = true;
+            break;
+        }
+    }
+
+    if (has_decimal) {
+        // Remove trailing zeros
+        while (end > 0 and formatted[end - 1] == '0') {
+            end -= 1;
+        }
+        // Remove trailing decimal point if no decimals left
+        if (end > 0 and formatted[end - 1] == '.') {
+            end -= 1;
+        }
+    }
+
+    return allocator.dupe(u8, formatted[0..end]);
+}
+```
+
+### 为什么这很重要？
+
+1. **签名数据字节级敏感**：Hyperliquid 使用签名数据的 hash 来验证身份
+2. **格式不匹配 → 签名失败**：`"87000.0"` vs `"87000"` 产生不同的 hash
+3. **恢复地址错误**：签名验证失败时，每次返回不同的错误地址
+
+### 调试技巧
+
+如果遇到 "User or API Wallet does not exist" 错误，且每次地址不同：
+1. 检查价格/数量字符串格式
+2. 确保没有尾部零
+3. 对比 Python SDK 的输出
 
 ---
 
