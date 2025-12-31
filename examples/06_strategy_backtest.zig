@@ -53,7 +53,7 @@ pub fn main() !void {
 
     const dummy = struct {};
     const log_writer = zigQuant.logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&dummy)),
+        .ptr = @ptrCast(@constCast(&dummy)),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -103,7 +103,7 @@ pub fn main() !void {
         .initial_capital = Decimal.fromInt(10000),
         .commission_rate = try Decimal.fromString("0.001"),
         .slippage = try Decimal.fromString("0.0005"),
-        .data_file = "data/BTCUSDT_1h_2024.csv",
+        .data_file = "data/BTCUSDT_1h_2017_2025.csv",
     };
 
     try logger.info("✓ Pair: BTC/USDT | Timeframe: 1h | Capital: $10,000", .{});
@@ -115,7 +115,7 @@ pub fn main() !void {
     try logger.info("Running backtest...", .{});
     const start_time = std.time.milliTimestamp();
 
-    var result = try engine.run(strategy, backtest_config);
+    var result = try engine.run(strategy, backtest_config, null);
     defer result.deinit();
 
     const elapsed = std.time.milliTimestamp() - start_time;

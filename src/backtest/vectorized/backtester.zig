@@ -119,6 +119,7 @@ pub const VectorizedBacktester = struct {
         self: *Self,
         dataset: *const DataSet,
         strategy: StrategyConfig,
+        progress_callback: ?*const fn (progress: f64, current: usize, total: usize) void,
     ) !BacktestResult {
         const start_time = std.time.nanoTimestamp();
 
@@ -128,19 +129,36 @@ pub const VectorizedBacktester = struct {
 
         // 根据策略类型生成信号
         switch (strategy) {
-            .dual_ma => |cfg| try self.runDualMA(dataset, cfg, signals),
-            .rsi => |cfg| try self.runRSI(dataset, cfg, signals),
-            .macd => |cfg| try self.runMACD(dataset, cfg, signals),
-            .bollinger => |cfg| try self.runBollinger(dataset, cfg, signals),
+            .dual_ma => |cfg| {
+                try self.runDualMA(dataset, cfg, signals);
+                if (progress_callback) |callback| callback(0.25, dataset.len / 4, dataset.len);
+            },
+            .rsi => |cfg| {
+                try self.runRSI(dataset, cfg, signals);
+                if (progress_callback) |callback| callback(0.25, dataset.len / 4, dataset.len);
+            },
+            .macd => |cfg| {
+                try self.runMACD(dataset, cfg, signals);
+                if (progress_callback) |callback| callback(0.25, dataset.len / 4, dataset.len);
+            },
+            .bollinger => |cfg| {
+                try self.runBollinger(dataset, cfg, signals);
+                if (progress_callback) |callback| callback(0.25, dataset.len / 4, dataset.len);
+            },
             .custom => |cfg| {
                 if (cfg.signal_fn) |func| {
                     func(dataset, signals);
                 }
+                if (progress_callback) |callback| callback(0.25, dataset.len / 4, dataset.len);
             },
         }
 
+        if (progress_callback) |callback| callback(0.5, dataset.len / 2, dataset.len);
+
         // 模拟执行
+        if (progress_callback) |callback| callback(0.75, (3 * dataset.len) / 4, dataset.len);
         const sim_result = try self.simulator.simulate(dataset, signals);
+        if (progress_callback) |callback| callback(1.0, dataset.len, dataset.len);
 
         const end_time = std.time.nanoTimestamp();
         const elapsed_ns = @as(u64, @intCast(end_time - start_time));
@@ -373,7 +391,7 @@ test "VectorizedBacktester dual MA strategy" {
     // 运行双均线策略
     var result = try backtester.run(&dataset, .{
         .dual_ma = .{ .fast_period = 10, .slow_period = 30 },
-    });
+    }, null);
     defer result.deinit();
 
     // 验证结果
@@ -398,7 +416,7 @@ test "VectorizedBacktester RSI strategy" {
     // 运行 RSI 策略
     var result = try backtester.run(&dataset, .{
         .rsi = .{ .period = 14, .oversold = 30.0, .overbought = 70.0 },
-    });
+    }, null);
     defer result.deinit();
 
     try std.testing.expectEqual(@as(usize, 500), result.bars_processed);
@@ -420,7 +438,7 @@ test "VectorizedBacktester performance benchmark" {
     // 运行基准测试
     var result = try backtester.run(&dataset, .{
         .dual_ma = .{ .fast_period = 10, .slow_period = 30 },
-    });
+    }, null);
     defer result.deinit();
 
     // 输出性能信息

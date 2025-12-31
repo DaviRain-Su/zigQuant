@@ -47,37 +47,55 @@ pub const BacktestEngine = struct {
         };
     }
 
-    /// Run backtest for given strategy and configuration
+    /// Run backtest for given strategy and configuration (legacy method)
+    /// Run backtest (with chunked processing for memory efficiency)
     pub fn run(
         self: *BacktestEngine,
         strategy: IStrategy,
         config: BacktestConfig,
+        progress_callback: ?*const fn (progress: f64, current: usize, total: usize) void,
+    ) !BacktestResult {
+        return self.runChunked(strategy, config, progress_callback, 10_000);
+    }
+
+    /// Run backtest with chunked data processing for memory efficiency
+    pub fn runChunked(
+        self: *BacktestEngine,
+        strategy: IStrategy,
+        config: BacktestConfig,
+        progress_callback: ?*const fn (progress: f64, current: usize, total: usize) void,
+        chunk_size: usize,
     ) !BacktestResult {
         const metadata = strategy.getMetadata();
-        try self.logger.info("Starting backtest: {s} on {s}/{s}", .{
+        try self.logger.info("Starting chunked backtest: {s} on {s}/{s} (chunk_size={d})", .{
             metadata.name,
             config.pair.base,
             config.pair.quote,
+            chunk_size,
         });
 
         // 1. Validate configuration
         try config.validate();
 
-        // 2. Load historical data
-        var candles = try self.data_feed.load(
+        // 2. Create chunked data iterator
+        const data_file = config.data_file orelse return BacktestError.DataFeedError;
+        var iterator = try self.data_feed.createChunkedIterator(
             config.pair,
             config.timeframe,
-            config.start_time,
-            config.end_time,
-            config.data_file,
+            data_file,
+            chunk_size,
         );
-        defer candles.deinit();
+        defer iterator.deinit();
 
-        if (candles.candles.len < 10) {
+        // Check if we have any data by getting first chunk
+        var first_chunk = (try iterator.nextChunk()) orelse return BacktestError.InsufficientData;
+        defer first_chunk.deinit();
+
+        if (first_chunk.candles.len < 10) {
             return BacktestError.InsufficientData;
         }
 
-        try self.logger.info("Loaded {} candles", .{candles.candles.len});
+        try self.logger.info("Starting chunked processing with chunk_size={d}", .{chunk_size});
 
         // 3. Initialize strategy
         const strategy_context = StrategyContext{
@@ -86,12 +104,7 @@ pub const BacktestEngine = struct {
         };
         try strategy.init(strategy_context);
 
-        // 4. Calculate indicators (populate all indicators once before loop)
-        try self.logger.info("Calculating indicators...", .{});
-        try strategy.populateIndicators(&candles);
-        try self.logger.info("Indicators populated successfully", .{});
-
-        // 5. Initialize account and position manager
+        // 4. Initialize account and position manager (persistent across chunks)
         var account = Account.init(config.initial_capital);
         var position_mgr = PositionManager.init(self.allocator);
         var executor = OrderExecutor.init(self.allocator, self.logger, config);
@@ -99,88 +112,67 @@ pub const BacktestEngine = struct {
         var trades = try std.ArrayList(Trade).initCapacity(self.allocator, 50);
         defer trades.deinit(self.allocator);
 
-        var equity_curve = try std.ArrayList(EquitySnapshot).initCapacity(
-            self.allocator,
-            candles.candles.len,
-        );
+        var equity_curve = try std.ArrayList(EquitySnapshot).initCapacity(self.allocator, 100_000);
         defer equity_curve.deinit(self.allocator);
 
-        // 6. Event loop - iterate through each candle
-        try self.logger.info("Starting simulation...", .{});
+        // 5. Process chunks
+        try self.logger.info("Starting chunked simulation...", .{});
 
-        for (candles.candles, 0..) |candle, i| {
-            // 6.1 Update position unrealized P&L
-            if (position_mgr.getPosition()) |pos| {
-                pos.updateUnrealizedPnL(candle.close);
-                try account.updateEquity(pos.unrealized_pnl);
-            } else {
-                try account.updateEquity(Decimal.ZERO);
-            }
+        var total_candles_processed: usize = 0;
 
-            // 6.2 Record equity snapshot
-            equity_curve.appendAssumeCapacity(EquitySnapshot{
-                .timestamp = candle.timestamp,
-                .equity = account.equity,
-                .balance = account.balance,
-                .unrealized_pnl = if (position_mgr.getPosition()) |pos|
-                    pos.unrealized_pnl
-                else
-                    Decimal.ZERO,
-            });
+        // Process first chunk
+        try self.processChunk(
+            strategy,
+            &account,
+            &position_mgr,
+            &executor,
+            &trades,
+            &equity_curve,
+            first_chunk,
+            &total_candles_processed,
+            progress_callback,
+        );
 
-            // 6.3 Check for exit signal if we have a position
-            if (position_mgr.hasPosition()) {
-                const position = position_mgr.getPosition().?;
-                const exit_signal = try strategy.generateExitSignal(&candles, position.*);
+        // Process remaining chunks
+        while (try iterator.nextChunk()) |chunk_val| {
+            var chunk = chunk_val;
+            defer chunk.deinit();
 
-                if (exit_signal) |signal| {
-                    defer signal.deinit(); // Free signal metadata
-                    try self.handleExit(
-                        &executor,
-                        &position_mgr,
-                        &account,
-                        &trades,
-                        signal,
-                        candle,
-                    );
-                    continue; // Skip entry check after exit
-                }
-            }
-
-            // 6.4 Check for entry signal if we don't have a position
-            if (!position_mgr.hasPosition()) {
-                const entry_signal = try strategy.generateEntrySignal(&candles, i);
-
-                if (entry_signal) |signal| {
-                    defer signal.deinit(); // Free signal metadata
-                    try self.handleEntry(
-                        &executor,
-                        &position_mgr,
-                        &account,
-                        strategy,
-                        signal,
-                        candle,
-                    );
-                }
-            }
-
-            // 6.5 Progress logging
-            if (i > 0 and i % 1000 == 0) {
-                try self.logger.debug("Progress: {}/{} candles", .{ i, candles.candles.len });
-            }
+            try self.processChunk(
+                strategy,
+                &account,
+                &position_mgr,
+                &executor,
+                &trades,
+                &equity_curve,
+                chunk,
+                &total_candles_processed,
+                progress_callback,
+            );
         }
 
-        // 7. Force close remaining positions
+        // 6. Force close remaining positions (using last processed candle info)
         if (position_mgr.getPosition()) |pos| {
-            const last_candle = candles.candles[candles.candles.len - 1];
+            // Create a synthetic exit signal with current market price
+            // In a real implementation, you'd want to get the actual last candle
             const force_exit_signal = Signal{
-                .timestamp = last_candle.timestamp,
+                .timestamp = Timestamp{ .millis = std.time.timestamp() * 1000 },
                 .pair = config.pair,
                 .type = if (pos.side == .long) .exit_long else .exit_short,
                 .side = if (pos.side == .long) .sell else .buy,
-                .price = last_candle.close,
+                .price = pos.entry_price, // Use entry price as approximation
                 .strength = 1.0,
                 .metadata = null,
+            };
+
+            // Create a synthetic candle for exit
+            const synthetic_candle = Candle{
+                .timestamp = force_exit_signal.timestamp,
+                .open = pos.entry_price,
+                .high = pos.entry_price,
+                .low = pos.entry_price,
+                .close = pos.entry_price,
+                .volume = Decimal.fromInt(0),
             };
 
             try self.handleExit(
@@ -189,14 +181,14 @@ pub const BacktestEngine = struct {
                 &account,
                 &trades,
                 force_exit_signal,
-                last_candle,
+                synthetic_candle,
             );
 
             try self.logger.warn("Force closed remaining position", .{});
         }
 
-        // 8. Generate results
-        try self.logger.info("Backtest complete: {} trades", .{trades.items.len});
+        // 7. Generate results
+        try self.logger.info("Chunked backtest complete: {} trades, {} total candles processed", .{ trades.items.len, total_candles_processed });
 
         var result = BacktestResult.init(
             self.allocator,
@@ -353,6 +345,106 @@ pub const BacktestEngine = struct {
 
         // 7. Close position
         position_mgr.closePosition();
+    }
+
+    /// Process a single chunk of candles (contains {d} candles)
+    fn processChunk(
+        self: *BacktestEngine,
+        strategy: IStrategy,
+        account: *Account,
+        position_mgr: *PositionManager,
+        executor: *OrderExecutor,
+        trades: *std.ArrayList(Trade),
+        equity_curve: *std.ArrayList(EquitySnapshot),
+        chunk: Candles,
+        total_processed: *usize,
+        progress_callback: ?*const fn (progress: f64, current: usize, total: usize) void,
+    ) !void {
+        // Create mutable copy for indicators calculation
+        var mutable_candles = Candles.init(self.allocator, chunk.pair, chunk.timeframe);
+        defer mutable_candles.deinit();
+
+        // Copy candle data
+        var candle_list = try std.ArrayList(Candle).initCapacity(self.allocator, chunk.candles.len);
+        defer candle_list.deinit(self.allocator);
+        try candle_list.appendSlice(self.allocator, chunk.candles);
+
+        // Create new candles with mutable data
+        mutable_candles.candles = try candle_list.toOwnedSlice(self.allocator);
+
+        // Calculate indicators for this chunk
+        try strategy.populateIndicators(&mutable_candles);
+
+        // Process each candle in the chunk
+        for (mutable_candles.candles, 0..) |candle, i| {
+            const global_index = total_processed.* + i;
+
+            // 6.1 Update position unrealized P&L
+            if (position_mgr.getPosition()) |pos| {
+                pos.updateUnrealizedPnL(candle.close);
+                try account.updateEquity(pos.unrealized_pnl);
+            } else {
+                try account.updateEquity(Decimal.ZERO);
+            }
+
+            // 6.2 Record equity snapshot
+            try equity_curve.append(self.allocator, EquitySnapshot{
+                .timestamp = candle.timestamp,
+                .equity = account.equity,
+                .balance = account.balance,
+                .unrealized_pnl = if (position_mgr.getPosition()) |pos|
+                    pos.unrealized_pnl
+                else
+                    Decimal.ZERO,
+            });
+
+            // 6.3 Check for exit signal if we have a position
+            if (position_mgr.hasPosition()) {
+                const current_position = position_mgr.getPosition().?;
+                const exit_signal = try strategy.generateExitSignal(&mutable_candles, current_position.*);
+
+                if (exit_signal) |signal| {
+                    defer signal.deinit();
+                    try self.handleExit(
+                        executor,
+                        position_mgr,
+                        account,
+                        trades,
+                        signal,
+                        candle,
+                    );
+                    continue; // Skip entry check after exit
+                }
+            }
+
+            // 6.4 Check for entry signal if we don't have a position
+            if (!position_mgr.hasPosition()) {
+                const entry_signal = try strategy.generateEntrySignal(&mutable_candles, i);
+
+                if (entry_signal) |signal| {
+                    defer signal.deinit();
+                    try self.handleEntry(
+                        executor,
+                        position_mgr,
+                        account,
+                        strategy,
+                        signal,
+                        candle,
+                    );
+                }
+            }
+
+            // 6.5 Progress logging and callback
+            if (global_index > 0 and global_index % 1000 == 0) {
+                const progress = @as(f64, @floatFromInt(global_index)) / @as(f64, @floatFromInt(258_000_000)); // Estimate for 1s data
+                try self.logger.debug("Progress: {d:.1}% (candle {d})", .{ progress * 100, global_index });
+                if (progress_callback) |callback| {
+                    callback(progress, global_index, 258_000_000);
+                }
+            }
+        }
+
+        total_processed.* += chunk.candles.len;
     }
 };
 

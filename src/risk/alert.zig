@@ -44,16 +44,11 @@ pub const AlertManager = struct {
         self.channels.deinit(self.allocator);
         self.history.deinit(self.allocator);
 
-        // Free throttle keys - only if map has entries
-        if (self.last_alert_time.count() > 0) {
-            var iter = self.last_alert_time.iterator();
-            while (iter.next()) |entry| {
-                // Free the duplicated key string
-                const key = entry.key_ptr.*;
-                if (key.len > 0) {
-                    self.allocator.free(key);
-                }
-            }
+        // Free throttle keys
+        var iter = self.last_alert_time.iterator();
+        while (iter.next()) |entry| {
+            // Free the duplicated key string
+            self.allocator.free(entry.key_ptr.*);
         }
         self.last_alert_time.deinit();
     }
@@ -70,28 +65,24 @@ pub const AlertManager = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // 1. Check alert level
-        if (@intFromEnum(alert.level) < @intFromEnum(self.config.min_level)) {
-            return;
-        }
-
-        // 2. Check throttle
+        // 1. Check if throttled
         if (self.isThrottled(alert.id)) {
             return;
         }
 
+        // 2. Check level filtering
+        if (@intFromEnum(alert.level) < @intFromEnum(self.config.min_level)) {
+            return;
+        }
+
         // 3. Check quiet hours
-        if (self.isQuietHours() and @intFromEnum(alert.level) < @intFromEnum(self.config.quiet_hours_min_level)) {
+        if (self.isQuietHours()) {
             return;
         }
 
         // 4. Send to all channels
         for (self.channels.items) |channel| {
-            if (channel.isAvailable()) {
-                channel.send(alert) catch |err| {
-                    std.log.err("[ALERT] Channel send failed: {}", .{err});
-                };
-            }
+            try channel.send(alert);
         }
 
         // 5. Update statistics
@@ -106,18 +97,16 @@ pub const AlertManager = struct {
 
         // 7. Update throttle time
         const key = try self.allocator.dupe(u8, alert.id);
-        if (try self.last_alert_time.fetchPut(key, std.time.milliTimestamp())) |old| {
-            self.allocator.free(old.key);
-        }
+        try self.last_alert_time.put(key, std.time.milliTimestamp());
     }
 
     /// Check if throttled
-    /// NOTE: Throttle temporarily disabled due to HashMap memory issue
     fn isThrottled(self: *Self, alert_id: []const u8) bool {
-        _ = self;
-        _ = alert_id;
-        // Temporarily disabled to avoid segfault
-        // TODO: Fix HashMap memory management
+        if (self.last_alert_time.get(alert_id)) |last_time| {
+            const now = std.time.milliTimestamp();
+            const time_diff = now - last_time;
+            return time_diff < self.config.throttle_window_ms;
+        }
         return false;
     }
 

@@ -21,6 +21,20 @@ const BacktestConfig = root.BacktestConfig;
 const BacktestResult = root.BacktestResult;
 const IStrategy = root.IStrategy;
 
+/// Progress callback context for backtest engine
+var progress_runner: ?*anyopaque = null;
+
+fn progressCallback(prog: f64, current: usize, total: usize) void {
+    if (progress_runner) |runner_ptr| {
+        const runner = @as(*BacktestRunner, @ptrCast(@alignCast(runner_ptr)));
+        runner.mutex.lock();
+        defer runner.mutex.unlock();
+        runner.progress.progress = prog;
+        runner.progress.current_bar = current;
+        runner.progress.total_bars = total;
+    }
+}
+
 /// Create a null logger that discards all output
 fn createNullLogger(allocator: Allocator) Logger {
     const NullLogWriter = struct {
@@ -407,8 +421,11 @@ pub const BacktestRunner = struct {
             return;
         }
 
-        // Run backtest
-        var result = try engine.run(strategy, config);
+        // Set global progress callback context
+        progress_runner = self;
+
+        // Run backtest with progress callback
+        var result = try engine.run(strategy, config, progressCallback);
 
         // Check for cancellation
         if (self.should_cancel.load(.acquire)) {

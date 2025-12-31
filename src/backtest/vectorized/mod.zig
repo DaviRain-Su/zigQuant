@@ -94,7 +94,7 @@ pub fn runDualMABacktest(
             .fast_period = fast_period,
             .slow_period = slow_period,
         },
-    });
+    }, null);
 }
 
 /// 快速运行 RSI 回测
@@ -113,7 +113,7 @@ pub fn runRSIBacktest(
             .oversold = oversold,
             .overbought = overbought,
         },
-    });
+    }, null);
 }
 
 // ============================================================================

@@ -70,7 +70,7 @@ pub fn main() !void {
 
     const dummy = struct {};
     const log_writer = zigQuant.logger.LogWriter{
-        .ptr = @constCast(@ptrCast(&dummy)),
+        .ptr = @ptrCast(@constCast(&dummy)),
         .writeFn = DummyWriter.write,
         .flushFn = DummyWriter.flush,
         .closeFn = DummyWriter.close,
@@ -155,7 +155,7 @@ pub fn main() !void {
     try logger.info("Running backtest...", .{});
     const start_time = std.time.milliTimestamp();
 
-    var result = try engine.run(strategy, backtest_config);
+    var result = try engine.run(strategy, backtest_config, null);
     defer result.deinit();
 
     const elapsed = std.time.milliTimestamp() - start_time;

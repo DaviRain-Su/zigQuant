@@ -148,7 +148,7 @@ pub fn cmdBacktest(
     else
         Timestamp{ .millis = 0 };
 
-    const end_time = if (res.args.@"end") |s|
+    const end_time = if (res.args.end) |s|
         try parseTimestamp(allocator, s)
     else
         Timestamp{ .millis = std.math.maxInt(i64) };
@@ -202,7 +202,15 @@ pub fn cmdBacktest(
     try logger.info("Running backtest...", .{});
 
     var engine = BacktestEngine.init(allocator, logger.*);
-    var result = try engine.run(strategy, backtest_config);
+
+    const progress_callback = struct {
+        fn update(prog: f64, current: usize, total: usize) void {
+            const percentage = prog * 100;
+            std.debug.print("\rProgress: {d:.1}% ({}/{})", .{ percentage, current, total });
+        }
+    }.update;
+
+    var result = try engine.run(strategy, backtest_config, progress_callback);
     defer result.deinit();
 
     try logger.info("Backtest complete!", .{});

@@ -10,7 +10,6 @@
 /// - Progress tracking
 /// - Result ranking and analysis
 /// - Parallel execution support (v0.4.0)
-
 const std = @import("std");
 const root = @import("../root.zig");
 const types = @import("types.zig");
@@ -287,7 +286,7 @@ pub const GridSearchOptimizer = struct {
 
             // Run backtest
             var engine = BacktestEngine.init(args.allocator, logger);
-            const backtest_result = engine.run(strategy, args.config) catch {
+            const backtest_result = engine.run(strategy, args.config, null) catch {
                 cloned_params.deinit();
                 continue;
             };
@@ -359,7 +358,7 @@ pub const GridSearchOptimizer = struct {
 
             // Run backtest
             var engine = BacktestEngine.init(self.allocator, logger);
-            const backtest_result = try engine.run(strategy, self.config.backtest_config);
+            const backtest_result = try engine.run(strategy, self.config.backtest_config, null);
 
             // Calculate score based on objective
             const score = self.calculateScore(&backtest_result);
@@ -458,7 +457,7 @@ pub const GridSearchOptimizer = struct {
             // Run backtest - extract interface if wrapper, otherwise use directly
             var engine = BacktestEngine.init(self.allocator, logger);
             const strategy_interface = if (uses_wrapper) strategy_or_wrapper.interface else strategy_or_wrapper;
-            const backtest_result = try engine.run(strategy_interface, self.config.backtest_config);
+            const backtest_result = try engine.run(strategy_interface, self.config.backtest_config, null);
 
             // Calculate score based on objective
             const score = self.calculateScore(&backtest_result);

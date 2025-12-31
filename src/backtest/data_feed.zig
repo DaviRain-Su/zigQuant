@@ -13,6 +13,176 @@ const Logger = @import("../core/logger.zig").Logger;
 const ConsoleWriter = @import("../core/logger.zig").ConsoleWriter;
 const BacktestError = @import("types.zig").BacktestError;
 
+/// Chunked data iterator for memory-efficient processing of large datasets
+pub const ChunkedDataIterator = struct {
+    allocator: std.mem.Allocator,
+    logger: Logger,
+    file_path: []const u8,
+    pair: TradingPair,
+    timeframe: Timeframe,
+    chunk_size: usize,
+    file: ?std.fs.File = null,
+    buffer: [1024 * 1024]u8 = undefined, // 1MB buffer
+    current_pos: usize = 0,
+    header_skipped: bool = false,
+    line_num: usize = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        logger: Logger,
+        file_path: []const u8,
+        pair: TradingPair,
+        timeframe: Timeframe,
+        chunk_size: usize,
+    ) !*ChunkedDataIterator {
+        const self = try allocator.create(ChunkedDataIterator);
+        errdefer allocator.destroy(self);
+
+        const file_path_copy = try allocator.dupe(u8, file_path);
+        errdefer allocator.free(file_path_copy);
+
+        self.* = .{
+            .allocator = allocator,
+            .logger = logger,
+            .file_path = file_path_copy,
+            .pair = pair,
+            .timeframe = timeframe,
+            .chunk_size = chunk_size,
+        };
+
+        // Open file
+        self.file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
+            @constCast(&logger).err("Failed to open file: {s}", .{file_path}) catch {};
+            return if (err == error.FileNotFound)
+                BacktestError.FileNotFound
+            else
+                BacktestError.DataFeedError;
+        };
+
+        return self;
+    }
+
+    pub fn deinit(self: *ChunkedDataIterator) void {
+        if (self.file) |file| file.close();
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+
+    /// Get next chunk of candles
+    pub fn nextChunk(self: *ChunkedDataIterator) !?Candles {
+        if (self.file == null) return null;
+
+        // Seek to current position
+        try self.file.?.seekTo(self.current_pos);
+
+        var candle_list = try std.ArrayList(Candle).initCapacity(self.allocator, self.chunk_size);
+        errdefer candle_list.deinit(self.allocator);
+
+        var candles_loaded: usize = 0;
+
+        // Read a chunk of data
+        const bytes_read = try self.file.?.read(&self.buffer);
+        if (bytes_read == 0) {
+            candle_list.deinit(self.allocator);
+            return null;
+        }
+
+        const buffer_slice = self.buffer[0..bytes_read];
+        var pos: usize = 0;
+
+        while (pos < buffer_slice.len and candles_loaded < self.chunk_size) {
+            // Find end of line
+            var line_end = pos;
+            while (line_end < buffer_slice.len and buffer_slice[line_end] != '\n') {
+                line_end += 1;
+            }
+            if (line_end >= buffer_slice.len) break; // Partial line at end
+
+            const line = buffer_slice[pos..line_end];
+            const trimmed = std.mem.trimRight(u8, line, "\r");
+            self.line_num += 1;
+
+            // Skip empty lines
+            if (trimmed.len == 0) {
+                pos = line_end + 1;
+                continue;
+            }
+
+            // Skip header line (only once at start)
+            if (!self.header_skipped and std.mem.startsWith(u8, trimmed, "timestamp")) {
+                self.header_skipped = true;
+                pos = line_end + 1;
+                continue;
+            }
+
+            // Parse CSV line
+            const candle = self.parseCSVLine(trimmed, self.line_num) catch |err| {
+                self.logger.err("Failed to parse line {}: {} - Line content: '{s}' (len={})", .{ self.line_num, err, trimmed, trimmed.len }) catch {};
+                pos = line_end + 1;
+                continue; // Skip bad lines
+            };
+
+            try candle_list.append(self.allocator, candle);
+            candles_loaded += 1;
+            pos = line_end + 1;
+        }
+
+        // Update current position
+        self.current_pos += pos;
+
+        if (candle_list.items.len == 0) {
+            candle_list.deinit(self.allocator);
+            return null; // No more data
+        }
+
+        // Create Candles struct for this chunk
+        const candles = Candles.initWithCandles(
+            self.allocator,
+            self.pair,
+            self.timeframe,
+            try candle_list.toOwnedSlice(self.allocator),
+        );
+        candle_list.deinit(self.allocator);
+
+        return candles;
+    }
+
+    /// Parse single CSV line (same as in HistoricalDataFeed)
+    fn parseCSVLine(_: *ChunkedDataIterator, line: []const u8, _: usize) !Candle {
+        var iter = std.mem.splitScalar(u8, line, ',');
+
+        const timestamp_str = iter.next() orelse return error.MissingTimestamp;
+        const open_str = iter.next() orelse return error.MissingOpen;
+        const high_str = iter.next() orelse return error.MissingHigh;
+        const low_str = iter.next() orelse return error.MissingLow;
+        const close_str = iter.next() orelse return error.MissingClose;
+        const volume_str = iter.next() orelse return error.MissingVolume;
+
+        // Trim whitespace
+        const timestamp_trimmed = std.mem.trim(u8, timestamp_str, " \t\r");
+        const open_trimmed = std.mem.trim(u8, open_str, " \t\r");
+        const high_trimmed = std.mem.trim(u8, high_str, " \t\r");
+        const low_trimmed = std.mem.trim(u8, low_str, " \t\r");
+        const close_trimmed = std.mem.trim(u8, close_str, " \t\r");
+        const volume_trimmed = std.mem.trim(u8, volume_str, " \t\r");
+
+        // Parse timestamp
+        var timestamp_value = try std.fmt.parseInt(i64, timestamp_trimmed, 10);
+        if (timestamp_value > 1_000_000_000_000_000) {
+            timestamp_value = @divTrunc(timestamp_value, 1000);
+        }
+
+        return Candle{
+            .timestamp = Timestamp{ .millis = timestamp_value },
+            .open = try Decimal.fromString(open_trimmed),
+            .high = try Decimal.fromString(high_trimmed),
+            .low = try Decimal.fromString(low_trimmed),
+            .close = try Decimal.fromString(close_trimmed),
+            .volume = try Decimal.fromString(volume_trimmed),
+        };
+    }
+};
+
 // ============================================================================
 // Historical Data Feed
 // ============================================================================
@@ -27,6 +197,24 @@ pub const HistoricalDataFeed = struct {
             .allocator = allocator,
             .logger = logger,
         };
+    }
+
+    /// Create a chunked data iterator for memory-efficient processing
+    pub fn createChunkedIterator(
+        self: *HistoricalDataFeed,
+        pair: TradingPair,
+        timeframe: Timeframe,
+        file_path: []const u8,
+        chunk_size: usize,
+    ) !*ChunkedDataIterator {
+        return ChunkedDataIterator.init(
+            self.allocator,
+            self.logger,
+            file_path,
+            pair,
+            timeframe,
+            chunk_size,
+        );
     }
 
     /// Load historical candles from CSV file

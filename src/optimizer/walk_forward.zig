@@ -13,7 +13,6 @@
 /// 3. Validate on out-of-sample testing data
 /// 4. Roll forward and repeat
 /// 5. Analyze overall robustness
-
 const std = @import("std");
 const root = @import("../root.zig");
 const types = @import("types.zig");
@@ -415,7 +414,7 @@ pub const WalkForwardAnalyzer = struct {
 
         var engine = BacktestEngine.init(self.allocator, logger);
         const strategy_interface = if (uses_wrapper) strategy_or_wrapper.interface else strategy_or_wrapper;
-        const test_result = try engine.run(strategy_interface, test_config);
+        const test_result = try engine.run(strategy_interface, test_config, null);
 
         // Calculate metrics
         const train_metrics = WindowMetrics.fromBacktestResult(opt_result.best_result.backtest_result);

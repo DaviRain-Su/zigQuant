@@ -76,11 +76,11 @@ pub fn main() !void {
         var dataset = try generateTestData(allocator, 10_000, 54321);
         defer dataset.deinit();
 
-        std.debug.print("  Running Dual MA strategy (fast=10, slow=30)...\n", .{});
+        std.debug.print("  Running Dual MA strategy (fast=10, slow_period=30)...\n", .{});
 
         var result = try backtester.run(&dataset, .{
             .dual_ma = .{ .fast_period = 10, .slow_period = 30 },
-        });
+        }, null);
         defer result.deinit();
 
         std.debug.print("  Results:\n", .{});
@@ -113,8 +113,8 @@ pub fn main() !void {
         std.debug.print("  Running RSI strategy (period=14, oversold=30, overbought=70)...\n", .{});
 
         var result = try backtester.run(&dataset, .{
-            .rsi = .{ .period = 14, .oversold = 30.0, .overbought = 70.0 },
-        });
+            .dual_ma = .{ .fast_period = 10, .slow_period = 30 },
+        }, null);
         defer result.deinit();
 
         std.debug.print("  Results:\n", .{});
@@ -143,7 +143,7 @@ pub fn main() !void {
 
         var result = try backtester.run(&dataset, .{
             .macd = .{ .fast_period = 12, .slow_period = 26, .signal_period = 9 },
-        });
+        }, null);
         defer result.deinit();
 
         std.debug.print("  Results:\n", .{});
@@ -171,7 +171,7 @@ pub fn main() !void {
 
         var result = try backtester.run(&dataset, .{
             .bollinger = .{ .period = 20, .num_std = 2.0 },
-        });
+        }, null);
         defer result.deinit();
 
         std.debug.print("  Results:\n", .{});
@@ -199,7 +199,7 @@ pub fn main() !void {
 
         var result = try backtester.run(&dataset, .{
             .dual_ma = .{ .fast_period = 10, .slow_period = 30 },
-        });
+        }, null);
         defer result.deinit();
 
         const meets_target = result.meetsPerformanceTarget();
