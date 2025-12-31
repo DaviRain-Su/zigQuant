@@ -231,6 +231,65 @@ pub const LiveTradingConfig = struct {
 };
 
 // ============================================================================
+// Backtest Configuration
+// ============================================================================
+
+pub const BacktestSectionConfig = struct {
+    /// Strategy to backtest: "dual_ma", "rsi_mean_reversion", "bollinger_breakout", etc.
+    strategy: []const u8 = "dual_ma",
+
+    /// Trading pair (e.g., "BTC-USDT")
+    pair: []const u8 = "BTC-USDT",
+
+    /// Timeframe: "m1", "m5", "m15", "m30", "h1", "h4", "d1"
+    timeframe: []const u8 = "h1",
+
+    /// Historical data CSV file path (optional, auto-detected if not provided)
+    data_file: ?[]const u8 = null,
+
+    /// Initial capital for backtest
+    initial_capital: f64 = 10000.0,
+
+    /// Commission rate (0.001 = 0.1%)
+    commission_rate: f64 = 0.001,
+
+    /// Slippage rate (0.0005 = 0.05%)
+    slippage: f64 = 0.0005,
+
+    /// Enable short selling
+    enable_short: bool = true,
+
+    /// Maximum concurrent positions
+    max_positions: u32 = 1,
+
+    /// Strategy-specific parameters (JSON object)
+    parameters: ?StrategyParameters = null,
+
+    /// Output file for results (optional)
+    output_file: ?[]const u8 = null,
+
+    /// Strategy parameters structure
+    pub const StrategyParameters = struct {
+        // Dual MA parameters
+        fast_period: ?u32 = null,
+        slow_period: ?u32 = null,
+        ma_type: ?[]const u8 = null,
+
+        // RSI parameters
+        rsi_period: ?u32 = null,
+        oversold: ?f64 = null,
+        overbought: ?f64 = null,
+        exit_middle: ?f64 = null,
+
+        // Bollinger parameters
+        bb_period: ?u32 = null,
+        bb_std_dev: ?f64 = null,
+        atr_period: ?u32 = null,
+        atr_multiplier: ?f64 = null,
+    };
+};
+
+// ============================================================================
 // Application Configuration
 // ============================================================================
 
@@ -241,6 +300,7 @@ pub const AppConfig = struct {
     logging: LoggingConfig = .{},
     security: SecurityConfig = .{},
     live: ?LiveTradingConfig = null,
+    backtest: ?BacktestSectionConfig = null,
 
     /// Validate configuration
     pub fn validate(self: AppConfig) ConfigError!void {

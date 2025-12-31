@@ -547,6 +547,7 @@ pub const ConfigGridParams = config.GridStrategyConfig;  // Config file grid par
 pub const AIProviderConfig = config.AIProviderConfig;
 pub const AIStrategyConfig = config.AIStrategyConfig;
 pub const LiveTradingConfig = config.LiveTradingConfig;
+pub const BacktestSectionConfig = config.BacktestSectionConfig;
 pub const ConfigLoader = config.ConfigLoader;
 pub const ConfigError = config.ConfigError;
 
